@@ -1,2 +1,2 @@
 # TinyNMRNN
-Fusion of TinyRNNs and NMRNNs to bridge neuromodulation and behavior
+WORK IN PROGRESS: hacking together neuromodulation in TinyRNNs with @SilverWilliam
