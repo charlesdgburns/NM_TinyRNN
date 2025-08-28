@@ -10,6 +10,8 @@ from typing import List, Optional, Tuple, Dict, Any
 from copy import deepcopy
 
 from pathlib import Path
+
+
 class Trainer:
     def __init__(
         self,
@@ -119,8 +121,9 @@ class Trainer:
             for batch_inputs, batch_targets in dataloader:
                 if training and optimizer is not None:
                     optimizer.zero_grad()
-                
+                #if not training, we need to remove the free choice trials
                 predictions = model(batch_inputs)
+
                 prediction_loss, sparsity_loss = model.compute_losses(
                     predictions.view(-1, model.O),
                     batch_targets.view(-1, model.O)
@@ -164,7 +167,6 @@ class Trainer:
         train_pred_losses = []
         train_sparsity_losses = []
         val_pred_losses = []
-        val_sparsity_losses = []
         
         best_val_loss = float('inf')
         epochs_without_improvement = 0
@@ -316,12 +318,13 @@ class Trainer:
     
 
 
-    def get_model_trial_by_trial_df(self,model, dataset):
+    def get_model_trial_by_trial_df(self, model, dataset):
         '''Runs through the entire dataset (also training data)'''
         model.eval()
         trial_by_trial_data = {}
         n_batches, n_seq, n_inputs = dataset.inputs.shape
-        inputs_reshaped = dataset.inputs.reshape(n_batches*n_seq,n_inputs).unsqueeze(0)
+        n_trials = n_batches*n_seq
+        inputs_reshaped = dataset.inputs.reshape(n_trials,n_inputs).unsqueeze(0)
         with torch.no_grad():
             predictions = model(inputs_reshaped)
             hidden_state, gate_activations = model.rnn(inputs_reshaped, return_gate_activations = True)
@@ -347,9 +350,11 @@ class Trainer:
             trial_indices = np.concatenate([np.arange(idx * n_seq, (idx + 1) * n_seq) 
                                             for idx in idx_values])
             # Create boolean mask using isin
-            all_trial_indices = np.arange(n_batches * n_seq)
+            all_trial_indices = np.arange(n_trials)
             label_indices = np.isin(all_trial_indices, trial_indices)
             indices_dict[idx_label] = label_indices
         trial_by_trial_data.update(indices_dict)
+        #and what session folder to save to
+        trial_by_trial_data['session_folder_name'] = dataset.session_folder_name[:n_trials]
         df = pd.DataFrame(trial_by_trial_data)
         return df
