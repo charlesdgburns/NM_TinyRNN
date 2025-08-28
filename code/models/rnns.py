@@ -165,7 +165,7 @@ class ManualLSTM(nn.Module):
             i_t, f_t, g_t, o_t = (
                 torch.sigmoid(gates[:, :HS]), # input
                 torch.sigmoid(gates[:, HS:HS*2]), # forget
-                torch.tanh(gates[:, HS*2:HS*3]), # this integrates inputs and past hidden (so over short-term memory)
+                torch.tanh(gates[:, HS*2:HS*3]), # partial candidate; this integrates inputs and past hidden (over short-term memory)
                 torch.sigmoid(gates[:, HS*3:]), # output
             )
             c_t = f_t * c_t + i_t * g_t #here we integrate inputs/STM with long-term memoryu
@@ -199,9 +199,9 @@ class ManualNMRNN(nn.Module):
         # Parameters
         self.W_ih = nn.Parameter(torch.Tensor(input_size, hidden_size))      # (I,H)
         self.W_hh = nn.Parameter(torch.Tensor(hidden_size, hidden_size))     # (H,H)
-        self.W_iz = nn.Parameter(torch.Tensor(input_size, nm_size))          # (I,Zm)
-        self.W_zz = nn.Parameter(torch.Tensor(nm_size, nm_size))             # (Zm,Zm)
-        self.W_zk = nn.Parameter(torch.Tensor(nm_size, nm_dim))              # (Zm,K)
+        self.W_iz = nn.Parameter(torch.Tensor(input_size, nm_size))          # (I,Z)
+        self.W_zz = nn.Parameter(torch.Tensor(nm_size, nm_size))             # (Z,Z)
+        self.W_zk = nn.Parameter(torch.Tensor(nm_size, nm_dim))              # (Z,K)
         self.bias_k = nn.Parameter(torch.Tensor(nm_dim))                     # (K,)
 
         self.init_weights()
@@ -211,7 +211,7 @@ class ManualNMRNN(nn.Module):
         for p in self.parameters():
             p.data.uniform_(-stdv, stdv)
 
-    def forward(self, inputs, init_states=None):
+    def forward(self, inputs, init_states=None, return_gate_activations= False):
         """
         inputs:  (B, T, I)
         returns: hidden_sequence (B, T, H), (h_T, z_T)
@@ -230,19 +230,15 @@ class ManualNMRNN(nn.Module):
             h_past, z_past = init_states
 
         hidden_sequence = []
-
-        # --- Precompute anything that doesn't depend on time ---
-        # nothing mandatory, except SVD only needed if low_rank is used.
-        # We'll compute low-rank components on-demand below.
-
+        # TODO: could precompute low-rank decomposition here to speed thing up.
+        # keeping separate for legibility for now
+        if return_gate_activations:
+          gate_activations = {'subnetwork':[],'modulation':[]}
         for t in range(T):
             x_t = inputs[:, t, :]                                   # (B,I)
-
             # Subnetwork dynamics -> modulation signal s_t
-            # z_t: (B,Zm), s_t: (B,K)
-            z_t = self.tanh(z_past @ self.W_zz + x_t @ self.W_iz)   # (B, Zm)
+            z_t = self.tanh(z_past @ self.W_zz + x_t @ self.W_iz)   # (B, Z)
             s_t = self.sigmoid(z_t @ self.W_zk + self.bias_k)       # (B, K)
-
             # Build batched recurrent weight W_rec: (B,H,H)
             if self.nm_mode == 'low_rank':
                 W_rec = self._make_Wrec_low_rank(s_t)               # (B,H,H)
@@ -257,11 +253,17 @@ class ManualNMRNN(nn.Module):
             h_recur = torch.einsum('bi,bij->bj', h_past, W_rec)     # (B,H)
             h_t = self.tanh(h_recur + x_t @ self.W_ih )             # (B,H)
             hidden_sequence.append(h_t.unsqueeze(1))                # (B,1,H)
+            if return_gate_activations:
+              gate_activations['subnetwork'].append(z_t.unsqueeze(1))
+              gate_activations['modulation'].append(s_t.unsqueeze(1))
             # Update states
-            h_past = h_t
-            z_past = z_t
+            h_past = h_t; z_past = z_t
 
         hidden_sequence = torch.cat(hidden_sequence, dim=1)         # (B,T,H)
+        if return_gate_activations:
+          for gate_label, activations in gate_activations.items():
+              gate_activations[gate_label] = torch.cat(activations, dim=1) #(n_batch,n_seq,n_hidden)
+          return hidden_sequence, gate_activations
         return hidden_sequence, (h_past, z_past)
         
     def _make_Wrec_low_rank(self, s_t):
@@ -280,12 +282,10 @@ class ManualNMRNN(nn.Module):
         U_k = U[:, :K]                 # (H,K)
         S_k = S[:K]                    # (K,)
         Vh_k = Vh[:K, :]               # (K,H)
-
         # Prebuild the K rank-1 components C[k] = (S_k[k] * U_k[:,k]) ⊗ Vh_k[k,:]
         # L = (H,K), R = (K,H) -> C = (K,H,H)
         L = U_k * S_k.unsqueeze(0)     # (H,K) broadcast S_k across rows
         C = torch.einsum('ik,kj->kij', L, Vh_k)  # (K,H,H)
-
         # Combine per-batch with weights s_t: (B,K) × (K,H,H) -> (B,H,H)
         W_rec = torch.einsum('bk,kij->bij', s_t, C)
         return W_rec
