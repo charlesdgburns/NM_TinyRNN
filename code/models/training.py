@@ -327,14 +327,17 @@ class Trainer:
         inputs_reshaped = dataset.inputs.reshape(n_trials,n_inputs).unsqueeze(0)
         with torch.no_grad():
             predictions = model(inputs_reshaped)
-            hidden_state, gate_activations = model.rnn(inputs_reshaped, return_gate_activations = True)
+            if not model.rnn_type == 'vanilla':
+                hidden_state, gate_activations = model.rnn(inputs_reshaped, return_gate_activations = True)
+                
         # add hidden activations
         for each_unit in range(model.H):
             trial_by_trial_data[f'hidden_{each_unit+1}'] = hidden_state[:,:,each_unit].flatten()
-        #add gate activations   
-        for gate_label, activations in gate_activations.items():
-            for each_unit in range(activations.shape[-1]):
-                trial_by_trial_data[f'gate_{gate_label}_{each_unit+1}'] = activations[:,:,each_unit].flatten()
+        #add gate activations  
+        if not model.rnn_type == 'vanilla': 
+            for gate_label, activations in gate_activations.items():
+                for each_unit in range(activations.shape[-1]):
+                    trial_by_trial_data[f'gate_{gate_label}_{each_unit+1}'] = activations[:,:,each_unit].flatten()
         # add logit and probabilities data:
         log_probs= predictions.log_softmax(dim=2)
         logits = (log_probs[:,:,0] - log_probs[:,:,1]).flatten()

@@ -18,20 +18,33 @@ import numpy as np
 
 
 class TinyRNN(nn.Module):
-  def __init__(self, input_size:int=3, hidden_size:int=1, out_size:int=2,
-               rnn_type = 'GRU',
-               sparsity_lambda:float = 1e-2):
+  def __init__(self, 
+              rnn_type = 'GRU',
+               input_size:int=3, 
+               hidden_size:int=1, 
+               out_size:int=2,
+               nm_size: int = 1, #specific to NM_RNNs
+               nm_dim: int = 1, #specific to NM_RNNs
+               nm_mode: str = 'low_rank',
+               sparsity_lambda:float = 1e-2,
+              ):
     super().__init__()
     self.I = input_size
     self.H = hidden_size
     self.O = out_size
     self.rnn_type = rnn_type
-    if rnn_type == 'GRU':
+
+    if rnn_type == 'vanilla':
+      self.rnn = torch.nn.RNN(self.I,self.H) #vanilla RNN with tanh nonlinearity 
+    elif rnn_type == 'GRU':
       self.rnn = ManualGRU(self.I,self.H)
     elif rnn_type == 'LSTM':
       self.rnn = ManualLSTM(self.I,self.H)
-    #elif model_type == 'NMRNN':
-    #  self.rnn = ManualNMRNN(self.I,self.H)
+    elif rnn_type == 'NMRNN':
+      self.nm_size = nm_size
+      self.nm_dim = nm_dim
+      self.nm_mode = nm_mode
+      self.rnn = ManualNMRNN(self.I,self.nm_size,self.nm_dim,self.H, self.nm_mode)
     self.decoder = nn.Linear(self.H, self.O)
     self.L1 = sparsity_lambda
 
@@ -52,8 +65,6 @@ class TinyRNN(nn.Module):
 
 
 ## Manual RNN architectures ##
-
-
 
 class ManualGRU(nn.Module):
   '''Manual GRU coded to return gate activations dictionary
@@ -116,7 +127,6 @@ class ManualGRU(nn.Module):
     else:
       return hidden_sequence, h_past #this is standard in Pytorch, to output sequence of hidden states alongside most recent hidden state.
 
-
 class ManualLSTM(nn.Module):
     def __init__(self, input_sz, hidden_sz, device='cpu'):
         super().__init__()
@@ -173,3 +183,141 @@ class ManualLSTM(nn.Module):
         else:
             return hidden_sequence, (h_t, c_t)
 
+
+class ManualNMRNN(nn.Module):
+    def __init__(self, input_size, nm_size, nm_dim, hidden_size, nm_mode='column'):
+        super().__init__()
+        self.sigmoid = nn.Sigmoid()
+        self.tanh = nn.Tanh()
+
+       # assert nm_dim <= nm_size, "there must be at least as many subnetwork units as nm_dim size"
+        self.nm_size = nm_size
+        self.nm_dim = nm_dim
+        self.hidden_size = hidden_size
+        self.nm_mode = nm_mode  # 'low_rank', 'column', 'row'
+
+        # Parameters
+        self.W_ih = nn.Parameter(torch.Tensor(input_size, hidden_size))      # (I,H)
+        self.W_hh = nn.Parameter(torch.Tensor(hidden_size, hidden_size))     # (H,H)
+        self.W_iz = nn.Parameter(torch.Tensor(input_size, nm_size))          # (I,Zm)
+        self.W_zz = nn.Parameter(torch.Tensor(nm_size, nm_size))             # (Zm,Zm)
+        self.W_zk = nn.Parameter(torch.Tensor(nm_size, nm_dim))              # (Zm,K)
+        self.bias_k = nn.Parameter(torch.Tensor(nm_dim))                     # (K,)
+
+        self.init_weights()
+
+    def init_weights(self):
+        stdv = 1.0 / math.sqrt(self.hidden_size if self.hidden_size > 0 else 1.0)
+        for p in self.parameters():
+            p.data.uniform_(-stdv, stdv)
+
+    def forward(self, inputs, init_states=None):
+        """
+        inputs:  (B, T, I)
+        returns: hidden_sequence (B, T, H), (h_T, z_T)
+        """
+        device = inputs.device
+        B, T, _ = inputs.size()
+        H = self.hidden_size
+        Zm = self.nm_size
+        K = self.nm_dim
+
+        # Initial states
+        if init_states is None:
+            h_past = torch.zeros(B, H, device=device)
+            z_past = torch.zeros(B, Zm, device=device)   # <-- important: size nm_size
+        else:
+            h_past, z_past = init_states
+
+        hidden_sequence = []
+
+        # --- Precompute anything that doesn't depend on time ---
+        # nothing mandatory, except SVD only needed if low_rank is used.
+        # We'll compute low-rank components on-demand below.
+
+        for t in range(T):
+            x_t = inputs[:, t, :]                                   # (B,I)
+
+            # Subnetwork dynamics -> modulation signal s_t
+            # z_t: (B,Zm), s_t: (B,K)
+            z_t = self.tanh(z_past @ self.W_zz + x_t @ self.W_iz)   # (B, Zm)
+            s_t = self.sigmoid(z_t @ self.W_zk + self.bias_k)       # (B, K)
+
+            # Build batched recurrent weight W_rec: (B,H,H)
+            if self.nm_mode == 'low_rank':
+                W_rec = self._make_Wrec_low_rank(s_t)               # (B,H,H)
+            elif self.nm_mode == 'column':
+                W_rec = self._make_Wrec_column(s_t)                 # (B,H,H)
+            elif self.nm_mode == 'row':
+                W_rec = self._make_Wrec_row(s_t)                    # (B,H,H)
+            else:
+                raise ValueError(f"Unknown nm_mode: {self.nm_mode}")
+            # Recurrent step: h_t = tanh( h_{t-1} @ W_rec + x_t @ W_ih )
+            # Use einsum for batched (B,H) × (B,H,H) -> (B,H)
+            h_recur = torch.einsum('bi,bij->bj', h_past, W_rec)     # (B,H)
+            h_t = self.tanh(h_recur + x_t @ self.W_ih )             # (B,H)
+            hidden_sequence.append(h_t.unsqueeze(1))                # (B,1,H)
+            # Update states
+            h_past = h_t
+            z_past = z_t
+
+        hidden_sequence = torch.cat(hidden_sequence, dim=1)         # (B,T,H)
+        return hidden_sequence, (h_past, z_past)
+        
+    def _make_Wrec_low_rank(self, s_t):
+        """
+        Low-rank modulation
+        s_t: (B, K)  where K = nm_dim
+        Build W_rec[b] = sum_{k=1..K} s_t[b,k] * sigma_k * u_k v_k^T
+        """
+        H = self.hidden_size
+        K = self.nm_dim
+        assert K <= H, "nm_dim (number of components) cannot exceed hidden_size"
+
+        # SVD once per forward pass (on CPU/GPU depending on parameter device)
+        U, S, Vh = torch.linalg.svd(self.W_hh, full_matrices=False)  # U:(H,H), S:(H,), Vh:(H,H)
+        # take top-K components
+        U_k = U[:, :K]                 # (H,K)
+        S_k = S[:K]                    # (K,)
+        Vh_k = Vh[:K, :]               # (K,H)
+
+        # Prebuild the K rank-1 components C[k] = (S_k[k] * U_k[:,k]) ⊗ Vh_k[k,:]
+        # L = (H,K), R = (K,H) -> C = (K,H,H)
+        L = U_k * S_k.unsqueeze(0)     # (H,K) broadcast S_k across rows
+        C = torch.einsum('ik,kj->kij', L, Vh_k)  # (K,H,H)
+
+        # Combine per-batch with weights s_t: (B,K) × (K,H,H) -> (B,H,H)
+        W_rec = torch.einsum('bk,kij->bij', s_t, C)
+        return W_rec
+
+    def _make_Wrec_column(self, s_t):
+        """
+        Column-wise modulation
+        - If s_t has shape (B,1): global scalar per batch: W_rec[b] = s_t[b]*W_hh
+        - If s_t has shape (B,H): per-column scaling: W_rec[b,:,j] = s_t[b,j] * W_hh[:,j]
+        """
+        B = s_t.shape[0]
+        H = self.hidden_size
+        W = self.W_hh.unsqueeze(0).expand(B, H, H)       # (B,H,H)
+        if s_t.shape[1] == 1:
+            return W * s_t.view(B, 1, 1)                 # scalar per batch
+        elif s_t.shape[1] == H:
+            return W * s_t.view(B, 1, H)                 # broadcast across rows -> scale columns
+        else:
+            raise ValueError(f"column mode expects nm_dim==1 or nm_dim==hidden_size ({H}), got {s_t.shape[1]}")
+
+    def _make_Wrec_row(self, s_t):
+        """
+        Row-wise modulation
+        - If s_t has shape (B,1): global scalar per batch: W_rec[b] = s_t[b]*W_hh
+        - If s_t has shape (B,H): per-row scaling: W_rec[b,i,:] = s_t[b,i] * W_hh[i,:]
+        """
+        B = s_t.shape[0]
+        H = self.hidden_size
+        W = self.W_hh.unsqueeze(0).expand(B, H, H)       # (B,H,H)
+        if s_t.shape[1] == 1:
+            return W * s_t.view(B, 1, 1)                 # scalar per batch
+        elif s_t.shape[1] == H:
+            return W * s_t.view(B, H, 1)                 # broadcast across cols -> scale rows
+        else:
+            raise ValueError(f"row mode expects nm_dim==1 or nm_dim==hidden_size ({H}), got {s_t.shape[1]}")
