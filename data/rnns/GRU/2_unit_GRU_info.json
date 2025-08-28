@@ -1,0 +1,17 @@
+{
+  "save_path": "NM_TinyRNN/data/rnns/GRU",
+  "sparsity_lambda": [
+    0.01,
+    0.001,
+    0.0001,
+    1e-05
+  ],
+  "learning_rate": 0.005,
+  "batch_size": 16,
+  "max_epochs": 10,
+  "early_stop": 5,
+  "seed": 42,
+  "best_sparsity_lambda": 0.01,
+  "best_val_pred_loss": 0.6963422894477844,
+  "eval_pred_loss": 0.6920858025550842
+}
