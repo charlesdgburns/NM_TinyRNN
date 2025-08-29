@@ -1,3 +1,4 @@
+
 ''' Here we build a library of manually coded RNN architectures, primarily so we can return gate activations.
 
 Note that all architectures are coded for batch_first = True inputs of shape (n_batch, n_seq, n_input_dim). 
@@ -46,7 +47,7 @@ class TinyRNN(nn.Module):
       self.nm_mode = nm_mode
       self.rnn = ManualNMRNN(self.I,self.nm_size,self.nm_dim,self.H, self.nm_mode)
     self.decoder = nn.Linear(self.H, self.O)
-    self.L1 = sparsity_lambda
+    self.sparsity_lambda = sparsity_lambda
 
   def forward(self, inputs):
     hidden, _ = self.rnn(inputs)
@@ -59,7 +60,7 @@ class TinyRNN(nn.Module):
     sparsity_loss = 0
     for name, param in self.rnn.named_parameters():
       if 'bias' not in name:
-        sparsity_loss += self.L1*torch.abs(param).sum()
+        sparsity_loss += self.sparsity_lambda*torch.abs(param).sum()
     return prediction_loss, sparsity_loss
 
 
@@ -219,17 +220,20 @@ class ManualNMRNN(nn.Module):
         device = inputs.device
         B, T, _ = inputs.size()
         H = self.hidden_size
-        Zm = self.nm_size
+        Z = self.nm_size
         K = self.nm_dim
 
         # Initial states
         if init_states is None:
             h_past = torch.zeros(B, H, device=device)
-            z_past = torch.zeros(B, Zm, device=device)   # <-- important: size nm_size
+            z_past = torch.zeros(B, Z, device=device)   # <-- important: size nm_size
         else:
             h_past, z_past = init_states
 
         hidden_sequence = []
+        if self.nm_mode == 'low_rank':
+          U, S, Vh = torch.linalg.svd(self.W_hh, full_matrices=False)  # U:(H,H), S:(H,), Vh:(H,H)
+
         # TODO: could precompute low-rank decomposition here to speed thing up.
         # keeping separate for legibility for now
         if return_gate_activations:
@@ -241,7 +245,7 @@ class ManualNMRNN(nn.Module):
             s_t = self.sigmoid(z_t @ self.W_zk + self.bias_k)       # (B, K)
             # Build batched recurrent weight W_rec: (B,H,H)
             if self.nm_mode == 'low_rank':
-                W_rec = self._make_Wrec_low_rank(s_t)               # (B,H,H)
+                W_rec = self._make_Wrec_low_rank(s_t,U, S, Vh)               # (B,H,H)
             elif self.nm_mode == 'column':
                 W_rec = self._make_Wrec_column(s_t)                 # (B,H,H)
             elif self.nm_mode == 'row':
@@ -266,7 +270,7 @@ class ManualNMRNN(nn.Module):
           return hidden_sequence, gate_activations
         return hidden_sequence, (h_past, z_past)
         
-    def _make_Wrec_low_rank(self, s_t):
+    def _make_Wrec_low_rank(self, s_t, U,S,Vh):
         """
         Low-rank modulation
         s_t: (B, K)  where K = nm_dim
@@ -277,7 +281,6 @@ class ManualNMRNN(nn.Module):
         assert K <= H, "nm_dim (number of components) cannot exceed hidden_size"
 
         # SVD once per forward pass (on CPU/GPU depending on parameter device)
-        U, S, Vh = torch.linalg.svd(self.W_hh, full_matrices=False)  # U:(H,H), S:(H,), Vh:(H,H)
         # take top-K components
         U_k = U[:, :K]                 # (H,K)
         S_k = S[:K]                    # (K,)
@@ -298,9 +301,9 @@ class ManualNMRNN(nn.Module):
         """
         B = s_t.shape[0]
         H = self.hidden_size
-        W = self.W_hh.unsqueeze(0).expand(B, H, H)       # (B,H,H)
+        W = self.W_hh.unsqueeze(0).expand(B, H, H)  # (B,H,H)
         if s_t.shape[1] == 1:
-            return W * s_t.view(B, 1, 1)                 # scalar per batch
+            return W * s_t.view(B, 1, 1) # NB: modulate Globally!
         elif s_t.shape[1] == H:
             return W * s_t.view(B, 1, H)                 # broadcast across rows -> scale columns
         else:
@@ -314,10 +317,11 @@ class ManualNMRNN(nn.Module):
         """
         B = s_t.shape[0]
         H = self.hidden_size
-        W = self.W_hh.unsqueeze(0).expand(B, H, H)       # (B,H,H)
+        W = self.W_hh.unsqueeze(0).expand(B, H, H).clone()       # (B,H,H)
         if s_t.shape[1] == 1:
-            return W * s_t.view(B, 1, 1)                 # scalar per batch
+          W[:,0,:]*=s_t #modulate only the first row
+          return W     
         elif s_t.shape[1] == H:
-            return W * s_t.view(B, H, 1)                 # broadcast across cols -> scale rows
+            return W * s_t.view(B, H, 1) # broadcast across cols -> scale rows
         else:
             raise ValueError(f"row mode expects nm_dim==1 or nm_dim==hidden_size ({H}), got {s_t.shape[1]}")

@@ -11,17 +11,25 @@ from copy import deepcopy
 
 from pathlib import Path
 
+#Function to train a model on a subject's data
+
+#Trainer class
+SEED = 42
+# Set seeds for reproducibility
+torch.manual_seed(SEED)
+np.random.seed(SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(SEED)
 
 class Trainer:
     def __init__(
         self,
         save_path: Path,
-        sparsity_lambda: List[float] = [1e-2, 1e-3, 1e-4, 1e-5],
-        learning_rate: float = 0.005,
-        batch_size: int = 16,
-        max_epochs: int = 10,
-        early_stop: int = 5,
-        seed: int = 42
+        sparsity_lambda: List[float] = [1,1e-1, 1e-2, 1e-3, 1e-4, 1e-5],
+        learning_rate: float = 0.05,
+        batch_size: int = 8,
+        max_epochs: int = 10000,
+        early_stop: int = 200,
     ):
         """
         Simple and concise trainer for neural networks with hyperparameter tuning.
@@ -41,16 +49,117 @@ class Trainer:
         self.batch_size = batch_size
         self.max_epochs = max_epochs
         self.early_stop = early_stop
-        self.seed = seed
+        self.seed = SEED
         
         # Create save directory
         os.makedirs(save_path, exist_ok=True)
         
-        # Set seeds for reproducibility
-        torch.manual_seed(seed)
-        np.random.seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed(seed)
+    
+    
+    def fit(self, model, dataset) -> pd.DataFrame:
+        """
+        Fit the model with hyperparameter tuning.
+        
+        Args:
+            model: PyTorch model to train
+            dataset: PyTorch dataset
+            
+        Returns:
+            training_losses_df: DataFrame with training history for each sparsity value
+        """
+        print(f"Starting training with {len(self.sparsity_lambda)} sparsity values...")
+        print(f"Dataset size: {len(dataset)}")
+        self.save_path.mkdir(parents=True,exist_ok=True)
+        # Split dataset
+        train_dataset, val_dataset, test_dataset,_ = self._split_dataset(dataset)
+        print(f"Split sizes - Train: {len(train_dataset)}, Validation: {len(val_dataset)}, Evaluation: {len(test_dataset)}")
+        
+        # Create dataloaders
+        train_loader = self._create_dataloader(train_dataset, shuffle=True)
+        val_loader = self._create_dataloader(val_dataset, shuffle=False)
+        test_loader = self._create_dataloader(test_dataset, shuffle=False)
+        
+        # Store all results
+        all_results = []
+        best_overall_val_loss = float('inf')
+        best_model_info = None
+        
+        ## TRAINING ##
+        for sparsity_lambda in self.sparsity_lambda:
+            print(f"\nTraining with sparsity lambda = {sparsity_lambda}")
+            
+            # Reset model to initial state for each sparsity value
+            model_state = model.state_dict().copy()
+            
+            losses_dict, val_pred_loss = self._train_single_model(
+                model, train_loader, val_loader, sparsity_lambda
+            )
+            
+            all_results.append(losses_dict)
+            
+            # Track best model across all sparsity values
+            if val_pred_loss < best_overall_val_loss:
+                best_overall_val_loss = val_pred_loss
+                best_model_info = {
+                    'sparsity_lambda': sparsity_lambda,
+                    'val_pred_loss': val_pred_loss,
+                    'model_state': losses_dict['best_model_state']
+                }
+            
+            # Reset model for next sparsity value
+            model.load_state_dict(model_state)
+        
+        ## EVAL AND SAVING ##
+        # Generate model ID for saving data:
+        model_id = f'{model.H}_unit_{model.rnn_type}'
+        if model.rnn_type == 'NMRNN':
+            model_id=f'{model.H}_unit_{model.rnn_type}_{model.nm_size}_subunits_{model.nm_dim}_{model.nm_mode}'
+        torch.save(best_model_info['model_state'],self.save_path/f'{model_id}_model_state.pth')
+        
+        # Evaluate on test set using run_epoch // we only really care about prediction cross-entropy
+        print(f"\nEvaluating best model (λ={best_model_info['sparsity_lambda']:.0e}) on test set...")
+        model.load_state_dict(best_model_info['model_state'])
+        eval_pred_loss, _ = self._run_epoch(model, test_loader, None, training=False)
+        best_model_info['eval_pred_loss'] = eval_pred_loss
+        print(f"Evaluation loss: {eval_pred_loss:.6f}")
+        
+        # Save model info
+        model_info = self.__dict__.copy()
+        model_info['save_path'] = str(model_info['save_path']) #fix possible posix path issues
+        model_info['best_sparsity_lambda'] = best_model_info['sparsity_lambda']
+        model_info['best_val_pred_loss'] = best_model_info['val_pred_loss']
+        model_info['eval_pred_loss'] = best_model_info['eval_pred_loss']
+        with open(os.path.join(self.save_path, f'{model_id}_info.json'), 'w') as f:
+            json.dump(model_info, f, indent=2)
+        
+        # Create training losses DataFrame
+        df_data = []
+        for result in all_results:
+            max_epochs = len(result['train_pred_losses'])
+            for epoch in range(max_epochs):
+                df_data.append({
+                    'sparsity_lambda': result['sparsity_lambda'],
+                    'epoch': epoch,
+                    'val_pred_loss': result['val_pred_losses'][epoch],
+                    'train_pred_loss': result['train_pred_losses'][epoch],
+                    'train_sparsity_loss': result['train_sparsity_losses'][epoch],
+                })
+        
+        training_losses_df = pd.DataFrame(df_data)
+        
+        # Save training history
+        losses_path = os.path.join(self.save_path, f'{model_id}_training_losses.htsv')
+        training_losses_df.to_csv(losses_path, sep='\t', index=False)
+        
+        print(f"\nTraining complete!")
+        print(f"Best model (λ={best_model_info['sparsity_lambda']:.0e}) saved to: {self.save_path}")
+        print(f"Best validation loss: {best_model_info['val_pred_loss']:.6f}")
+        print(f"Test loss: {best_model_info['eval_pred_loss']:.6f}")
+        
+        print(f"Lastly, extracting activations on full dataset")
+        trial_by_trial_df = self.get_model_trial_by_trial_df(model,dataset)
+        trial_by_trial_df.to_csv(self.save_path/f'{model_id}_trials_data.htsv', sep = '\t', index=False)
+        return training_losses_df
     
     def _split_dataset(self, dataset) -> Tuple[Subset, Subset, Subset]:
         """Split dataset into train/val/test (80/10/10)."""
@@ -119,15 +228,20 @@ class Trainer:
         context_manager = torch.no_grad() if not training else torch.enable_grad()
         with context_manager:
             for batch_inputs, batch_targets in dataloader:
+                B, S, _ = batch_inputs.shape
                 if training and optimizer is not None:
                     optimizer.zero_grad()
-                #if not training, we need to remove the free choice trials
                 predictions = model(batch_inputs)
-
+                
+                if not training: # remove the free choice trials from the validation loss!
+                    free_choice = (batch_inputs[:,:,0]==0).flatten() #this should be a bool size (n_batch, n_seq)
+                    masked_pred = predictions.reshape(B*S,model.O)[free_choice]
+                    masked_targets = batch_targets.reshape(B*S,model.O)[free_choice]
+                    prediction_loss, sparsity_loss = model.compute_losses(masked_pred,masked_targets)
+                    
                 prediction_loss, sparsity_loss = model.compute_losses(
                     predictions.view(-1, model.O),
-                    batch_targets.view(-1, model.O)
-                )
+                    batch_targets.view(-1, model.O))
                 
                 if training and optimizer is not None:
                     loss = prediction_loss + sparsity_loss
@@ -168,20 +282,17 @@ class Trainer:
         train_sparsity_losses = []
         val_pred_losses = []
         
-        best_val_loss = float('inf')
+        best_val_pred_loss = float('inf')
         epochs_without_improvement = 0
         best_model_state = None
         
         for epoch in tqdm(range(self.max_epochs), desc=f"λ={sparsity_lambda:.0e}"):
             # Training epoch
             train_pred_loss, train_sparsity_loss = self._run_epoch(
-                model_copy, train_loader, optimizer, training=True
-            )
+                model_copy, train_loader, optimizer, training=True)
             
             # Validation epoch // here we only care about cross-entropy of predictions
-            val_pred_loss, _ = self._run_epoch(
-                model_copy, val_loader, None, training=False
-            )
+            val_pred_loss, _ = self._run_epoch(model_copy, val_loader, None, training=False)
             
             # Store losses
             train_pred_losses.append(train_pred_loss)
@@ -189,10 +300,10 @@ class Trainer:
             val_pred_losses.append(val_pred_loss)
                         
             # Early stopping check
-            if val_pred_loss < best_val_loss:
+            if val_pred_loss < best_val_pred_loss:
                 best_val_pred_loss = val_pred_loss
                 epochs_without_improvement = 0
-                best_model_state = model_copy.state_dict().copy()
+                best_model_state = model_copy.to('cpu').state_dict().copy()
             else:
                 epochs_without_improvement += 1
             
@@ -212,109 +323,7 @@ class Trainer:
         }
         
         return losses_dict, best_val_pred_loss
-    
-    def fit(self, model, dataset) -> pd.DataFrame:
-        """
-        Fit the model with hyperparameter tuning.
-        
-        Args:
-            model: PyTorch model to train
-            dataset: PyTorch dataset
-            
-        Returns:
-            training_losses_df: DataFrame with training history for each sparsity value
-        """
-        print(f"Starting training with {len(self.sparsity_lambda)} sparsity values...")
-        print(f"Dataset size: {len(dataset)}")
-        
-        # Split dataset
-        train_dataset, val_dataset, test_dataset,_ = self._split_dataset(dataset)
-        print(f"Split sizes - Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
-        
-        # Create dataloaders
-        train_loader = self._create_dataloader(train_dataset, shuffle=True)
-        val_loader = self._create_dataloader(val_dataset, shuffle=False)
-        test_loader = self._create_dataloader(test_dataset, shuffle=False)
-        
-        # Store all results
-        all_results = []
-        best_overall_val_loss = float('inf')
-        best_model_info = None
-        
-        ## TRAINING ##
-        for sparsity_lambda in self.sparsity_lambda:
-            print(f"\nTraining with sparsity lambda = {sparsity_lambda}")
-            
-            # Reset model to initial state for each sparsity value
-            model_state = model.state_dict().copy()
-            
-            losses_dict, val_pred_loss = self._train_single_model(
-                model, train_loader, val_loader, sparsity_lambda
-            )
-            
-            all_results.append(losses_dict)
-            
-            # Track best model across all sparsity values
-            if val_pred_loss < best_overall_val_loss:
-                best_overall_val_loss = val_pred_loss
-                best_model_info = {
-                    'sparsity_lambda': sparsity_lambda,
-                    'val_pred_loss': val_pred_loss,
-                    'model_state': losses_dict['best_model_state']
-                }
-            
-            # Reset model for next sparsity value
-            model.load_state_dict(model_state)
-        
-        ## EVAL AND SAVING ##
-        # Generate model ID for saving data:
-        model_id = f'{model.H}_unit_{model.rnn_type}'
-        torch.save(best_model_info['model_state'],self.save_path/f'{model_id}_model_state.pth')
-        
-        # Evaluate on test set using run_epoch // we only really care about prediction cross-entropy
-        print(f"\nEvaluating best model (λ={best_model_info['sparsity_lambda']:.0e}) on test set...")
-        model.load_state_dict(best_model_info['model_state'])
-        eval_pred_loss, _ = self._run_epoch(model, test_loader, None, training=False)
-        best_model_info['eval_pred_loss'] = eval_pred_loss
-        print(f"Evaluation loss: {eval_pred_loss:.6f}")
-        
-        # Save model info
-        model_info = self.__dict__.copy()
-        model_info['save_path'] = str(model_info['save_path']) #fix possible posix path issues
-        model_info['best_sparsity_lambda'] = best_model_info['sparsity_lambda']
-        model_info['best_val_pred_loss'] = best_model_info['val_pred_loss']
-        model_info['eval_pred_loss'] = best_model_info['eval_pred_loss']
-        with open(os.path.join(self.save_path, f'{model_id}_info.json'), 'w') as f:
-            json.dump(model_info, f, indent=2)
-        
-        # Create training losses DataFrame
-        df_data = []
-        for result in all_results:
-            max_epochs = len(result['train_pred_losses'])
-            for epoch in range(max_epochs):
-                df_data.append({
-                    'sparsity_lambda': result['sparsity_lambda'],
-                    'epoch': epoch,
-                    'val_pred_loss': result['val_pred_losses'][epoch],
-                    'train_pred_loss': result['train_pred_losses'][epoch],
-                    'train_sparsity_loss': result['train_sparsity_losses'][epoch],
-                })
-        
-        training_losses_df = pd.DataFrame(df_data)
-        
-        # Save training history
-        losses_path = os.path.join(self.save_path, f'{model_id}_training_losses.htsv')
-        training_losses_df.to_csv(losses_path, sep='\t', index=False)
-        
-        print(f"\nTraining complete!")
-        print(f"Best model (λ={best_model_info['sparsity_lambda']:.0e}) saved to: {self.save_path}")
-        print(f"Best validation loss: {best_model_info['val_pred_loss']:.6f}")
-        print(f"Test loss: {best_model_info['eval_pred_loss']:.6f}")
-        
-        print(f"Lastly, extracting activations on full dataset")
-        trial_by_trial_df = self.get_model_trial_by_trial_df(model,dataset)
-        trial_by_trial_df.to_csv(self.save_path/f'{model_id}_trials_data.htsv', sep = '\t', index=False)
-        return training_losses_df
+
     
 
 
@@ -326,18 +335,17 @@ class Trainer:
         n_trials = n_batches*n_seq
         inputs_reshaped = dataset.inputs.reshape(n_trials,n_inputs).unsqueeze(0)
         with torch.no_grad():
-            predictions = model(inputs_reshaped)
-            if not model.rnn_type == 'vanilla':
+            predictions = model(inputs_reshaped)  
+            if not model.rnn_type == 'vanilla': 
                 hidden_state, gate_activations = model.rnn(inputs_reshaped, return_gate_activations = True)
-                
-        # add hidden activations
-        for each_unit in range(model.H):
-            trial_by_trial_data[f'hidden_{each_unit+1}'] = hidden_state[:,:,each_unit].flatten()
-        #add gate activations  
-        if not model.rnn_type == 'vanilla': 
-            for gate_label, activations in gate_activations.items():
-                for each_unit in range(activations.shape[-1]):
-                    trial_by_trial_data[f'gate_{gate_label}_{each_unit+1}'] = activations[:,:,each_unit].flatten()
+                # add hidden activations
+                for each_unit in range(model.H):
+                    trial_by_trial_data[f'hidden_{each_unit+1}'] = hidden_state[:,:,each_unit].flatten()
+                # add gate activations
+                for gate_label, activations in gate_activations.items():
+                    for each_unit in range(activations.shape[-1]):
+                        trial_by_trial_data[f'gate_{gate_label}_{each_unit+1}'] = activations[:,:,each_unit].flatten()
+        
         # add logit and probabilities data:
         log_probs= predictions.log_softmax(dim=2)
         logits = (log_probs[:,:,0] - log_probs[:,:,1]).flatten()
@@ -346,8 +354,11 @@ class Trainer:
         trial_by_trial_data['prob_A'] = torch.exp(log_probs[:,:,0]).flatten()
         trial_by_trial_data['prob_b'] = torch.exp(log_probs[:,:,1]).flatten()
         
-        #add whether trial was used in training, validation, or evaluation
+        #add actual trial data and whether trial was used in training, validation, or evaluation
         _,_,_, indices_dict = self._split_dataset(dataset)
+        trials_inputs = dataset.inputs.reshape(-1, 3).numpy().astype(int)
+        for i, label in enumerate(['forced_choice','outcome','choice']): #this ordering matters.
+            trial_by_trial_data[label] = trials_inputs[:,i]
         for idx_label, idx_values in indices_dict.items():
             # Generate all trial indices for the given batches
             trial_indices = np.concatenate([np.arange(idx * n_seq, (idx + 1) * n_seq) 

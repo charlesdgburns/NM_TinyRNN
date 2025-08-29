@@ -12,7 +12,7 @@ SEQUENCE_LENGTH = 150+1 # Define your desired sequence length
 
 
 class AB_Dataset(Dataset):
-    def __init__(self, subject_data_path, sequence_length):
+    def __init__(self, subject_data_path, sequence_length=SEQUENCE_LENGTH):
         self.subject_data_path = Path(subject_data_path)
         self.sequence_length = sequence_length
         self.subject_df = self._load_and_concat_data()
