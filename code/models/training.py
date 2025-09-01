@@ -26,7 +26,7 @@ class Trainer:
         self,
         save_path: Path,
         sparsity_lambda: List[float] = [1,1e-1, 1e-2, 1e-3, 1e-4, 1e-5],
-        learning_rate: float = 0.05,
+        learning_rate: float = 0.005,
         batch_size: int = 8,
         max_epochs: int = 10000,
         early_stop: int = 200,
@@ -119,7 +119,8 @@ class Trainer:
         # Evaluate on test set using run_epoch // we only really care about prediction cross-entropy
         print(f"\nEvaluating best model (λ={best_model_info['sparsity_lambda']:.0e}) on test set...")
         model.load_state_dict(best_model_info['model_state'])
-        eval_pred_loss, _ = self._run_epoch(model, test_loader, None, training=False)
+        eval_pred_loss, _ = self._run_epoch(model, test_loader, None, 
+                                            training=False)
         best_model_info['eval_pred_loss'] = eval_pred_loss
         print(f"Evaluation loss: {eval_pred_loss:.6f}")
         
@@ -276,7 +277,8 @@ class Trainer:
         model_copy.sparsity_lambda = sparsity_lambda 
         
         optimizer = torch.optim.Adam(model_copy.parameters(), lr=self.learning_rate)
-        
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor = 0.5,
+                                                               patience = max(int(self.early_stop/5),10))
         # Training history
         train_pred_losses = []
         train_sparsity_losses = []
@@ -292,13 +294,17 @@ class Trainer:
                 model_copy, train_loader, optimizer, training=True)
             
             # Validation epoch // here we only care about cross-entropy of predictions
-            val_pred_loss, _ = self._run_epoch(model_copy, val_loader, None, training=False)
+            val_pred_loss, _ = self._run_epoch(model_copy, val_loader, None, 
+                                               training=False)
             
             # Store losses
             train_pred_losses.append(train_pred_loss)
             train_sparsity_losses.append(train_sparsity_loss)
             val_pred_losses.append(val_pred_loss)
-                        
+            
+            # Protect against overfitting / plateus
+            scheduler.step(val_pred_loss)
+
             # Early stopping check
             if val_pred_loss < best_val_pred_loss:
                 best_val_pred_loss = val_pred_loss
@@ -310,7 +316,7 @@ class Trainer:
             if epochs_without_improvement >= self.early_stop:
                 print(f"Early stopping after {epoch + 1} epochs")
                 break
-        
+                
         # Store training history
         losses_dict = {
             'sparsity_lambda': sparsity_lambda,
