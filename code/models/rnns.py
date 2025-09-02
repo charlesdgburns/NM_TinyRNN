@@ -28,12 +28,15 @@ class TinyRNN(nn.Module):
                nm_dim: int = 1, #specific to NM_RNNs
                nm_mode: str = 'low_rank',
                sparsity_lambda:float = 1e-2,
+               input_forced_choice = False
               ):
     super().__init__()
-    self.I = input_size
+    self.input_forced_choice = input_forced_choice
+    self.I = input_size if input_forced_choice else input_size-1
     self.H = hidden_size
     self.O = out_size
     self.rnn_type = rnn_type
+    
 
     if rnn_type == 'vanilla':
       self.rnn = torch.nn.RNN(self.I,self.H) #vanilla RNN with tanh nonlinearity 
@@ -50,6 +53,8 @@ class TinyRNN(nn.Module):
     self.sparsity_lambda = sparsity_lambda
 
   def forward(self, inputs):
+    if not self.input_forced_choice:
+      inputs = inputs[:,:,1:]
     hidden, _ = self.rnn(inputs)
     predictions = self.decoder(hidden)
     return predictions
@@ -203,6 +208,8 @@ class ManualNMRNN(nn.Module):
         self.W_iz = nn.Parameter(torch.Tensor(input_size, nm_size))          # (I,Z)
         self.W_zz = nn.Parameter(torch.Tensor(nm_size, nm_size))             # (Z,Z)
         self.W_zk = nn.Parameter(torch.Tensor(nm_size, nm_dim))              # (Z,K)
+        self.bias_z = nn.Parameter(torch.Tensor(nm_size))                    # (Z,)
+        self.bias_h = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
         self.bias_k = nn.Parameter(torch.Tensor(nm_dim))                     # (K,)
 
         self.init_weights()
@@ -241,7 +248,7 @@ class ManualNMRNN(nn.Module):
         for t in range(T):
             x_t = inputs[:, t, :]                                   # (B,I)
             # Subnetwork dynamics -> modulation signal s_t
-            z_t = self.tanh(z_past @ self.W_zz + x_t @ self.W_iz)   # (B, Z)
+            z_t = self.tanh(z_past @ self.W_zz + x_t @ self.W_iz +self.bias_z)   # (B, Z)
             s_t = self.sigmoid(z_t @ self.W_zk + self.bias_k)       # (B, K)
             # Build batched recurrent weight W_rec: (B,H,H)
             if self.nm_mode == 'low_rank':
@@ -255,7 +262,7 @@ class ManualNMRNN(nn.Module):
             # Recurrent step: h_t = tanh( h_{t-1} @ W_rec + x_t @ W_ih )
             # Use einsum for batched (B,H) × (B,H,H) -> (B,H)
             h_recur = torch.einsum('bi,bij->bj', h_past, W_rec)     # (B,H)
-            h_t = self.tanh(h_recur + x_t @ self.W_ih )             # (B,H)
+            h_t = self.tanh(h_recur + x_t @ self.W_ih +self.bias_h)             # (B,H)
             hidden_sequence.append(h_t.unsqueeze(1))                # (B,1,H)
             if return_gate_activations:
               gate_activations['subnetwork'].append(z_t.unsqueeze(1))

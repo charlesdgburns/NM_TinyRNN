@@ -30,6 +30,7 @@ class Trainer:
         batch_size: int = 8,
         max_epochs: int = 10000,
         early_stop: int = 200,
+        random_seed: int = SEED
     ):
         """
         Simple and concise trainer for neural networks with hyperparameter tuning.
@@ -49,7 +50,7 @@ class Trainer:
         self.batch_size = batch_size
         self.max_epochs = max_epochs
         self.early_stop = early_stop
-        self.seed = SEED
+        self.seed = random_seed
         
         # Create save directory
         os.makedirs(save_path, exist_ok=True)

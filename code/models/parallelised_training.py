@@ -39,15 +39,16 @@ def train_model_AB(data_path,
                    hidden_size:int, 
                    nm_size:str=1, 
                    nm_dim:str=1, 
-                   nm_mode:str=1):
+                   nm_mode:str=1,
+                   random_seed:int=1):
     '''Minimal inputs required to test fit all model types.'''
     dataset = datasets.AB_Dataset(data_path)
     model = rnns.TinyRNN(rnn_type = model_type, # GRU, LSTM, NMRNN, vanilla,
                         input_size=3, # past forced choice, past choice, past outcome, 
                         hidden_size=hidden_size, # hidden unit
                         out_size=2, # one-hot code for choice A, choice B
-                        nm_mode = nm_mode, nm_dim=nm_dim, nm_size=nm_size)
-    trainer = training.Trainer(save_path)
+                        nm_mode = nm_mode, nm_dim=nm_dim, nm_size=nm_size,)
+    trainer = training.Trainer(save_path, random_seed=random_seed)
     trainer.fit(model,dataset)
     return None
 
@@ -91,7 +92,7 @@ conda activate /nfs/nhome/live/cburns/miniconda3/envs/NM_TinyRNN
 
 echo "Running training"
 python -c "from NM_TinyRNN.code.models import parallelised_training as pat; \
-pat.train_model_AB('{train_info.data_path}','{train_info.save_path}','{train_info.model_type}',{int(train_info.hidden_size)},{int(train_info.nm_size)},{int(train_info.nm_dim)},'{train_info.nm_mode}')"
+pat.train_model_AB('{train_info.data_path}','{train_info.save_path}','{train_info.model_type}',{int(train_info.hidden_size)},{int(train_info.nm_size)},{int(train_info.nm_dim)},'{train_info.nm_mode}', {train_info.random_seed})"
 """
     script_path = JOBS_PATH/'slurm'/f'{session_ID}.sh'
     with open(script_path, "w") as f:
@@ -104,7 +105,7 @@ def get_train_info_df(processed_data_path = PROCESSED_DATA_PATH, save_path = SAV
     '''Builds a dataframe with each subject and for each model combination.
     Checks whether a model combination has been run before or not.'''
     #see each subject
-    df_dict = {'subject_ID':[],'model_type':[],'hidden_size':[],
+    df_dict = {'subject_ID':[],'random_seed':[],'model_type':[],'hidden_size':[],
                'nm_size':[],'nm_dim':[],'nm_mode':[],
                'model_id':[],'save_path':[],'data_path':[], 'completed':[]}
    
@@ -113,35 +114,34 @@ def get_train_info_df(processed_data_path = PROCESSED_DATA_PATH, save_path = SAV
         data_path = PROCESSED_DATA_PATH/subject_ID
         if not subdir.is_dir():
             continue
-        for model_type in ['vanilla','GRU','LSTM','NMRNN']:
-            for hidden_size in [1,2]:
-                nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
-                #nmrnns are tricky since we're testing this.
-                if not model_type == 'NMRNN':
-                    model_id =  f'{hidden_size}_unit_{model_type}'
-                    model_save_path = save_path/model_type
-                    completed = (model_save_path/f'{model_id}_trials_data.htsv').exists()
-                    for k,v in zip(df_dict.keys(),
-                                [subject_ID,model_type,hidden_size,
-                                nm_size,nm_dim,nm_mode,
-                                model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
-                                df_dict[k].append(v)
-                elif model_type == 'NMRNN':
-                    for nm_size, nm_dim in [(1,1),(2,1),(1,2),(2,2)]:
-                        for nm_mode in ['low_rank','row','column']:
-                            if hidden_size==nm_dim==1 and nm_mode!='row':
-                                continue
-                            if nm_dim>hidden_size:
-                                continue
-                            model_id = f'{hidden_size}_unit_{model_type}_{nm_size}_subunits_{nm_dim}_{nm_mode}'
-                            model_save_path = save_path/model_type/nm_mode
-                            completed = (model_save_path/f'{model_id}_trials_data.htsv').exists()
-                            for k,v in zip(df_dict.keys(),
-                                        [subject_ID,model_type,hidden_size, 
-                                        nm_size,nm_dim,nm_mode,
-                                        model_id,model_save_path,data_path,completed]):
-                                df_dict[k].append(v)
-    return pd.DataFrame(df_dict)
+        for random_seed in [1,2,3,4,5,6,7,8,9,10]: #later add more seeds
+            for model_type in ['vanilla','GRU','LSTM','NMRNN']:
+                for hidden_size in [1,2]:
+                    nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
+                    #nmrnns are tricky since we're testing this.
+                    if not model_type == 'NMRNN':
+                        model_id =  f'{hidden_size}_unit_{model_type}'
+                        model_save_path = save_path/f'random_seed_{random_seed}'/model_type
+                        completed = (model_save_path/f'{model_id}_trials_data.htsv').exists()
+                        for k,v in zip(df_dict.keys(),
+                                    [subject_ID,random_seed,model_type,hidden_size,
+                                    nm_size,nm_dim,nm_mode,
+                                    model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
+                                    df_dict[k].append(v)
+                    elif model_type == 'NMRNN':
+                        for nm_size, nm_dim in [(1,1),(2,1),(1,2),(2,2)]:
+                            for nm_mode in ['low_rank']: #later have a look at 'row' and 'column'
+                                if nm_dim>hidden_size:
+                                    continue
+                                model_id = f'{hidden_size}_unit_{model_type}_{nm_size}_subunits_{nm_dim}_{nm_mode}'
+                                model_save_path = save_path/subject_ID/f'random_seed_{random_seed}'/model_type/nm_mode
+                                completed = (model_save_path/f'{model_id}_trials_data.htsv').exists()
+                                for k,v in zip(df_dict.keys(),
+                                            [subject_ID,str(random_seed),model_type,hidden_size, 
+                                            nm_size,nm_dim,nm_mode,
+                                            model_id,model_save_path,data_path,completed]):
+                                    df_dict[k].append(v)
+        return pd.DataFrame(df_dict)
 
     
                     
