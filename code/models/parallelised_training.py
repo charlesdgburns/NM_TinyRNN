@@ -121,7 +121,7 @@ def get_train_info_df(processed_data_path = PROCESSED_DATA_PATH, save_path = SAV
                     #nmrnns are tricky since we're testing this.
                     if not model_type == 'NMRNN':
                         model_id =  f'{hidden_size}_unit_{model_type}'
-                        model_save_path = save_path/f'random_seed_{random_seed}'/model_type
+                        model_save_path = save_path/subject_ID/f'random_seed_{random_seed}'/model_type
                         completed = (model_save_path/f'{model_id}_trials_data.htsv').exists()
                         for k,v in zip(df_dict.keys(),
                                     [subject_ID,random_seed,model_type,hidden_size,

@@ -131,6 +131,7 @@ class Trainer:
         model_info['best_sparsity_lambda'] = best_model_info['sparsity_lambda']
         model_info['best_val_pred_loss'] = best_model_info['val_pred_loss']
         model_info['eval_pred_loss'] = best_model_info['eval_pred_loss']
+        model_info['input_forced_choice'] = model.input_forced_choice
         with open(os.path.join(self.save_path, f'{model_id}_info.json'), 'w') as f:
             json.dump(model_info, f, indent=2)
         
@@ -236,15 +237,18 @@ class Trainer:
                 predictions = model(batch_inputs)
                 
                 if not training: # remove the free choice trials from the validation loss!
-                    free_choice = (batch_inputs[:,:,0]==0).flatten() #this should be a bool size (n_batch, n_seq)
+                    free_choice = (batch_inputs[:,:,0]==0)#this should be a bool size (n_batch, n_seq)
+                    #displace by one index, since forced choice input at t means prediction for t-1 is impossible.
+                    free_choice[:,:-1] = free_choice[:,1:] 
+                    free_choice = free_choice.flatten()
                     masked_pred = predictions.reshape(B*S,model.O)[free_choice]
                     masked_targets = batch_targets.reshape(B*S,model.O)[free_choice]
                     prediction_loss, sparsity_loss = model.compute_losses(masked_pred,masked_targets)
+                else:
+                    prediction_loss, sparsity_loss = model.compute_losses(
+                        predictions.view(-1, model.O),
+                        batch_targets.view(-1, model.O))
                     
-                prediction_loss, sparsity_loss = model.compute_losses(
-                    predictions.view(-1, model.O),
-                    batch_targets.view(-1, model.O))
-                
                 if training and optimizer is not None:
                     loss = prediction_loss + sparsity_loss
                     loss.backward()
@@ -341,9 +345,12 @@ class Trainer:
         n_batches, n_seq, n_inputs = dataset.inputs.shape
         n_trials = n_batches*n_seq
         inputs_reshaped = dataset.inputs.reshape(n_trials,n_inputs).unsqueeze(0)
+        
         with torch.no_grad():
             predictions = model(inputs_reshaped)  
             if not model.rnn_type == 'vanilla': 
+                if not model.input_forced_choice:
+                    inputs_reshaped = inputs_reshaped[:,:,1:]
                 hidden_state, gate_activations = model.rnn(inputs_reshaped, return_gate_activations = True)
                 # add hidden activations
                 for each_unit in range(model.H):
@@ -355,17 +362,22 @@ class Trainer:
         
         # add logit and probabilities data:
         log_probs= predictions.log_softmax(dim=2)
-        logits = (log_probs[:,:,0] - log_probs[:,:,1]).flatten()
+        logits = (log_probs[:,:,0] - log_probs[:,:,1]).flatten() #subtraction in log space is division before log.
         trial_by_trial_data['logit_value'] = logits
+        trial_by_trial_data['logit_past'] = torch.cat([torch.tensor([torch.nan]),logits[:-1]])
         trial_by_trial_data['logit_change'] = torch.cat([torch.tensor([torch.nan]),(logits[1:]-logits[:-1])])
         trial_by_trial_data['prob_A'] = torch.exp(log_probs[:,:,0]).flatten()
         trial_by_trial_data['prob_b'] = torch.exp(log_probs[:,:,1]).flatten()
-        
         #add actual trial data and whether trial was used in training, validation, or evaluation
-        _,_,_, indices_dict = self._split_dataset(dataset)
-        trials_inputs = dataset.inputs.reshape(-1, 3).numpy().astype(int)
+        trials_inputs = dataset.inputs.reshape(n_trials, 3).numpy().astype(int)
         for i, label in enumerate(['forced_choice','outcome','choice']): #this ordering matters.
             trial_by_trial_data[label] = trials_inputs[:,i]
+        #add trial type as well for easy plotting later.
+        labels = ['A1, R=0','A1, R=1', 'A2, R=0', 'A2, R=1']
+        trial_type = trial_by_trial_data['choice']*2 + trial_by_trial_data['outcome']
+        trial_by_trial_data['trial_type'] = [labels[i] for i in trial_type]
+        
+        _,_,_, indices_dict = self._split_dataset(dataset)
         for idx_label, idx_values in indices_dict.items():
             # Generate all trial indices for the given batches
             trial_indices = np.concatenate([np.arange(idx * n_seq, (idx + 1) * n_seq) 

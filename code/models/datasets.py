@@ -47,7 +47,7 @@ class AB_Dataset(Dataset):
         sequences = data_tensor.view(num_sequences, self.sequence_length, data_tensor.size(1))
 
         # Create inputs and targets
-        # Inputs are 'forced_choice' and 'outcome' at time t
+        # Inputs are 'forced_choice', 'outcome', and 'choice' at time t
         inputs = sequences[:, :-1, :]
         # Targets are 'choice' at time t+1, one-hot encoded
         targets_codes = sequences[:, 1:, 2].long() # Get the categorical codes as long tensor
