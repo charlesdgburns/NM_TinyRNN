@@ -1,0 +1,20 @@
+{
+  "save_path": "NM_TinyRNN/data/rnns/WS16/random_seed_1/NMRNN/low_rank",
+  "sparsity_lambda": [
+    1,
+    0.1,
+    0.01,
+    0.001,
+    0.0001,
+    1e-05
+  ],
+  "learning_rate": 0.005,
+  "batch_size": 8,
+  "max_epochs": 10000,
+  "early_stop": 200,
+  "seed": 1,
+  "best_sparsity_lambda": 0.0001,
+  "best_val_pred_loss": 0.536251425743103,
+  "eval_pred_loss": 0.5688621401786804,
+  "input_forced_choice": false
+}
