@@ -23,20 +23,24 @@ class AB_Dataset(Dataset):
         session_folder_name = []
         for session_dir in self.subject_data_path.iterdir():
             if session_dir.is_dir():
-                subject_data.append(pd.read_csv(session_dir/'trials.htsv', sep = '\t'))
+                trials_df = pd.read_csv(session_dir/'trials.htsv', sep = '\t')
+                trials_df['session_trial_idx'] = range(len(trials_df))
+                trials_df['session_folder_name'] = np.repeat(session_dir.stem, len(trials_df))
+                subject_data.append(trials_df)
                 session_folder_name.extend(np.repeat(session_dir.stem, len(subject_data[-1]))) 
         self.session_folder_name = session_folder_name
-        return pd.concat(subject_data)
+        df =  pd.concat(subject_data)
+        # Convert boolean and categorical columns to numerical
+        df['forced_choice'] = df['forced_choice'].astype(int)
+        df['outcome'] = df['outcome'].astype(int)
+        df['choice'] = df['choice'].astype('category').cat.codes.astype(int) #this is consistent with below
+        df['good_poke'] = df['good_poke'].astype('category').cat.codes.astype(int) #consistent with above
+        return df
 
     def _create_sequences(self):
-        # Convert boolean and categorical columns to numerical
-        df_processed = self.subject_df.copy()
-        df_processed['forced_choice'] = df_processed['forced_choice'].astype(int)
-        df_processed['outcome'] = df_processed['outcome'].astype(int)
-        df_processed['choice'] = df_processed['choice'].astype('category').cat.codes
-
+      
         # Convert to tensor and handle potential remainder
-        data_tensor = torch.tensor(df_processed[['forced_choice', 'outcome', 'choice']].values, dtype=torch.float32)
+        data_tensor = torch.tensor(self.subject_df[['forced_choice', 'outcome', 'choice']].values, dtype=torch.float32)
         num_rows = data_tensor.size(0)
         remainder = num_rows % self.sequence_length
         if remainder != 0:

@@ -53,6 +53,9 @@ class TinyRNN(nn.Module):
     self.sparsity_lambda = sparsity_lambda
 
   def forward(self, inputs):
+    '''Expects inputs shaped (n_batch, n_seq, n_features)
+    For AB dataset, n_features are ordered as:
+    'forced_choice','outcome','choice' coded as 0 or 1.'''
     if not self.input_forced_choice:
       inputs = inputs[:,:,1:]
     hidden, _ = self.rnn(inputs)

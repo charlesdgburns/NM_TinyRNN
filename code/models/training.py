@@ -235,20 +235,15 @@ class Trainer:
                 if training and optimizer is not None:
                     optimizer.zero_grad()
                 predictions = model(batch_inputs)
-                
-                if not training: # remove the free choice trials from the validation loss!
-                    free_choice = (batch_inputs[:,:,0]==0)#this should be a bool size (n_batch, n_seq)
-                    #displace by one index, since forced choice input at t means prediction for t-1 is impossible.
-                    free_choice[:,:-1] = free_choice[:,1:] 
-                    free_choice = free_choice.flatten()
-                    masked_pred = predictions.reshape(B*S,model.O)[free_choice]
-                    masked_targets = batch_targets.reshape(B*S,model.O)[free_choice]
-                    prediction_loss, sparsity_loss = model.compute_losses(masked_pred,masked_targets)
-                else:
-                    prediction_loss, sparsity_loss = model.compute_losses(
-                        predictions.view(-1, model.O),
-                        batch_targets.view(-1, model.O))
-                    
+                # remove the free choice trials from the loss!
+                free_choice = (batch_inputs[:,:,0]==0)#this should be a bool size (n_batch, n_seq)
+                #displace by one index, since forced choice input at t means prediction for t-1 is impossible.
+                free_choice[:,:-1] = free_choice[:,1:] 
+                free_choice = free_choice.flatten()
+                masked_pred = predictions.reshape(B*S,model.O)[free_choice]
+                masked_targets = batch_targets.reshape(B*S,model.O)[free_choice]
+                prediction_loss, sparsity_loss = model.compute_losses(masked_pred,masked_targets)
+            
                 if training and optimizer is not None:
                     loss = prediction_loss + sparsity_loss
                     loss.backward()
@@ -342,10 +337,8 @@ class Trainer:
         '''Runs through the entire dataset (also training data)'''
         model.eval()
         trial_by_trial_data = {}
-        n_batches, n_seq, n_inputs = dataset.inputs.shape
-        n_trials = n_batches*n_seq
-        inputs_reshaped = dataset.inputs.reshape(n_trials,n_inputs).unsqueeze(0)
-        
+        inputs_reshaped = dataset.subject_df[['forced_choice','outcome','choice']].values[None,:,:]
+        inputs_reshaped = torch.tensor(inputs_reshaped,dtype = torch.float32)
         with torch.no_grad():
             predictions = model(inputs_reshaped)  
             if not model.rnn_type == 'vanilla': 
@@ -369,9 +362,8 @@ class Trainer:
         trial_by_trial_data['prob_A'] = torch.exp(log_probs[:,:,0]).flatten()
         trial_by_trial_data['prob_b'] = torch.exp(log_probs[:,:,1]).flatten()
         #add actual trial data and whether trial was used in training, validation, or evaluation
-        trials_inputs = dataset.inputs.reshape(n_trials, 3).numpy().astype(int)
-        for i, label in enumerate(['forced_choice','outcome','choice']): #this ordering matters.
-            trial_by_trial_data[label] = trials_inputs[:,i]
+        for column in dataset.subject_df.columns: 
+            trial_by_trial_data[column] = dataset.subject_df.loc[:,column].values
         #add trial type as well for easy plotting later.
         labels = ['A1, R=0','A1, R=1', 'A2, R=0', 'A2, R=1']
         trial_type = trial_by_trial_data['choice']*2 + trial_by_trial_data['outcome']
@@ -380,6 +372,8 @@ class Trainer:
         _,_,_, indices_dict = self._split_dataset(dataset)
         for idx_label, idx_values in indices_dict.items():
             # Generate all trial indices for the given batches
+            n_seq = dataset.inputs.shape[1] #(n_batch, n_seq, n_features) 
+            n_trials = len(dataset.subject_df)
             trial_indices = np.concatenate([np.arange(idx * n_seq, (idx + 1) * n_seq) 
                                             for idx in idx_values])
             # Create boolean mask using isin
