@@ -13,8 +13,8 @@
   "max_epochs": 10000,
   "early_stop": 200,
   "seed": 1,
-  "best_sparsity_lambda": 1e-05,
-  "best_val_pred_loss": 0.5456309914588928,
-  "eval_pred_loss": 0.570354700088501,
+  "best_sparsity_lambda": 0.001,
+  "best_val_pred_loss": 0.5220922827720642,
+  "eval_pred_loss": 0.5579990148544312,
   "input_forced_choice": false
 }

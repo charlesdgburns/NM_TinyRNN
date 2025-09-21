@@ -21,6 +21,16 @@ np.random.seed(SEED)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(SEED)
 
+# utility that might be helpful elsewhere:
+# we name our models consistently as follows:
+def get_model_id(model):
+    model_id = f'{model.H}_unit_{model.rnn_type}'
+    if model.rnn_type == 'NMRNN':
+        model_id=f'{model.H}_unit_{model.rnn_type}_{model.nm_size}_subunits_{model.nm_dim}_{model.nm_mode}'
+    return model_id
+
+## main class ##
+
 class Trainer:
     def __init__(
         self,
@@ -112,9 +122,7 @@ class Trainer:
         
         ## EVAL AND SAVING ##
         # Generate model ID for saving data:
-        model_id = f'{model.H}_unit_{model.rnn_type}'
-        if model.rnn_type == 'NMRNN':
-            model_id=f'{model.H}_unit_{model.rnn_type}_{model.nm_size}_subunits_{model.nm_dim}_{model.nm_mode}'
+        model_id = get_model_id(model)
         torch.save(best_model_info['model_state'],self.save_path/f'{model_id}_model_state.pth')
         
         # Evaluate on test set using run_epoch // we only really care about prediction cross-entropy
@@ -127,6 +135,7 @@ class Trainer:
         
         # Save model info
         model_info = self.__dict__.copy()
+        model_info['model_id'] = model_id
         model_info['save_path'] = str(model_info['save_path']) #fix possible posix path issues
         model_info['best_sparsity_lambda'] = best_model_info['sparsity_lambda']
         model_info['best_val_pred_loss'] = best_model_info['val_pred_loss']
@@ -331,7 +340,6 @@ class Trainer:
         return losses_dict, best_val_pred_loss
 
     
-
 
     def get_model_trial_by_trial_df(self, model, dataset):
         '''Runs through the entire dataset (also training data)'''

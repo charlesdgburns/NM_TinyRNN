@@ -14,7 +14,7 @@
   "early_stop": 200,
   "seed": 3,
   "best_sparsity_lambda": 1e-05,
-  "best_val_pred_loss": 0.5842822790145874,
-  "eval_pred_loss": 0.5379639863967896,
+  "best_val_pred_loss": 0.5938361287117004,
+  "eval_pred_loss": 0.530883252620697,
   "input_forced_choice": false
 }

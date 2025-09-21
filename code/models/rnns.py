@@ -13,10 +13,16 @@ import math
 import numpy as np
 
 ## Global variables ##
-
-
-## Top level agent ## 
-
+#here's an example dictionary we can pass TinyRNN with **PARAMS_DICT
+PARAMS_DICT = {'rnn_type':'GRU',
+                       'input_size':3,
+                       'hidden_size':1,
+                       'out_size':2,
+                       'nm_size':1,
+                       'nm_dim':1,
+                       'nm_mode':'low_rank',
+                       'sparsity_lambda':1e-2,
+                       'input_forced_choice':False}
 
 class TinyRNN(nn.Module):
   def __init__(self, 

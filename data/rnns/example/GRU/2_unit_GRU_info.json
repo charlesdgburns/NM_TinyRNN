@@ -1,5 +1,5 @@
 {
-  "save_path": "NM_TinyRNN/data/rnns/WS16/random_seed_3/GRU",
+  "save_path": "NM_TinyRNN/data/rnns/WS16/random_seed_8/GRU",
   "sparsity_lambda": [
     1,
     0.1,
@@ -12,9 +12,9 @@
   "batch_size": 8,
   "max_epochs": 10000,
   "early_stop": 200,
-  "seed": 3,
-  "best_sparsity_lambda": 0.001,
-  "best_val_pred_loss": 0.5750011205673218,
-  "eval_pred_loss": 0.5281394124031067,
+  "seed": 8,
+  "best_sparsity_lambda": 0.0001,
+  "best_val_pred_loss": 0.5828893184661865,
+  "eval_pred_loss": 0.5091389417648315,
   "input_forced_choice": false
 }

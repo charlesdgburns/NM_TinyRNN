@@ -7,7 +7,7 @@ from pathlib import Path
 #global variables #
 
 DATA_PATH = './NM_TinyRNN/data/AB_behaviour/WS16'
-SEQUENCE_LENGTH = 150+1 # Define your desired sequence length
+SEQUENCE_LENGTH = 150 # Define your desired sequence length
 
 
 
@@ -42,13 +42,13 @@ class AB_Dataset(Dataset):
         # Convert to tensor and handle potential remainder
         data_tensor = torch.tensor(self.subject_df[['forced_choice', 'outcome', 'choice']].values, dtype=torch.float32)
         num_rows = data_tensor.size(0)
-        remainder = num_rows % self.sequence_length
+        remainder = num_rows % (self.sequence_length+1) #add one here and below to account for time shifting
         if remainder != 0:
             data_tensor = data_tensor[:-remainder] # Trim off the remainder
 
         # Reshape into sequences
-        num_sequences = data_tensor.size(0) // self.sequence_length
-        sequences = data_tensor.view(num_sequences, self.sequence_length, data_tensor.size(1))
+        num_sequences = data_tensor.size(0) // (self.sequence_length+1)
+        sequences = data_tensor.view(num_sequences, self.sequence_length+1, data_tensor.size(1))
 
         # Create inputs and targets
         # Inputs are 'forced_choice', 'outcome', and 'choice' at time t
