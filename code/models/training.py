@@ -15,6 +15,7 @@ from pathlib import Path
 
 #Trainer class
 SEED = 42
+SPLIT_SEED = 42 #fix the seed for splits and dataloading
 # Set seeds for reproducibility
 torch.manual_seed(SEED)
 np.random.seed(SEED)
@@ -23,11 +24,8 @@ if torch.cuda.is_available():
 
 # utility that might be helpful elsewhere:
 # we name our models consistently as follows:
-def get_model_id(model):
-    model_id = f'{model.H}_unit_{model.rnn_type}'
-    if model.rnn_type == 'NMRNN':
-        model_id=f'{model.H}_unit_{model.rnn_type}_{model.nm_size}_subunits_{model.nm_dim}_{model.nm_mode}'
-    return model_id
+
+
 
 ## main class ##
 
@@ -122,7 +120,7 @@ class Trainer:
         
         ## EVAL AND SAVING ##
         # Generate model ID for saving data:
-        model_id = get_model_id(model)
+        model_id = model.get_model_id()
         torch.save(best_model_info['model_state'],self.save_path/f'{model_id}_model_state.pth')
         
         # Evaluate on test set using run_epoch // we only really care about prediction cross-entropy
@@ -140,7 +138,7 @@ class Trainer:
         model_info['best_sparsity_lambda'] = best_model_info['sparsity_lambda']
         model_info['best_val_pred_loss'] = best_model_info['val_pred_loss']
         model_info['eval_pred_loss'] = best_model_info['eval_pred_loss']
-        model_info['input_forced_choice'] = model.input_forced_choice
+        model_info['options_dict'] = model.get_options_dict()
         with open(os.path.join(self.save_path, f'{model_id}_info.json'), 'w') as f:
             json.dump(model_info, f, indent=2)
         
@@ -179,7 +177,7 @@ class Trainer:
         indices = list(range(dataset_size))
         indices_dict = {}
         # Use numpy for deterministic shuffling
-        np.random.seed(self.seed)
+        np.random.seed(SPLIT_SEED)
         np.random.shuffle(indices)
         
         # 80/10/10 split
@@ -199,7 +197,7 @@ class Trainer:
     def _create_dataloader(self, dataset, shuffle: bool = True) -> DataLoader:
         """Create dataloader with deterministic shuffling."""
         generator = torch.Generator()
-        generator.manual_seed(self.seed)
+        generator.manual_seed(SPLIT_SEED)
         
         return DataLoader(
             dataset,
@@ -357,7 +355,7 @@ class Trainer:
                 for each_unit in range(model.H):
                     trial_by_trial_data[f'hidden_{each_unit+1}'] = hidden_state[:,:,each_unit].flatten()
                 # add gate activations
-                for gate_label, activations in gate_activations.items():
+                for gate_label, activations in gate_activations.items():    
                     for each_unit in range(activations.shape[-1]):
                         trial_by_trial_data[f'gate_{gate_label}_{each_unit+1}'] = activations[:,:,each_unit].flatten()
         

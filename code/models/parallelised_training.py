@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 import pandas as pd
 import numpy as np
-
+import torch
 
 from NM_TinyRNN.code.models import training
 from NM_TinyRNN.code.models import datasets
@@ -42,12 +42,18 @@ def train_model_AB(data_path,
                    nm_mode:str=1,
                    random_seed:int=1):
     '''Minimal inputs required to test fit all model types.'''
+    ## fix the seed for initialisation
+    torch.manual_seed(random_seed)
+    np.random.seed(random_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(random_seed)
+
     dataset = datasets.AB_Dataset(data_path)
     model = rnns.TinyRNN(rnn_type = model_type, # GRU, LSTM, NMRNN, vanilla,
                         input_size=3, # past forced choice, past choice, past outcome, 
                         hidden_size=hidden_size, # hidden unit
                         out_size=2, # one-hot code for choice A, choice B
-                        nm_mode = nm_mode, nm_dim=nm_dim, nm_size=nm_size,)
+                        nm_mode = nm_mode, nm_dim=nm_dim, nm_size=nm_size)
     trainer = training.Trainer(save_path, random_seed=random_seed)
     trainer.fit(model,dataset)
     return None

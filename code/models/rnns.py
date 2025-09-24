@@ -13,8 +13,8 @@ import math
 import numpy as np
 
 ## Global variables ##
-#here's an example dictionary we can pass TinyRNN with **PARAMS_DICT
-PARAMS_DICT = {'rnn_type':'GRU',
+#here's an example dictionary we can pass TinyRNN with **OPTIONS_DICT
+OPTIONS_DICT = {'rnn_type':'GRU',
                        'input_size':3,
                        'hidden_size':1,
                        'out_size':2,
@@ -22,11 +22,12 @@ PARAMS_DICT = {'rnn_type':'GRU',
                        'nm_dim':1,
                        'nm_mode':'low_rank',
                        'sparsity_lambda':1e-2,
-                       'input_forced_choice':False}
+                       'input_forced_choice':False,
+                       'seed':42}
 
 class TinyRNN(nn.Module):
   def __init__(self, 
-              rnn_type = 'GRU',
+               rnn_type = 'GRU',
                input_size:int=3, 
                hidden_size:int=1, 
                out_size:int=2,
@@ -34,16 +35,24 @@ class TinyRNN(nn.Module):
                nm_dim: int = 1, #specific to NM_RNNs
                nm_mode: str = 'low_rank',
                sparsity_lambda:float = 1e-2,
-               input_forced_choice = False
+               input_forced_choice = False,
+               seed = 42
               ):
     super().__init__()
+    
+    # add attributes
     self.input_forced_choice = input_forced_choice
     self.I = input_size if input_forced_choice else input_size-1
     self.H = hidden_size
     self.O = out_size
     self.rnn_type = rnn_type
+    self.seed = seed
     
-
+    # seed the weight initialisation:
+    torch.manual_seed(self.seed)
+    np.random.seed(self.seed)
+    if torch.cuda.is_available():
+      torch.cuda.manual_seed(self.seed)
     if rnn_type == 'vanilla':
       self.rnn = torch.nn.RNN(self.I,self.H) #vanilla RNN with tanh nonlinearity 
     elif rnn_type == 'GRU':
@@ -76,7 +85,28 @@ class TinyRNN(nn.Module):
       if 'bias' not in name:
         sparsity_loss += self.sparsity_lambda*torch.abs(param).sum()
     return prediction_loss, sparsity_loss
-
+  
+  def get_options_dict(self):
+    '''Helper function to later save and reinstate model'''
+    options_dict = {'rnn_type':self.rnn_type,
+                    'input_size':self.I,
+                    'hidden_size':self.H,
+                    'out_size':self.O,
+                    'sparsity_lambda':self.sparsity_lambda,
+                    'input_forced_choice':self.input_forced_choice,
+                    'seed':self.seed}
+    if self.rnn_type == 'NMRNN':
+      options_dict['nm_size']=self.nm_size
+      options_dict['nm_dim']=self.nm_dim
+      options_dict['nm_mode']=self.nm_mode
+    return options_dict
+  
+  def get_model_id(self):
+    '''Helper function to save and reinstate model'''
+    model_id = f'{self.H}_unit_{self.rnn_type}'
+    if self.rnn_type == 'NMRNN':
+        model_id=f'{self.H}_unit_{self.rnn_type}_{self.nm_size}_subunits_{self.nm_dim}_{self.nm_mode}'
+    return model_id
 
 
 ## Manual RNN architectures ##
@@ -103,9 +133,13 @@ class ManualGRU(nn.Module):
         weight.data.uniform_(-stdv, stdv)
 
   def forward(self, inputs, init_states = None, 
-              return_gate_activations=False):
+              return_gate_activations=False,
+              fixed_gates = {}):
     ''' inputs are a tensor of shape (batch_size, sequence_size, input_size)
-        outputs are tensor of shape (batch_size, sequence_size, hidden_size)'''
+        outputs are tensor of shape (batch_size, sequence_size, hidden_size)
+        -----
+        option to add fixed_gates dictionary with 'r_t' or 'z_t' keys, 
+        which must be tensors of shape (n_batch,n_hidden).'''
 
     batch_size, sequence_size, _ = inputs.shape
     hidden_sequence = []
@@ -125,9 +159,15 @@ class ManualGRU(nn.Module):
       from_hidden = from_hidden.view(batch_size, 3, self.hidden_size) #(n_batch,3, n_hidden)
       r_t = self.sigmoid(from_input[:,0]+from_hidden[:,0]) #(n_batch,n_hidden), ranging from 0 to 1
       z_t = self.sigmoid(from_input[:,1]+from_hidden[:,1]) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
+      ## options to override gates and/or save them:
+      if 'z_t' in fixed_gates.keys():
+        z_t= fixed_gates['z_t']
+      if 'r_t' in fixed_gates.keys():
+        r_t = fixed_gates['r_t']
       if return_gate_activations:
         gate_activations['reset'].append(r_t.unsqueeze(0)) 
         gate_activations['update'].append(z_t.unsqueeze(0))
+      ## continued computation of hidden state:
       n_t = self.tanh(from_input[:,2]+r_t*(from_hidden[:,2])).view(batch_size, self.hidden_size) #(n_batch,n_hidden)
       h_past = (1-z_t)*n_t + z_t*h_past #(n_batch,hidden_size) #NOTE h_past is tehnically h_t now, but in the next for-loop it will be h_past. ;)
       hidden_sequence.append(h_past.unsqueeze(0)) #appending (1,n_batch,n_hidden) to a big list.
@@ -153,15 +193,19 @@ class ManualLSTM(nn.Module):
         self.bias = nn.Parameter(torch.Tensor(hidden_sz * 4))
         self.init_weights()
 
-
     def init_weights(self):
         stdv = 1.0 / math.sqrt(self.hidden_size)
         for weight in self.parameters():
             weight.data.uniform_(-stdv, stdv).to(self.device)
 
     def forward(self, x, init_states=None,
-                return_gate_activations = False):
-        """Assumes x is of shape (batch, sequence, feature)"""
+                return_gate_activations = False,
+                fixed_gates = {}):
+        """Assumes x is of shape (batch, sequence, feature),
+        init_features is a tuple of (h_t,c_t) initial states
+        ----
+        option to include fixed_gates dict with 'f_t','i_t', 'g_t' or 'o_t' keys
+        """
         bs, seq_sz, _ = x.size() #let's get our shapes right
         HS = self.hidden_size
         if init_states is None:
@@ -170,7 +214,7 @@ class ManualLSTM(nn.Module):
         else:
             h_t, c_t = init_states
 
-        hidden_sequence = []#initialise lists for unit activations
+        hidden_sequence = [] #initialise lists for unit activations
         if return_gate_activations:
             gate_activations = {'input':[],'forget':[],'output':[], 'candidate':[]}
         for t in range(seq_sz):
@@ -183,6 +227,16 @@ class ManualLSTM(nn.Module):
                 torch.tanh(gates[:, HS*2:HS*3]), # partial candidate; this integrates inputs and past hidden (over short-term memory)
                 torch.sigmoid(gates[:, HS*3:]), # output
             )
+            ## option to fix certain gates:
+            if 'i_t' in fixed_gates.keys():
+              i_t = fixed_gates['i_t']
+            if 'f_t' in fixed_gates.keys():
+              f_t = fixed_gates['f_t']
+            if 'g_t' in fixed_gates.keys():
+              g_t = fixed_gates['g_t']
+            if 'o_t' in fixed_gates.keys():
+              o_t = fixed_gates['o_t']
+            ## continued computation of candidate and hidden state:
             c_t = f_t * c_t + i_t * g_t #here we integrate inputs/STM with long-term memoryu
             h_t = o_t * torch.tanh(c_t)
             hidden_sequence.append(h_t.unsqueeze(0))
@@ -228,10 +282,15 @@ class ManualNMRNN(nn.Module):
         for p in self.parameters():
             p.data.uniform_(-stdv, stdv)
 
-    def forward(self, inputs, init_states=None, return_gate_activations= False):
+    def forward(self, inputs, init_states=None, 
+                return_gate_activations= False,
+                fixed_gates = {}):
         """
         inputs:  (B, T, I)
         returns: hidden_sequence (B, T, H), (h_T, z_T)
+        ------
+        option: fixed_gates dict with 'z_t' or 's_t' keys
+        'z_t' must be of shape (B, nm_size), 's_t' shaped as (B,nm_dim)
         """
         device = inputs.device
         B, T, _ = inputs.size()
@@ -259,6 +318,11 @@ class ManualNMRNN(nn.Module):
             # Subnetwork dynamics -> modulation signal s_t
             z_t = self.tanh(z_past @ self.W_zz + x_t @ self.W_iz +self.bias_z)   # (B, Z)
             s_t = self.sigmoid(z_t @ self.W_zk + self.bias_k)       # (B, K)
+            # option to fix subnetwork states # 
+            if 'z_t' in fixed_gates.keys():
+              z_t = fixed_gates['z_t']
+            if 's_t' in fixed_gates.keys():
+              s_t = fixed_gates['s_t']
             # Build batched recurrent weight W_rec: (B,H,H)
             if self.nm_mode == 'low_rank':
                 W_rec = self._make_Wrec_low_rank(s_t,U, S, Vh)               # (B,H,H)
@@ -271,7 +335,7 @@ class ManualNMRNN(nn.Module):
             # Recurrent step: h_t = tanh( h_{t-1} @ W_rec + x_t @ W_ih )
             # Use einsum for batched (B,H) × (B,H,H) -> (B,H)
             h_recur = torch.einsum('bi,bij->bj', h_past, W_rec)     # (B,H)
-            h_t = self.tanh(h_recur + x_t @ self.W_ih +self.bias_h)             # (B,H)
+            h_t = self.tanh(h_recur + x_t @ self.W_ih +self.bias_h) # (B,H)
             hidden_sequence.append(h_t.unsqueeze(1))                # (B,1,H)
             if return_gate_activations:
               gate_activations['subnetwork'].append(z_t.unsqueeze(1))
@@ -321,7 +385,7 @@ class ManualNMRNN(nn.Module):
         if s_t.shape[1] == 1:
             return W * s_t.view(B, 1, 1) # NB: modulate Globally!
         elif s_t.shape[1] == H:
-            return W * s_t.view(B, 1, H)                 # broadcast across rows -> scale columns
+            return W * s_t.view(B, 1, H) # broadcast across rows -> scale columns
         else:
             raise ValueError(f"column mode expects nm_dim==1 or nm_dim==hidden_size ({H}), got {s_t.shape[1]}")
 
