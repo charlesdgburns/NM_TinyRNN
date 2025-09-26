@@ -1,5 +1,5 @@
 {
-  "save_path": "NM_TinyRNN/data/rnns/WS16/random_seed_8/LSTM",
+  "save_path": "NM_TinyRNN/data/rnns/WS16/random_seed_6/LSTM",
   "sparsity_lambda": [
     1,
     0.1,
@@ -11,10 +11,19 @@
   "learning_rate": 0.005,
   "batch_size": 8,
   "max_epochs": 10000,
-  "early_stop": 200,
-  "seed": 8,
-  "best_sparsity_lambda": 0.0001,
-  "best_val_pred_loss": 0.5778200030326843,
-  "eval_pred_loss": 0.509041428565979,
-  "input_forced_choice": false
+  "early_stop": 500,
+  "seed": 42,
+  "model_id": "2_unit_LSTM",
+  "best_sparsity_lambda": 0.001,
+  "best_val_pred_loss": 0.5001217722892761,
+  "eval_pred_loss": 0.4874041974544525,
+  "options_dict": {
+    "rnn_type": "LSTM",
+    "input_size": 2,
+    "hidden_size": 2,
+    "out_size": 2,
+    "sparsity_lambda": 1e-05,
+    "input_forced_choice": false,
+    "seed": 6
+  }
 }

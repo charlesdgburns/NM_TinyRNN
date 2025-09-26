@@ -1,5 +1,5 @@
 {
-  "save_path": "NM_TinyRNN/data/rnns/WS16/random_seed_3/NMRNN/low_rank",
+  "save_path": "NM_TinyRNN/data/rnns/WS16/random_seed_6/NMRNN/low_rank",
   "sparsity_lambda": [
     1,
     0.1,
@@ -11,10 +11,22 @@
   "learning_rate": 0.005,
   "batch_size": 8,
   "max_epochs": 10000,
-  "early_stop": 200,
-  "seed": 3,
-  "best_sparsity_lambda": 0.001,
-  "best_val_pred_loss": 0.5834684371948242,
-  "eval_pred_loss": 0.5247228741645813,
-  "input_forced_choice": false
+  "early_stop": 500,
+  "seed": 42,
+  "model_id": "2_unit_NMRNN_1_subunits_1_low_rank",
+  "best_sparsity_lambda": 0.01,
+  "best_val_pred_loss": 0.507498562335968,
+  "eval_pred_loss": 0.4913630783557892,
+  "options_dict": {
+    "rnn_type": "NMRNN",
+    "input_size": 2,
+    "hidden_size": 2,
+    "out_size": 2,
+    "sparsity_lambda": 1e-05,
+    "input_forced_choice": false,
+    "seed": 6,
+    "nm_size": 1,
+    "nm_dim": 1,
+    "nm_mode": "low_rank"
+  }
 }

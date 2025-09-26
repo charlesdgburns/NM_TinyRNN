@@ -1,5 +1,5 @@
 {
-  "save_path": "NM_TinyRNN/data/rnns/WS16/random_seed_1/vanilla",
+  "save_path": "NM_TinyRNN/data/rnns/WS16/random_seed_3/vanilla",
   "sparsity_lambda": [
     1,
     0.1,
@@ -11,10 +11,19 @@
   "learning_rate": 0.005,
   "batch_size": 8,
   "max_epochs": 10000,
-  "early_stop": 200,
-  "seed": 1,
-  "best_sparsity_lambda": 0.001,
-  "best_val_pred_loss": 0.49489879608154297,
-  "eval_pred_loss": 0.5342804789543152,
-  "input_forced_choice": false
+  "early_stop": 500,
+  "seed": 42,
+  "model_id": "2_unit_vanilla",
+  "best_sparsity_lambda": 0.0001,
+  "best_val_pred_loss": 0.5410473346710205,
+  "eval_pred_loss": 0.5164788365364075,
+  "options_dict": {
+    "rnn_type": "vanilla",
+    "input_size": 2,
+    "hidden_size": 2,
+    "out_size": 2,
+    "sparsity_lambda": 1e-05,
+    "input_forced_choice": false,
+    "seed": 3
+  }
 }

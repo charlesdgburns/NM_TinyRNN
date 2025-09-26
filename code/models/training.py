@@ -37,7 +37,7 @@ class Trainer:
         learning_rate: float = 0.005,
         batch_size: int = 8,
         max_epochs: int = 10000,
-        early_stop: int = 200,
+        early_stop: int = 500,
         random_seed: int = SEED
     ):
         """
@@ -98,11 +98,11 @@ class Trainer:
             print(f"\nTraining with sparsity lambda = {sparsity_lambda}")
             
             # Reset model to initial state for each sparsity value
+            model.sparsity_lambda = sparsity_lambda 
             model_state = model.state_dict().copy()
-            
+
             losses_dict, val_pred_loss = self._train_single_model(
-                model, train_loader, val_loader, sparsity_lambda
-            )
+                model, train_loader, val_loader)
             
             all_results.append(losses_dict)
             
@@ -268,8 +268,7 @@ class Trainer:
         self,
         model,
         train_loader: DataLoader,
-        val_loader: DataLoader,
-        sparsity_lambda: float
+        val_loader: DataLoader
     ) -> Tuple[Dict[str, Any], float]:
         """
         Train a single model with given sparsity lambda.
@@ -281,7 +280,6 @@ class Trainer:
         # Clone model to avoid modifying original
         model_copy = deepcopy(model)
         model_copy.load_state_dict(model.state_dict())
-        model_copy.sparsity_lambda = sparsity_lambda 
         
         optimizer = torch.optim.Adam(model_copy.parameters(), lr=self.learning_rate)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor = 0.5,
@@ -295,7 +293,7 @@ class Trainer:
         epochs_without_improvement = 0
         best_model_state = None
         
-        for epoch in tqdm(range(self.max_epochs), desc=f"λ={sparsity_lambda:.0e}"):
+        for epoch in tqdm(range(self.max_epochs), desc=f"λ={model.sparsity_lambda:.0e}"):
             # Training epoch
             train_pred_loss, train_sparsity_loss = self._run_epoch(
                 model_copy, train_loader, optimizer, training=True)
@@ -326,7 +324,7 @@ class Trainer:
                 
         # Store training history
         losses_dict = {
-            'sparsity_lambda': sparsity_lambda,
+            'sparsity_lambda': model.sparsity_lambda,
             'train_pred_losses': train_pred_losses,
             'train_sparsity_losses': train_sparsity_losses,
             'val_pred_losses': val_pred_losses,

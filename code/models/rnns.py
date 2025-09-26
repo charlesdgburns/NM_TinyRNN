@@ -42,6 +42,7 @@ class TinyRNN(nn.Module):
     
     # add attributes
     self.input_forced_choice = input_forced_choice
+    self.input_size = input_size
     self.I = input_size if input_forced_choice else input_size-1
     self.H = hidden_size
     self.O = out_size
@@ -89,7 +90,7 @@ class TinyRNN(nn.Module):
   def get_options_dict(self):
     '''Helper function to later save and reinstate model'''
     options_dict = {'rnn_type':self.rnn_type,
-                    'input_size':self.I,
+                    'input_size':self.input_size,
                     'hidden_size':self.H,
                     'out_size':self.O,
                     'sparsity_lambda':self.sparsity_lambda,

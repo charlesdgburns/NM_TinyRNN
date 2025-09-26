@@ -53,13 +53,14 @@ def train_model_AB(data_path,
                         input_size=3, # past forced choice, past choice, past outcome, 
                         hidden_size=hidden_size, # hidden unit
                         out_size=2, # one-hot code for choice A, choice B
-                        nm_mode = nm_mode, nm_dim=nm_dim, nm_size=nm_size)
-    trainer = training.Trainer(save_path, random_seed=random_seed)
+                        nm_mode = nm_mode, nm_dim=nm_dim, nm_size=nm_size,
+                        seed = random_seed)
+    trainer = training.Trainer(save_path)
     trainer.fit(model,dataset)
     return None
 
 
-def get_NM_TinyRNN_SLURM_script(train_info, RAM="64GB", time_limit="23:59:00"):
+def get_NM_TinyRNN_SLURM_script(train_info, RAM="32GB", time_limit="23:59:00"):
     """
     Writes a SLURM script to run sleap tracking on the video from a session specified in video_info.
     Input: train_info: pd.Series
@@ -71,7 +72,7 @@ def get_NM_TinyRNN_SLURM_script(train_info, RAM="64GB", time_limit="23:59:00"):
 #SBATCH --output={JOBS_PATH}/out/{session_ID}.out
 #SBATCH --error={JOBS_PATH}/err/{session_ID}.err
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=4
 #SBATCH --mem={RAM}
 #SBATCH --time={time_limit}
 set -euo pipefail
