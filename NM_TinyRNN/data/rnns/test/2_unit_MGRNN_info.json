@@ -1,0 +1,24 @@
+{
+  "save_path": "C:\\Users\\owner\\Research\\NM_TinyRNN\\NM_TinyRNN\\data\\rnns\\test",
+  "sparsity_lambda": [
+    1e-05
+  ],
+  "learning_rate": 0.005,
+  "batch_size": 8,
+  "max_epochs": 1000,
+  "early_stop": 200,
+  "seed": 24,
+  "model_id": "2_unit_MGRNN",
+  "best_sparsity_lambda": 1e-05,
+  "best_val_pred_loss": 0.5066964626312256,
+  "eval_pred_loss": 0.546217143535614,
+  "options_dict": {
+    "rnn_type": "MGRNN",
+    "input_size": 3,
+    "hidden_size": 2,
+    "out_size": 2,
+    "sparsity_lambda": 1e-05,
+    "input_forced_choice": false,
+    "seed": 5
+  }
+}

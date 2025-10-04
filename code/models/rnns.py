@@ -60,6 +60,10 @@ class TinyRNN(nn.Module):
       self.rnn = ManualGRU(self.I,self.H)
     elif rnn_type == 'LSTM':
       self.rnn = ManualLSTM(self.I,self.H)
+    elif rnn_type == 'MGRNN':
+      self.rnn = MonoGated(self.I,self.H)
+    elif rnn_type == 'DGRNN':
+      self.rnn = DualGated(self.I,self.H)
     elif rnn_type == 'NMRNN':
       self.nm_size = nm_size
       self.nm_dim = nm_dim
@@ -110,6 +114,82 @@ class TinyRNN(nn.Module):
     return model_id
 
 
+## Custom minimal gated architectures ## 
+
+class MonoGated(nn.Module):
+  '''A minimal gated RNN with a 1D gating signal.'''
+  def __init__(self, input_size,hidden_size, nonlinearity = 'tanh'):
+    super().__init__() #init nn.Module
+    self.input_size = input_size
+    self.hidden_size = hidden_size
+    
+    self.sigmoid = nn.Sigmoid() #maybe consider setting this to something else
+    if nonlinearity == 'relu':
+      self.activation = nn.ReLU() 
+    elif nonlinearity == 'tanh':
+      self.activation = nn.Tanh()
+
+    # Parameters
+    self.W_ih = nn.Parameter(torch.Tensor(input_size, hidden_size))      # (I,H)
+    self.W_hh = nn.Parameter(torch.Tensor(hidden_size, hidden_size))     # (H,H)
+    self.W_z = nn.Parameter(torch.Tensor(input_size, 1))                # (I,Z)
+    self.W_iz = nn.Parameter(torch.Tensor(input_size, 1))                # (I,Z)
+    self.W_hz = nn.Parameter(torch.Tensor(input_size, 1))                # (I,Z)
+    self.bias_h = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
+    self.bias_z = nn.Parameter(torch.Tensor(1))
+    self.init_weights()
+  
+  def init_weights(self):
+        stdv = 1.0 / math.sqrt(self.hidden_size)
+        for p in self.parameters():
+            p.data.uniform_(-stdv, stdv)
+      
+  def forward(self, inputs, init_states = None,
+              return_gate_activations = False,
+              fixed_gates = {}):
+    ''' inputs are a tensor of shape (batch_size, sequence_size, input_size)
+        outputs are tensor of shape (batch_size, sequence_size, hidden_size)
+        -----
+        option to add fixed_gates dictionary with '_t' or 'z_t' keys, 
+        which must be tensors of shape (n_batch,n_hidden).'''
+
+    batch_size, sequence_size, _ = inputs.shape
+    hidden_sequence = []
+    if return_gate_activations:
+      gate_activations = {'update':[]}
+    if init_states is None:
+      h_past = torch.zeros(batch_size, self.hidden_size).to(inputs.device) #(n_hidden,batch_size)
+    else:
+      h_past = init_states
+
+    for t in range(sequence_size):
+      x_past = inputs[:,t,:] #(n_batch,input_size)
+      #for computational efficiency we do two matrix multiplications and then do indexing further down:
+      n_t = self.activation(x_past@self.W_ih+h_past@self.W_hh+self.bias_h)
+      z_t = self.sigmoid(x_past@self.W_iz+h_past@self.W_hz +self.bias_z) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
+      ## options to override gates and/or save them:
+      if 'z_t' in fixed_gates.keys():
+        z_t= fixed_gates['z_t']
+      if return_gate_activations:
+        gate_activations['update'].append(z_t.unsqueeze(0)) 
+      ## continued computation of hidden state:
+      h_past = (1-z_t)*n_t + z_t*h_past #(n_batch,hidden_size) #NOTE h_past is tehnically h_t now, but in the next for-loop it will be h_past. ;)
+      hidden_sequence.append(h_past.unsqueeze(0)) #appending (1,n_batch,n_hidden) to a big list.
+
+    hidden_sequence = torch.cat(hidden_sequence, dim=0) #(n_sequence, n_batch, n_hidden) gather all inputs along the first dimenstion
+    hidden_sequence = hidden_sequence.transpose(0, 1).contiguous() #reshape to batch first (n_batch,n_seq,n_hidden)
+    
+    if return_gate_activations:
+        for gate_label, activations in gate_activations.items():
+            gate_activations[gate_label] = torch.cat(activations, dim=0).transpose(0,1).contiguous() #(n_batch,n_seq,n_hidden)
+        return hidden_sequence, gate_activations
+    else:
+      return hidden_sequence, h_past #this is standard in Pytorch, to output sequence of hidden states alongside most recent hidden state.
+
+
+#class DualGated(nn.Module):
+#  def __init__(self,input_size,hidden_size):
+    
 ## Manual RNN architectures ##
 
 class ManualGRU(nn.Module):
@@ -120,8 +200,8 @@ class ManualGRU(nn.Module):
     super().__init__() #init nn.Module
     self.input_size = input_size
     self.hidden_size = hidden_size
-    self.sigmoid = torch.nn.Sigmoid()
-    self.tanh = torch.nn.Tanh()
+    self.sigmoid = nn.Sigmoid()
+    self.tanh = nn.Tanh()
 
     self.W_from_in = nn.Parameter(torch.Tensor(input_size, hidden_size*3))
     self.W_from_h = nn.Parameter(torch.Tensor(hidden_size, hidden_size*3))
@@ -279,7 +359,7 @@ class ManualNMRNN(nn.Module):
         self.init_weights()
 
     def init_weights(self):
-        stdv = 1.0 / math.sqrt(self.hidden_size if self.hidden_size > 0 else 1.0)
+        stdv = 1.0 / math.sqrt(self.hidden_size)
         for p in self.parameters():
             p.data.uniform_(-stdv, stdv)
 
@@ -406,3 +486,4 @@ class ManualNMRNN(nn.Module):
             return W * s_t.view(B, H, 1) # broadcast across cols -> scale rows
         else:
             raise ValueError(f"row mode expects nm_dim==1 or nm_dim==hidden_size ({H}), got {s_t.shape[1]}")
+

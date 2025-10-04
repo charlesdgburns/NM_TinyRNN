@@ -1,6 +1,7 @@
 #Don't save out RNNs results to git
 **data/rnns/test
-**data/rnns/WS16
+
+**data/WS16
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
