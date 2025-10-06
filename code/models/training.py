@@ -152,7 +152,7 @@ class Trainer:
                     'epoch': epoch,
                     'val_pred_loss': result['val_pred_losses'][epoch],
                     'train_pred_loss': result['train_pred_losses'][epoch],
-                    'train_sparsity_loss': result['train_sparsity_losses'][epoch],
+                    'train_constraint': result['train_constraints'][epoch],
                 })
         
         training_losses_df = pd.DataFrame(df_data)
@@ -225,7 +225,7 @@ class Trainer:
             
         Returns:
             avg_pred_loss: Average prediction loss
-            avg_sparsity_loss: Average sparsity loss (weighted by lambda)
+            avg_constraint: Average sparsity loss (weighted by lambda)
         """
         if training:
             model.train()
@@ -233,7 +233,7 @@ class Trainer:
             model.eval()
         
         total_pred_loss = 0
-        total_sparsity_loss = 0
+        total_constraint = 0
         
         context_manager = torch.no_grad() if not training else torch.enable_grad()
         with context_manager:
@@ -241,7 +241,7 @@ class Trainer:
                 B, S, _ = batch_inputs.shape
                 if training and optimizer is not None:
                     optimizer.zero_grad()
-                predictions = model(batch_inputs)
+                predictions, hidden_states = model(batch_inputs)
                 # remove the free choice trials from the loss!
                 free_choice = (batch_inputs[:,:,0]==0)#this should be a bool size (n_batch, n_seq)
                 #displace by one index, since forced choice input at t means prediction for t-1 is impossible.
@@ -249,20 +249,21 @@ class Trainer:
                 free_choice = free_choice.flatten()
                 masked_pred = predictions.reshape(B*S,model.O)[free_choice]
                 masked_targets = batch_targets.reshape(B*S,model.O)[free_choice]
-                prediction_loss, sparsity_loss = model.compute_losses(masked_pred,masked_targets)
-            
+                prediction_loss =  model.prediction_loss(masked_pred,masked_targets)
+                constraint = model.energy_loss(hidden_states) if model.biological_constraints else model.sparsity_loss()
+                
                 if training and optimizer is not None:
-                    loss = prediction_loss + sparsity_loss
+                    loss = prediction_loss + constraint
                     loss.backward()
                     optimizer.step()
                 
                 total_pred_loss += prediction_loss.item()
-                total_sparsity_loss += (sparsity_loss).item()
+                total_constraint += (constraint).item()
         
         avg_pred_loss = total_pred_loss / len(dataloader)
-        avg_sparsity_loss = total_sparsity_loss / len(dataloader)
+        avg_constraint = total_constraint / len(dataloader)
         
-        return avg_pred_loss, avg_sparsity_loss
+        return avg_pred_loss, avg_constraint
     
     def _train_single_model(
         self,
@@ -286,7 +287,7 @@ class Trainer:
                                                                patience = max(int(self.early_stop/5),10))
         # Training history
         train_pred_losses = []
-        train_sparsity_losses = []
+        train_constraints = []
         val_pred_losses = []
         
         best_val_pred_loss = float('inf')
@@ -295,7 +296,7 @@ class Trainer:
         
         for epoch in tqdm(range(self.max_epochs), desc=f"λ={model.sparsity_lambda:.0e}"):
             # Training epoch
-            train_pred_loss, train_sparsity_loss = self._run_epoch(
+            train_pred_loss, train_constraint = self._run_epoch(
                 model_copy, train_loader, optimizer, training=True)
             
             # Validation epoch // here we only care about cross-entropy of predictions
@@ -304,7 +305,7 @@ class Trainer:
             
             # Store losses
             train_pred_losses.append(train_pred_loss)
-            train_sparsity_losses.append(train_sparsity_loss)
+            train_constraints.append(train_constraint)
             val_pred_losses.append(val_pred_loss)
             
             # Protect against overfitting / plateus
@@ -326,7 +327,7 @@ class Trainer:
         losses_dict = {
             'sparsity_lambda': model.sparsity_lambda,
             'train_pred_losses': train_pred_losses,
-            'train_sparsity_losses': train_sparsity_losses,
+            'train_constraints': train_constraints,
             'val_pred_losses': val_pred_losses,
             'epochs_trained': len(train_pred_losses),
             'best_val_pred_loss': best_val_pred_loss,
@@ -344,7 +345,7 @@ class Trainer:
         inputs_reshaped = dataset.subject_df[['forced_choice','outcome','choice']].values[None,:,:]
         inputs_reshaped = torch.tensor(inputs_reshaped,dtype = torch.float32)
         with torch.no_grad():
-            predictions = model(inputs_reshaped)  
+            predictions, _ = model(inputs_reshaped)  
             if not model.rnn_type == 'vanilla': 
                 if not model.input_forced_choice:
                     inputs_reshaped = inputs_reshaped[:,:,1:]
