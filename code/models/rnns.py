@@ -15,29 +15,35 @@ import numpy as np
 ## Global variables ##
 #here's an example dictionary we can pass TinyRNN with **OPTIONS_DICT
 OPTIONS_DICT = {'rnn_type':'GRU',
-                       'input_size':3,
-                       'hidden_size':1,
-                       'out_size':2,
-                       'nm_size':1,
-                       'nm_dim':1,
-                       'nm_mode':'low_rank',
-                       'sparsity_lambda':1e-2,
-                       'input_forced_choice':False,
-                       'seed':42}
+                'input_size':3,
+                'hidden_size':1,
+                'out_size':2,
+                'nm_size':1,
+                'nm_dim':1,
+                'nm_mode':'low_rank',
+                'weight_seed':42,
+                'sparsity_lambda':1e-4, #constrain weights (not biases)
+                'energy_lambda':1e-2, #constrain hidden activations
+                'input_forced_choice':False,
+                'input_encoding': 'unipolar', #'unipolar' {0,1} or 'bipolar' {-1,1}
+                'nonlinearity' :'tanh', # 'tanh' or 'relu'
+                }
 
 class TinyRNN(nn.Module):
   def __init__(self, 
                rnn_type = 'GRU',
-               input_size:int=3, 
-               hidden_size:int=1, 
-               out_size:int=2,
+               input_size:int = 3, 
+               hidden_size:int = 1, 
+               out_size:int = 2,
                nm_size: int = 1, #specific to NM_RNNs
                nm_dim: int = 1, #specific to NM_RNNs
                nm_mode: str = 'low_rank',
                sparsity_lambda:float = 1e-2,
+               energy_lambda:float = 0,
+               input_encoding = 'unipolar',
                input_forced_choice = False,
-               biological_constraints = False,
-               seed = 42
+               nonlinearity = 'tanh',
+               weight_seed = 42
               ):
     super().__init__()
     
@@ -48,59 +54,73 @@ class TinyRNN(nn.Module):
     self.H = hidden_size
     self.O = out_size
     self.rnn_type = rnn_type
-    self.seed = seed
-    self.nonlinearity = 'tanh' #'relu' if biological_constraints else 'tanh'
-    self.biological_constraints = biological_constraints
+    self.weight_seed = weight_seed
+    self.sparsity_lambda = sparsity_lambda
+    self.energy_lambda = energy_lambda
+    self.nonlinearity = nonlinearity
+    self.input_encoding = input_encoding
     
-    # seed the weight initialisation:
-    torch.manual_seed(self.seed)
-    np.random.seed(self.seed)
-    if torch.cuda.is_available():
-      torch.cuda.manual_seed(self.seed)
+    # We then need an RNN and a decoder:
     if rnn_type == 'vanilla':
-      self.rnn = torch.nn.RNN(self.I,self.H) #vanilla RNN with tanh nonlinearity 
+      self.rnn = torch.nn.RNN(self.I,self.H, 
+                              nonlinearity=self.nonlinearity) #vanilla RNN with tanh nonlinearity 
     elif rnn_type == 'GRU':
-      self.rnn = ManualGRU(self.I,self.H)
+      self.rnn = ManualGRU(self.I,self.H, self.nonlinearity)
     elif rnn_type == 'LSTM':
-      self.rnn = ManualLSTM(self.I,self.H)
-    elif rnn_type == 'MGRNN':
+      self.rnn = ManualLSTM(self.I,self.H, self.nonlinearity)
+    elif rnn_type == 'monoGRU':
       self.rnn = MonoGated(self.I,self.H, self.nonlinearity)
-    elif rnn_type == 'SGRNN':
-      self.rnn = StereoGated(self.I,self.H)
+    elif rnn_type == 'monoGRU2':
+      self.rnn = MonoGated(self.I,self.H, self.nonlinearity, 
+                           subnetwork = True)
+    elif rnn_type == 'stereoGRU':
+      self.rnn = StereoGated(self.I,self.H, self.nonlinearity)
+    elif rnn_type == 'stereoGRU2':
+      self.rnn = StereoGated(self.I,self.H, self.nonlinearity,
+                             subnetwork = True)
     elif rnn_type == 'NMRNN':
       self.nm_size = nm_size
       self.nm_dim = nm_dim
       self.nm_mode = nm_mode
       self.rnn = ManualNMRNN(self.I,self.nm_size,self.nm_dim,self.H, self.nm_mode)
+    
     self.decoder = nn.Linear(self.H, self.O)
-    self.sparsity_lambda = sparsity_lambda
-
+    self.batch_norm = nn.BatchNorm1d(self.I)
+    # do a seeded  weight initialisation:
+    self.init_weights()
+    
+  def init_weights(self):
+    torch.manual_seed(self.weight_seed)
+    np.random.seed(self.weight_seed)
+    if torch.cuda.is_available():
+      torch.cuda.manual_seed(self.weight_seed)
+    stdv = 1.0 / math.sqrt(self.H)
+    for p in self.parameters():
+        p.data.uniform_(-stdv, stdv)
+      
   def forward(self, inputs):
     '''Expects inputs shaped (n_batch, n_seq, n_features)
     For AB dataset, n_features are ordered as:
     'forced_choice','outcome','choice' coded as 0 or 1.'''
     if not self.input_forced_choice:
       inputs = inputs[:,:,1:]
+    if self.input_encoding == 'bipolar':
+      inputs = inputs*2-1 #maps 0 to -1 and 1 to 1.
     hidden, _ = self.rnn(inputs)
     predictions = self.decoder(hidden)
     return predictions, hidden
 
-  def prediction_loss(self, predictions, targets):
+  def compute_losses(self, predictions,targets, hidden_states):
+    ## predicion loss:
     prediction_loss = nn.functional.cross_entropy(predictions, targets) #NB: this applies softmax itself
-    return prediction_loss
-  
-  def sparsity_loss(self):
-    #for sparsity we need to select the right weights to regularise
+    ## for weight sparsity we need to select the right weights to regularise:
     sparsity_loss = 0
     for name, param in self.rnn.named_parameters():
       if 'bias' not in name:
-        sparsity_loss += self.sparsity_lambda*torch.abs(param).sum()
-    return sparsity_loss
-  
-  def energy_loss(self, hidden_activations):
-    energy_loss = torch.mean(hidden_activations**2)
-    return self.sparsity_lambda*energy_loss
-    
+        sparsity_loss += torch.abs(param).sum()
+    ## for energy loss we simply take mean squared activations:
+    energy_loss = torch.mean(hidden_states**2)
+    return prediction_loss, sparsity_loss*self.sparsity_lambda, energy_loss*self.energy_lambda
     
   def get_options_dict(self):
     '''Helper function to later save and reinstate model'''
@@ -109,8 +129,9 @@ class TinyRNN(nn.Module):
                     'hidden_size':self.H,
                     'out_size':self.O,
                     'sparsity_lambda':self.sparsity_lambda,
+                    'energy_lambda': self.energy_lambda,
                     'input_forced_choice':self.input_forced_choice,
-                    'seed':self.seed}
+                    'weight_seed':self.weight_seed}
     if self.rnn_type == 'NMRNN':
       options_dict['nm_size']=self.nm_size
       options_dict['nm_dim']=self.nm_dim
@@ -119,9 +140,9 @@ class TinyRNN(nn.Module):
   
   def get_model_id(self):
     '''Helper function to save and reinstate model'''
-    model_id = f'{self.H}_unit_{self.rnn_type}'
+    model_id = f'{self.H}_unit_{self.rnn_type}_{self.nonlinearity}_{self.input_encoding}'
     if self.rnn_type == 'NMRNN':
-        model_id=f'{self.H}_unit_{self.rnn_type}_{self.nm_size}_subunits_{self.nm_dim}_{self.nm_mode}'
+        model_id=f'{self.H}_unit_{self.rnn_type}_{self.nm_size}_subunits_{self.nm_dim}_{self.nm_mode}_{self.nonlinearity}_{self.input_encoding}'
     return model_id
 
 
@@ -129,11 +150,12 @@ class TinyRNN(nn.Module):
 
 class MonoGated(nn.Module):
   '''A minimal gated RNN with a 1D gating signal.'''
-  def __init__(self, input_size,hidden_size, nonlinearity = 'tanh'):
+  def __init__(self, input_size,hidden_size, nonlinearity = 'tanh',
+               subnetwork: bool = False):
     super().__init__() #init nn.Module
     self.input_size = input_size
     self.hidden_size = hidden_size
-    
+    self.subnetwork = subnetwork
     self.sigmoid = nn.Sigmoid() #maybe consider setting this to something else
     if nonlinearity == 'relu':
       self.activation = nn.ReLU() 
@@ -143,18 +165,13 @@ class MonoGated(nn.Module):
     # Parameters
     self.W_ih = nn.Parameter(torch.Tensor(input_size, hidden_size))      # (I,H)
     self.W_hh = nn.Parameter(torch.Tensor(hidden_size, hidden_size))     # (H,H)
-    self.W_z = nn.Parameter(torch.Tensor(input_size, 1))                # (I,Z)
+    self.W_z = nn.Parameter(torch.Tensor(hidden_size, 1))                # (I,Z)
     self.W_iz = nn.Parameter(torch.Tensor(input_size, hidden_size))                # (I,Z)
-    self.W_hz = nn.Parameter(torch.Tensor(input_size, hidden_size))                # (I,Z)
+    self.W_hz = nn.Parameter(torch.Tensor(hidden_size, hidden_size))                # (I,Z)
     self.bias_h = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
     self.bias_z = nn.Parameter(torch.Tensor(1))
-    self.init_weights()
   
-  def init_weights(self):
-        stdv = 1.0 / math.sqrt(self.hidden_size)
-        for p in self.parameters():
-            p.data.uniform_(-stdv, stdv)
-      
+  
   def forward(self, inputs, init_states = None,
               return_gate_activations = False,
               fixed_gates = {}):
@@ -163,7 +180,6 @@ class MonoGated(nn.Module):
         -----
         option to add fixed_gates dictionary with '_t' or 'z_t' keys, 
         which must be tensors of shape (n_batch,n_hidden).'''
-
     batch_size, sequence_size, _ = inputs.shape
     hidden_sequence = []
     if return_gate_activations:
@@ -173,19 +189,22 @@ class MonoGated(nn.Module):
       z_past = torch.zeros(batch_size, self.hidden_size).to(inputs.device) #(n_hidden,batch_size)
     else:
       h_past, z_past = init_states
-
+    
     for t in range(sequence_size):
       x_past = inputs[:,t,:] #(n_batch,input_size)
       #for computational efficiency we do two matrix multiplications and then do indexing further down:
-      n_t = self.activation(x_past@self.W_ih+h_past@self.W_hh+self.bias_h)
-      z_past = self.activation(x_past@self.W_iz + z_past@self.W_hz +self.bias_z) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
-      z_t = self.sigmoid(z_past@self.W_z)
+      if self.subnetwork:
+        z_past = self.activation(x_past@self.W_iz + z_past@self.W_hz) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
+      else:
+        z_past = self.activation(x_past@self.W_iz + h_past@self.W_hz)
+      z_t = self.sigmoid(z_past@self.W_z+self.bias_z) #compress onto 1D
       ## options to override gates and/or save them:
       if 'z_t' in fixed_gates.keys():
         z_t= fixed_gates['z_t']
       if return_gate_activations:
         gate_activations['update'].append(z_t.unsqueeze(0)) 
       ## continued computation of hidden state:
+      n_t = self.activation(x_past@self.W_ih+h_past@self.W_hh+self.bias_h)
       h_past = (1-z_t)*n_t + z_t*h_past #(n_batch,hidden_size) #NOTE h_past is tehnically h_t now, but in the next for-loop it will be h_past. ;)
       hidden_sequence.append(h_past.unsqueeze(0)) #appending (1,n_batch,n_hidden) to a big list.
 
@@ -225,13 +244,6 @@ class StereoGated(nn.Module):
     self.bias_r = nn.Parameter(torch.Tensor(1))
     self.bias_i  = nn.Parameter(torch.Tensor(1))
     
-    self.init_weights()
-  
-  def init_weights(self):
-        stdv = 1.0 / math.sqrt(self.hidden_size)
-        for p in self.parameters():
-            p.data.uniform_(-stdv, stdv)
-      
   def forward(self, inputs, init_states = None,
               return_gate_activations = False,
               fixed_gates = {}):
@@ -244,7 +256,7 @@ class StereoGated(nn.Module):
     batch_size, sequence_size, _ = inputs.shape
     hidden_sequence = []
     if return_gate_activations:
-      gate_activations = {'recurrent':[],'input':[]}
+      gate_activations = {'reset':[],'update':[]}
     if init_states is None:
       h_past = torch.zeros(batch_size, self.hidden_size).to(inputs.device) #(n_hidden,batch_size)
     else:
@@ -252,23 +264,19 @@ class StereoGated(nn.Module):
 
     for t in range(sequence_size):
       x_past = inputs[:,t,:] #(n_batch,input_size)
-      r_t = self.sigmoid(x_past@self.W_ir+h_past@self.W_hr +self.bias_r) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
-      i_t = self.sigmoid(x_past@self.W_ii+h_past@self.W_hi +self.bias_i) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
+      z_t = self.sigmoid(x_past@self.W_ir+h_past@self.W_hr +self.bias_r) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
+      r_t = self.sigmoid(x_past@self.W_ii+h_past@self.W_hi +self.bias_i) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
       ## options to override gates and/or save them:
+      if 'z_t' in fixed_gates.keys():
+        z_t= fixed_gates['z_t']
       if 'r_t' in fixed_gates.keys():
-        r_t= fixed_gates['r_t']
-      if 'i_t' in fixed_gates.keys():
-        i_t= fixed_gates['i_t']
+        r_t = fixed_gates['r_t']
       if return_gate_activations:
-        gate_activations['recurrent'].append(r_t.unsqueeze(0)) 
-        gate_activations['input'].append(i_t.unsqueeze(0)) 
-      # we now want to gate-multiply the recurrent and input weights
-      W_in = r_t.unsqueeze(-1)*self.W_ih #(B,H,H)
-      W_rec = i_t.unsqueeze(-1)*self.W_hh #(B,H,H)
-      # Use einsum for batched (B,H) × (B,H,H) -> (B,H)
-      h_recur = torch.einsum('bi,bij->bj', h_past, W_rec)     # (B,H)
-      h_input = torch.einsum('bi,bij->bj', x_past, W_in)      # (B,H)
-      h_past = self.activation(h_recur + h_input +self.bias_h) # (B,H) ##techincally h_t, but what was once past is now future
+        gate_activations['reset'].append(r_t.unsqueeze(0)) 
+        gate_activations['update'].append(z_t.unsqueeze(0))
+      ## continued computation of hidden state:
+      n_t = self.activation(x_past@self.W_ih + (r_t*h_past)@self.W_hh+self.bias_h)
+      h_past = z_t*h_past+(1-z_t)*n_t # (B,H) ##techincally h_t, but what was once past is now future
       
       hidden_sequence.append(h_past.unsqueeze(0)) #appending (1,n_batch,n_hidden) to a big list.
     hidden_sequence = torch.cat(hidden_sequence, dim=0) #(n_sequence, n_batch, n_hidden) gather all inputs along the first dimenstion
@@ -287,22 +295,19 @@ class ManualGRU(nn.Module):
   '''Manual GRU coded to return gate activations dictionary
   Returns: (hidden_sequence, h_past) if return_gate_activations=False,
            (hidden_sequence, gate_activations) if -||- = True'''
-  def __init__(self,input_size,hidden_size):
+  def __init__(self,input_size,hidden_size, nonlinearity = 'tanh'):
     super().__init__() #init nn.Module
     self.input_size = input_size
     self.hidden_size = hidden_size
     self.sigmoid = nn.Sigmoid()
-    self.tanh = nn.Tanh()
+    if nonlinearity == 'tanh':  
+      self.activation = nn.Tanh()
+    elif nonlinearity == 'relu':
+      self.activation = nn.ReLU()
 
     self.W_from_in = nn.Parameter(torch.Tensor(input_size, hidden_size*3))
     self.W_from_h = nn.Parameter(torch.Tensor(hidden_size, hidden_size*3))
     self.bias = nn.Parameter(torch.Tensor(hidden_size*6))
-    self.init_weights()
-
-  def init_weights(self):
-    stdv = 1.0 / math.sqrt(self.hidden_size)
-    for weight in self.parameters():
-        weight.data.uniform_(-stdv, stdv)
 
   def forward(self, inputs, init_states = None, 
               return_gate_activations=False,
@@ -340,7 +345,7 @@ class ManualGRU(nn.Module):
         gate_activations['reset'].append(r_t.unsqueeze(0)) 
         gate_activations['update'].append(z_t.unsqueeze(0))
       ## continued computation of hidden state:
-      n_t = self.tanh(from_input[:,2]+r_t*(from_hidden[:,2])).view(batch_size, self.hidden_size) #(n_batch,n_hidden)
+      n_t = self.activation(from_input[:,2]+r_t*(from_hidden[:,2])).view(batch_size, self.hidden_size) #(n_batch,n_hidden)
       h_past = (1-z_t)*n_t + z_t*h_past #(n_batch,hidden_size) #NOTE h_past is tehnically h_t now, but in the next for-loop it will be h_past. ;)
       hidden_sequence.append(h_past.unsqueeze(0)) #appending (1,n_batch,n_hidden) to a big list.
 
@@ -355,7 +360,7 @@ class ManualGRU(nn.Module):
       return hidden_sequence, h_past #this is standard in Pytorch, to output sequence of hidden states alongside most recent hidden state.
 
 class ManualLSTM(nn.Module):
-    def __init__(self, input_sz, hidden_sz, device='cpu'):
+    def __init__(self, input_sz, hidden_sz, nonlinearity = 'tanh', device='cpu'):
         super().__init__()
         self.device=device
         self.input_sz = input_sz
@@ -363,13 +368,11 @@ class ManualLSTM(nn.Module):
         self.W = nn.Parameter(torch.Tensor(input_sz, hidden_sz * 4))
         self.U = nn.Parameter(torch.Tensor(hidden_sz, hidden_sz * 4))
         self.bias = nn.Parameter(torch.Tensor(hidden_sz * 4))
-        self.init_weights()
-
-    def init_weights(self):
-        stdv = 1.0 / math.sqrt(self.hidden_size)
-        for weight in self.parameters():
-            weight.data.uniform_(-stdv, stdv).to(self.device)
-
+        if nonlinearity == 'tanh':
+          self.activation = nn.Tanh()
+        elif nonlinearity == 'relu':
+          self.activation = nn.ReLU()
+          
     def forward(self, x, init_states=None,
                 return_gate_activations = False,
                 fixed_gates = {}):
@@ -396,7 +399,7 @@ class ManualLSTM(nn.Module):
             i_t, f_t, g_t, o_t = (
                 torch.sigmoid(gates[:, :HS]), # input
                 torch.sigmoid(gates[:, HS:HS*2]), # forget
-                torch.tanh(gates[:, HS*2:HS*3]), # partial candidate; this integrates inputs and past hidden (over short-term memory)
+                self.activation(gates[:, HS*2:HS*3]), # partial cell; this integrates inputs and past hidden (over short-term memory)
                 torch.sigmoid(gates[:, HS*3:]), # output
             )
             ## option to fix certain gates:
@@ -409,8 +412,8 @@ class ManualLSTM(nn.Module):
             if 'o_t' in fixed_gates.keys():
               o_t = fixed_gates['o_t']
             ## continued computation of candidate and hidden state:
-            c_t = f_t * c_t + i_t * g_t #here we integrate inputs/STM with long-term memoryu
-            h_t = o_t * torch.tanh(c_t)
+            c_t = f_t * c_t + i_t * g_t #here we integrate inputs/STM with long-term memory
+            h_t = o_t * self.activation(c_t)
             hidden_sequence.append(h_t.unsqueeze(0))
             if return_gate_activations:
                 for gate_label, activation in {'input':i_t,'forget':f_t,'output':o_t,'candidate':c_t}.items():
@@ -426,10 +429,15 @@ class ManualLSTM(nn.Module):
 
 
 class ManualNMRNN(nn.Module):
-    def __init__(self, input_size, nm_size, nm_dim, hidden_size, nm_mode='column'):
+    def __init__(self, input_size, hidden_size,
+                 nm_size, nm_dim, nm_mode='column',
+                 nonlinearity = 'tanh',):
         super().__init__()
         self.sigmoid = nn.Sigmoid()
-        self.tanh = nn.Tanh()
+        if nonlinearity == 'tanh':  
+          self.activation = nn.Tanh()
+        elif nonlinearity == 'relu':
+          self.activation = nn.ReLU()
 
        # assert nm_dim <= nm_size, "there must be at least as many subnetwork units as nm_dim size"
         self.nm_size = nm_size
@@ -446,13 +454,6 @@ class ManualNMRNN(nn.Module):
         self.bias_z = nn.Parameter(torch.Tensor(nm_size))                    # (Z,)
         self.bias_h = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
         self.bias_k = nn.Parameter(torch.Tensor(nm_dim))                     # (K,)
-
-        self.init_weights()
-
-    def init_weights(self):
-        stdv = 1.0 / math.sqrt(self.hidden_size)
-        for p in self.parameters():
-            p.data.uniform_(-stdv, stdv)
 
     def forward(self, inputs, init_states=None, 
                 return_gate_activations= False,
@@ -488,7 +489,7 @@ class ManualNMRNN(nn.Module):
         for t in range(T):
             x_t = inputs[:, t, :]                                   # (B,I)
             # Subnetwork dynamics -> modulation signal s_t
-            z_t = self.tanh(z_past @ self.W_zz + x_t @ self.W_iz +self.bias_z)   # (B, Z)
+            z_t = self.activation(z_past @ self.W_zz + x_t @ self.W_iz +self.bias_z)   # (B, Z)
             s_t = self.sigmoid(z_t @ self.W_zk + self.bias_k)       # (B, K)
             # option to fix subnetwork states # 
             if 'z_t' in fixed_gates.keys():
@@ -507,7 +508,7 @@ class ManualNMRNN(nn.Module):
             # Recurrent step: h_t = tanh( h_{t-1} @ W_rec + x_t @ W_ih )
             # Use einsum for batched (B,H) × (B,H,H) -> (B,H)
             h_recur = torch.einsum('bi,bij->bj', h_past, W_rec)     # (B,H)
-            h_t = self.tanh(h_recur + x_t @ self.W_ih +self.bias_h) # (B,H)
+            h_t = self.activation(h_recur + x_t @ self.W_ih +self.bias_h) # (B,H)
             hidden_sequence.append(h_t.unsqueeze(1))                # (B,1,H)
             if return_gate_activations:
               gate_activations['subnetwork'].append(z_t.unsqueeze(1))

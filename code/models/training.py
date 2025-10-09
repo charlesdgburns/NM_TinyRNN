@@ -14,13 +14,12 @@ from pathlib import Path
 #Function to train a model on a subject's data
 
 #Trainer class
-SEED = 42
-SPLIT_SEED = 42 #fix the seed for splits and dataloading
+TRAIN_SEED = 42 #fix the seed for splits and dataloading
 # Set seeds for reproducibility
-torch.manual_seed(SEED)
-np.random.seed(SEED)
+torch.manual_seed(TRAIN_SEED)
+np.random.seed(TRAIN_SEED)
 if torch.cuda.is_available():
-    torch.cuda.manual_seed(SEED)
+    torch.cuda.manual_seed(TRAIN_SEED)
 
 # utility that might be helpful elsewhere:
 # we name our models consistently as follows:
@@ -33,19 +32,21 @@ class Trainer:
     def __init__(
         self,
         save_path: Path,
-        sparsity_lambda: List[float] = [1,1e-1, 1e-2, 1e-3, 1e-4, 1e-5],
+        weight_seeds: List[float] = [1,2,3,4,5,6,7,8,9,10],#[1,2,3,4,5,6,7,8,9,10],
+        sparsity_lambdas: List[float] = [1e-1,1e-3,1e-5],
+        energy_lambdas: List[float] = [1e-1,1e-2],
         learning_rate: float = 0.005,
         batch_size: int = 8,
-        max_epochs: int = 10000,
-        early_stop: int = 500,
-        random_seed: int = SEED
+        max_epochs: int = 1000,
+        early_stop: int = 200,
+        train_seed: int = TRAIN_SEED
     ):
         """
         Simple and concise trainer for neural networks with hyperparameter tuning.
         
         Args:
             save_path: Directory to save model and results
-            sparsity_lambda: List of sparsity regularization values to try
+            sparsity_lambdas: List of sparsity regularization values to try. Outputs best model among them.
             learning_rate: Learning rate for Adam optimizer
             batch_size: Batch size for training
             max_epochs: Maximum number of training epochs
@@ -53,18 +54,18 @@ class Trainer:
             seed: Random seed for reproducibility
         """
         self.save_path = Path(save_path) #ensure it's a Path object
-        self.sparsity_lambda = sparsity_lambda
+        self.sparsity_lambdas = sparsity_lambdas
+        self.energy_lambdas = energy_lambdas
+        self.weight_seeds = weight_seeds
         self.learning_rate = learning_rate
         self.batch_size = batch_size
         self.max_epochs = max_epochs
         self.early_stop = early_stop
-        self.seed = random_seed
+        self.train_seed = train_seed
         
         # Create save directory
         os.makedirs(save_path, exist_ok=True)
         
-    
-    
     def fit(self, model, dataset) -> pd.DataFrame:
         """
         Fit the model with hyperparameter tuning.
@@ -76,7 +77,7 @@ class Trainer:
         Returns:
             training_losses_df: DataFrame with training history for each sparsity value
         """
-        print(f"Starting training with {len(self.sparsity_lambda)} sparsity values...")
+        print(f"Starting training with {len(self.sparsity_lambdas)} sparsity values...")
         print(f"Dataset size: {len(dataset)}")
         self.save_path.mkdir(parents=True,exist_ok=True)
         # Split dataset
@@ -94,30 +95,31 @@ class Trainer:
         best_model_info = None
         
         ## TRAINING ##
-        for sparsity_lambda in self.sparsity_lambda:
-            print(f"\nTraining with sparsity lambda = {sparsity_lambda}")
-            
-            # Reset model to initial state for each sparsity value
-            model.sparsity_lambda = sparsity_lambda 
-            model_state = model.state_dict().copy()
-
-            losses_dict, val_pred_loss = self._train_single_model(
-                model, train_loader, val_loader)
-            
-            all_results.append(losses_dict)
-            
-            # Track best model across all sparsity values
-            if val_pred_loss < best_overall_val_loss:
-                best_overall_val_loss = val_pred_loss
-                best_model_info = {
-                    'sparsity_lambda': sparsity_lambda,
-                    'val_pred_loss': val_pred_loss,
-                    'model_state': losses_dict['best_model_state']
-                }
-            
-            # Reset model for next sparsity value
-            model.load_state_dict(model_state)
-        
+        for sparsity_lambda in self.sparsity_lambdas:
+            for energy_lambda in self.energy_lambdas:
+                for weight_seed in self.weight_seeds:
+                    print(f"\nTraining with \n sparsity lambda = {sparsity_lambda}, \n weight seed = {weight_seed}, \n energy lambda = {energy_lambda}")
+                    # Reset model to initial state for each set of values
+                    model.sparsity_lambda = sparsity_lambda 
+                    model.energy_lambda = energy_lambda
+                    model.weight_seed = weight_seed
+                    model.init_weights() #reset model weights before training.
+                
+                    losses_dict, val_pred_loss = self._train_single_model(
+                        model, train_loader, val_loader)
+                    
+                    all_results.append(losses_dict)
+                    
+                    # Track best model across all sparsity values
+                    if val_pred_loss < best_overall_val_loss:
+                        best_overall_val_loss = val_pred_loss
+                        best_model_info = {
+                            'sparsity_lambda': sparsity_lambda,
+                            'val_pred_loss': val_pred_loss,
+                            'model_state': losses_dict['best_model_state']
+                        }
+                    
+                
         ## EVAL AND SAVING ##
         # Generate model ID for saving data:
         model_id = model.get_model_id()
@@ -126,7 +128,7 @@ class Trainer:
         # Evaluate on test set using run_epoch // we only really care about prediction cross-entropy
         print(f"\nEvaluating best model (λ={best_model_info['sparsity_lambda']:.0e}) on test set...")
         model.load_state_dict(best_model_info['model_state'])
-        eval_pred_loss, _ = self._run_epoch(model, test_loader, None, 
+        eval_pred_loss, _, _ = self._run_epoch(model, test_loader, None, 
                                             training=False)
         best_model_info['eval_pred_loss'] = eval_pred_loss
         print(f"Evaluation loss: {eval_pred_loss:.6f}")
@@ -135,7 +137,6 @@ class Trainer:
         model_info = self.__dict__.copy()
         model_info['model_id'] = model_id
         model_info['save_path'] = str(model_info['save_path']) #fix possible posix path issues
-        model_info['best_sparsity_lambda'] = best_model_info['sparsity_lambda']
         model_info['best_val_pred_loss'] = best_model_info['val_pred_loss']
         model_info['eval_pred_loss'] = best_model_info['eval_pred_loss']
         model_info['options_dict'] = model.get_options_dict()
@@ -152,7 +153,8 @@ class Trainer:
                     'epoch': epoch,
                     'val_pred_loss': result['val_pred_losses'][epoch],
                     'train_pred_loss': result['train_pred_losses'][epoch],
-                    'train_constraint': result['train_constraints'][epoch],
+                    'train_sparsity': result['train_sparsity'][epoch],
+                    'train_energy': result['train_energy'][epoch]
                 })
         
         training_losses_df = pd.DataFrame(df_data)
@@ -177,7 +179,7 @@ class Trainer:
         indices = list(range(dataset_size))
         indices_dict = {}
         # Use numpy for deterministic shuffling
-        np.random.seed(SPLIT_SEED)
+        np.random.seed(self.train_seed)
         np.random.shuffle(indices)
         
         # 80/10/10 split
@@ -197,7 +199,7 @@ class Trainer:
     def _create_dataloader(self, dataset, shuffle: bool = True) -> DataLoader:
         """Create dataloader with deterministic shuffling."""
         generator = torch.Generator()
-        generator.manual_seed(SPLIT_SEED)
+        generator.manual_seed(self.train_seed)
         
         return DataLoader(
             dataset,
@@ -233,7 +235,8 @@ class Trainer:
             model.eval()
         
         total_pred_loss = 0
-        total_constraint = 0
+        total_sparsity_loss = 0
+        total_energy_loss = 0
         
         context_manager = torch.no_grad() if not training else torch.enable_grad()
         with context_manager:
@@ -249,21 +252,21 @@ class Trainer:
                 free_choice = free_choice.flatten()
                 masked_pred = predictions.reshape(B*S,model.O)[free_choice]
                 masked_targets = batch_targets.reshape(B*S,model.O)[free_choice]
-                prediction_loss =  model.prediction_loss(masked_pred,masked_targets)
-                constraint = model.energy_loss(hidden_states) if model.biological_constraints else model.sparsity_loss()
+                prediction_loss, sparsity_loss, energy_loss =  model.compute_losses(masked_pred,masked_targets, hidden_states)
                 
                 if training and optimizer is not None:
-                    loss = prediction_loss + constraint
+                    loss = prediction_loss + sparsity_loss + energy_loss
                     loss.backward()
                     optimizer.step()
                 
                 total_pred_loss += prediction_loss.item()
-                total_constraint += (constraint).item()
-        
+                total_sparsity_loss += (sparsity_loss).item()
+                total_energy_loss += (energy_loss).item()
         avg_pred_loss = total_pred_loss / len(dataloader)
-        avg_constraint = total_constraint / len(dataloader)
+        avg_sparsity_loss = total_sparsity_loss / len(dataloader)
+        avg_energy_loss = total_energy_loss / len(dataloader)
         
-        return avg_pred_loss, avg_constraint
+        return avg_pred_loss, avg_sparsity_loss, avg_energy_loss
     
     def _train_single_model(
         self,
@@ -283,11 +286,11 @@ class Trainer:
         model_copy.load_state_dict(model.state_dict())
         
         optimizer = torch.optim.Adam(model_copy.parameters(), lr=self.learning_rate)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor = 0.5,
-                                                               patience = max(int(self.early_stop/5),10))
+        
         # Training history
         train_pred_losses = []
-        train_constraints = []
+        train_sparsities= []
+        train_energies = []
         val_pred_losses = []
         
         best_val_pred_loss = float('inf')
@@ -296,21 +299,19 @@ class Trainer:
         
         for epoch in tqdm(range(self.max_epochs), desc=f"λ={model.sparsity_lambda:.0e}"):
             # Training epoch
-            train_pred_loss, train_constraint = self._run_epoch(
+            train_pred_loss, train_sparsity, train_energy = self._run_epoch(
                 model_copy, train_loader, optimizer, training=True)
             
             # Validation epoch // here we only care about cross-entropy of predictions
-            val_pred_loss, _ = self._run_epoch(model_copy, val_loader, None, 
+            val_pred_loss, _, _ = self._run_epoch(model_copy, val_loader, None, 
                                                training=False)
             
             # Store losses
             train_pred_losses.append(train_pred_loss)
-            train_constraints.append(train_constraint)
+            train_sparsities.append(train_sparsity)
+            train_energies.append(train_energy)
             val_pred_losses.append(val_pred_loss)
             
-            # Protect against overfitting / plateus
-            scheduler.step(val_pred_loss)
-
             # Early stopping check
             if val_pred_loss < best_val_pred_loss:
                 best_val_pred_loss = val_pred_loss
@@ -327,7 +328,8 @@ class Trainer:
         losses_dict = {
             'sparsity_lambda': model.sparsity_lambda,
             'train_pred_losses': train_pred_losses,
-            'train_constraints': train_constraints,
+            'train_sparsity': train_sparsities,
+            'train_energy': train_energies,
             'val_pred_losses': val_pred_losses,
             'epochs_trained': len(train_pred_losses),
             'best_val_pred_loss': best_val_pred_loss,
@@ -335,8 +337,6 @@ class Trainer:
         }
         
         return losses_dict, best_val_pred_loss
-
-    
 
     def get_model_trial_by_trial_df(self, model, dataset):
         '''Runs through the entire dataset (also training data)'''
