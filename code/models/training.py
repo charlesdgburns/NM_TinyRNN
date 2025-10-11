@@ -349,6 +349,8 @@ class Trainer:
             if not model.rnn_type == 'vanilla': 
                 if not model.input_forced_choice:
                     inputs_reshaped = inputs_reshaped[:,:,1:]
+                if model.input_encoding == 'bipolar':
+                    inputs_reshaped = inputs_reshaped*2-1 #maps 0 to -1 and 1 to 1.
                 hidden_state, gate_activations = model.rnn(inputs_reshaped, return_gate_activations = True)
                 # add hidden activations
                 for each_unit in range(model.H):
