@@ -43,6 +43,7 @@ class TinyRNN(nn.Module):
                input_encoding = 'unipolar',
                input_forced_choice = False,
                nonlinearity = 'tanh',
+               fixed_decoder = False,
                weight_seed = 42
               ):
     super().__init__()
@@ -59,6 +60,7 @@ class TinyRNN(nn.Module):
     self.energy_lambda = energy_lambda
     self.nonlinearity = nonlinearity
     self.input_encoding = input_encoding
+    self.fixed_decoder = fixed_decoder
     
     # We then need an RNN and a decoder:
     if rnn_type == 'vanilla':
@@ -106,7 +108,11 @@ class TinyRNN(nn.Module):
     if self.input_encoding == 'bipolar':
       inputs = inputs*2-1 #maps 0 to -1 and 1 to 1.
     hidden, _ = self.rnn(inputs)
-    predictions = self.decoder(hidden)
+    if self.fixed_decoder:
+      predictions = hidden @ torch.tensor([[1.0,-1.0],
+                                           [-1.0,1.0]])
+    else:
+      predictions = self.decoder(hidden)
     return predictions, hidden
 
   def compute_losses(self, predictions,targets, hidden_states):
