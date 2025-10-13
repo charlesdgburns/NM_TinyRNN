@@ -87,7 +87,6 @@ class TinyRNN(nn.Module):
       self.rnn = ManualNMRNN(self.I,self.nm_size,self.nm_dim,self.H, self.nm_mode)
     
     self.decoder = nn.Linear(self.H, self.O)
-    self.batch_norm = nn.BatchNorm1d(self.I)
     # do a seeded  weight initialisation:
     self.init_weights()
     

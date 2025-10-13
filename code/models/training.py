@@ -115,6 +115,8 @@ class Trainer:
                         best_overall_val_loss = val_pred_loss
                         best_model_info = {
                             'sparsity_lambda': sparsity_lambda,
+                            'energy_lambda': energy_lambda,
+                            'weight_seed': weight_seed,
                             'val_pred_loss': val_pred_loss,
                             'model_state': losses_dict['best_model_state']
                         }
@@ -126,8 +128,12 @@ class Trainer:
         torch.save(best_model_info['model_state'],self.save_path/f'{model_id}_model_state.pth')
         
         # Evaluate on test set using run_epoch // we only really care about prediction cross-entropy
-        print(f"\nEvaluating best model (λ={best_model_info['sparsity_lambda']:.0e}) on test set...")
+        print(f"\nEvaluating best model (sparsity = {best_model_info['sparsity_lambda']:.0e}, energy = {best_model_info['energy_lambda']}, weight_seed = {best_model_info['weight_seed']}) on test set...")
         model.load_state_dict(best_model_info['model_state'])
+        model.sparsity_lambda = best_model_info['sparsity_lambda'] #need to set these again for options dict further down
+        model.energy_lambda = best_model_info['energy_lambda']
+        model.weight_seed = best_model_info['weight_seed']
+        model.eval()
         eval_pred_loss, _, _ = self._run_epoch(model, test_loader, None, 
                                             training=False)
         best_model_info['eval_pred_loss'] = eval_pred_loss
