@@ -44,7 +44,8 @@ class TinyRNN(nn.Module):
                input_forced_choice = False,
                nonlinearity = 'tanh',
                fixed_decoder = False,
-               weight_seed = 42
+               weight_seed = 42,
+               batch_norm = False,
               ):
     super().__init__()
     
@@ -87,6 +88,8 @@ class TinyRNN(nn.Module):
       self.rnn = ManualNMRNN(self.I,self.nm_size,self.nm_dim,self.H, self.nm_mode)
     
     self.decoder = nn.Linear(self.H, self.O)
+    if batch_norm:
+      self.batch_norm = nn.BatchNorm1d(self.I)
     # do a seeded  weight initialisation:
     self.init_weights()
     
@@ -136,7 +139,9 @@ class TinyRNN(nn.Module):
                     'sparsity_lambda':self.sparsity_lambda,
                     'energy_lambda': self.energy_lambda,
                     'input_forced_choice':self.input_forced_choice,
-                    'weight_seed':self.weight_seed}
+                    'weight_seed':self.weight_seed,
+                    'nonlinearity':self.nonlinearity,
+                    'batch_norm': hasattr(self,'batch_norm'),}
     if self.rnn_type == 'NMRNN':
       options_dict['nm_size']=self.nm_size
       options_dict['nm_dim']=self.nm_dim
