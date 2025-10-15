@@ -109,8 +109,8 @@ class TinyRNN(nn.Module):
       inputs = inputs*2-1 #maps 0 to -1 and 1 to 1.
     hidden, _ = self.rnn(inputs)
     if self.fixed_decoder:
-      predictions = hidden @ torch.tensor([[1.0,-1.0],
-                                           [-1.0,1.0]])
+      predictions = hidden @ torch.tensor([[2.0,-2.0],
+                                           [-2.0,2.0]])
     else:
       predictions = self.decoder(hidden)
     return predictions, hidden
@@ -170,9 +170,14 @@ class MonoGated(nn.Module):
     # Parameters
     self.W_ih = nn.Parameter(torch.Tensor(input_size, hidden_size))      # (I,H)
     self.W_hh = nn.Parameter(torch.Tensor(hidden_size, hidden_size))     # (H,H)
-    self.W_z = nn.Parameter(torch.Tensor(hidden_size, 1))                # (I,Z)
-    self.W_iz = nn.Parameter(torch.Tensor(input_size, hidden_size))                # (I,Z)
-    self.W_hz = nn.Parameter(torch.Tensor(hidden_size, hidden_size))                # (I,Z)
+    if self.subnetwork:
+      self.W_z = nn.Parameter(torch.Tensor(hidden_size, 1))                # (I,Z)
+      self.W_iz = nn.Parameter(torch.Tensor(input_size, hidden_size))                # (I,Z)
+      self.W_hz = nn.Parameter(torch.Tensor(hidden_size, hidden_size))                # (I,Z)
+    else:
+      self.W_iz = nn.Parameter(torch.Tensor(input_size-1, 1))                # (I,Z)
+      self.W_hz = nn.Parameter(torch.Tensor(hidden_size, 1))                # (I,Z)
+    
     self.bias_h = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
     self.bias_z = nn.Parameter(torch.Tensor(1))
   
@@ -200,9 +205,10 @@ class MonoGated(nn.Module):
       #for computational efficiency we do two matrix multiplications and then do indexing further down:
       if self.subnetwork:
         z_past = self.activation(x_past@self.W_iz + z_past@self.W_hz) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
+        z_t = self.sigmoid(z_past@self.W_z+self.bias_z) #compress onto 1D
       else:
-        z_past = self.activation(x_past@self.W_iz + h_past@self.W_hz)
-      z_t = self.sigmoid(z_past@self.W_z+self.bias_z) #compress onto 1D
+        z_t = self.sigmoid(x_past[:,0].unsqueeze(1)@self.W_iz + h_past@self.W_hz + self.bias_z)
+
       ## options to override gates and/or save them:
       if 'z_t' in fixed_gates.keys():
         z_t= fixed_gates['z_t']
@@ -210,7 +216,7 @@ class MonoGated(nn.Module):
         gate_activations['update'].append(z_t.unsqueeze(0)) 
       ## continued computation of hidden state:
       n_t = self.activation(x_past@self.W_ih+h_past@self.W_hh+self.bias_h)
-      h_past = (1-z_t)*n_t + z_t*h_past #(n_batch,hidden_size) #NOTE h_past is tehnically h_t now, but in the next for-loop it will be h_past. ;)
+      h_past = (1-z_t)*n_t + (z_t)*h_past #(n_batch,hidden_size) #NOTE h_past is tehnically h_t now, but in the next for-loop it will be h_past. ;)
       hidden_sequence.append(h_past.unsqueeze(0)) #appending (1,n_batch,n_hidden) to a big list.
 
     hidden_sequence = torch.cat(hidden_sequence, dim=0) #(n_sequence, n_batch, n_hidden) gather all inputs along the first dimenstion
