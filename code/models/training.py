@@ -32,9 +32,9 @@ class Trainer:
     def __init__(
         self,
         save_path: Path,
-        weight_seeds: List[float] = [1,2,3,4,5,6,7,8,9,10],#[1,2,3,4,5,6,7,8,9,10],
-        sparsity_lambdas: List[float] = [1e-1,1e-3,1e-5],
-        energy_lambdas: List[float] = [1e-1,1e-2],
+        weight_seeds: List[float] = [1,2,3,4,5,6,7,8,9,10], #[1,2,3,4,5,6,7,8,9,10],
+        sparsity_lambdas: List[float] = [1e-5], #[1e-1,1e-3,1e-5],
+        energy_lambdas: List[float] = [1e-2],
         learning_rate: float = 0.005,
         batch_size: int = 8,
         max_epochs: int = 1000,
@@ -180,26 +180,34 @@ class Trainer:
         return training_losses_df
     
     def _split_dataset(self, dataset) -> Tuple[Subset, Subset, Subset]:
-        """Split dataset into train/val/test (80/10/10)."""
-        dataset_size = len(dataset)
-        indices = list(range(dataset_size))
-        indices_dict = {}
-        # Use numpy for deterministic shuffling
+        """Split dataset into train/val/test (80/10/10) respecting session folders."""
+    
+        # Get unique folders and shuffle them
+        unique_folders = dataset.subject_df['session_folder_name'].unique()
         np.random.seed(self.train_seed)
-        np.random.shuffle(indices)
+        np.random.shuffle(unique_folders)
         
-        # 80/10/10 split
-        train_size = int(0.8 * dataset_size)
-        val_size = int(0.1 * dataset_size)
+        # Calculate split points
+        n_folders = len(unique_folders)
+        train_end = int(0.8 * n_folders)
+        val_end = train_end + int(0.1 * n_folders)
         
-        indices_dict['indices_train'] = indices[:train_size]
-        indices_dict['indices_validation'] = indices[train_size:train_size + val_size]
-        indices_dict['indices_evaluation'] = indices[train_size + val_size:]
+        # Assign folders to splits
+        train_folders = unique_folders[:train_end]
+        val_folders = unique_folders[train_end:val_end]
+        test_folders = unique_folders[val_end:]
         
+        folder_name2idx = dataset.subject_df.groupby('session_folder_name')['sequence_block_idx'].unique()
+
+        indices_dict = {}
+        indices_dict['indices_train'] = np.concat([folder_name2idx[x] for x in train_folders])
+        indices_dict['indices_validation'] = np.concat([folder_name2idx[x] for x in val_folders])
+        indices_dict['indices_evaluation'] = np.concat([folder_name2idx[x] for x in test_folders])
+
         train_dataset = Subset(dataset, indices_dict['indices_train'])
         val_dataset = Subset(dataset, indices_dict['indices_validation'])
         test_dataset = Subset(dataset, indices_dict['indices_evaluation'])
-        
+      
         return train_dataset, val_dataset, test_dataset, indices_dict
     
     def _create_dataloader(self, dataset, shuffle: bool = True) -> DataLoader:
@@ -254,7 +262,7 @@ class Trainer:
                 # remove the free choice trials from the loss!
                 free_choice = (batch_inputs[:,:,0]==0)#this should be a bool size (n_batch, n_seq)
                 #displace by one index, since forced choice input at t means prediction for t-1 is impossible.
-                free_choice[:,:-1] = free_choice[:,1:] 
+                free_choice[:,:-1] = free_choice[:,1:].clone() 
                 free_choice = free_choice.flatten()
                 masked_pred = predictions.reshape(B*S,model.O)[free_choice]
                 masked_targets = batch_targets.reshape(B*S,model.O)[free_choice]

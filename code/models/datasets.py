@@ -23,10 +23,15 @@ class AB_Dataset(Dataset):
     def _load_and_concat_data(self):
         subject_data = []
         session_folder_name = []
+        n_blocks = 0
         for session_dir in self.subject_data_path.iterdir():
             if session_dir.is_dir():
                 trials_df = pd.read_csv(session_dir/'trials.htsv', sep = '\t')
+                remainder = (len(trials_df)%(self.sequence_length+1))
+                trials_df = trials_df.iloc[:-remainder]
                 trials_df['session_trial_idx'] = range(len(trials_df))
+                trials_df['sequence_block_idx'] = np.arange(len(trials_df))//(self.sequence_length+1) + n_blocks
+                n_blocks+=len(trials_df)//(self.sequence_length+1)
                 trials_df['session_folder_name'] = np.repeat(session_dir.stem, len(trials_df))
                 subject_data.append(trials_df)
                 session_folder_name.extend(np.repeat(session_dir.stem, len(subject_data[-1]))) 
@@ -40,7 +45,6 @@ class AB_Dataset(Dataset):
         return df
 
     def _create_sequences(self):
-      
         # Convert to tensor and handle potential remainder
         data_tensor = torch.tensor(self.subject_df[['forced_choice', 'outcome', 'choice']].values, dtype=torch.float32)
         num_rows = data_tensor.size(0)
@@ -58,11 +62,8 @@ class AB_Dataset(Dataset):
         # Targets are 'choice' at time t+1, one-hot encoded
         targets_codes = sequences[:, 1:, 2].long() # Get the categorical codes as long tensor
         targets = torch.nn.functional.one_hot(targets_codes, num_classes=2).float() # One-hot encode
-
-
         return inputs, targets
-
-
+    
     def __len__(self):
         return self.inputs.size(0)
 
