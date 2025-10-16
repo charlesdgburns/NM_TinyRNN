@@ -2,8 +2,10 @@
 **data/rnns/test
 **data/rnns/WS16
 **data/rnns/WS18
-**data/rnns/WS16_old
-**data/rnns/WS18_old
+**data/rnns/run_1
+**data/rnns/run_2
+**data/rnns/run_3
+
 
 **data/WS16
 # Byte-compiled / optimized / DLL files

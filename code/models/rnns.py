@@ -101,12 +101,12 @@ class TinyRNN(nn.Module):
     stdv = 1e-3 ##1.0 / math.sqrt(self.H)
     for p in self.parameters():
         p.data.uniform_(-stdv, stdv)
-    if self.rnn_type == 'monoGRU':
-      self.rnn.W_hh.data = torch.tensor([[1.0e-3,0.0],
-                                         [0.0,1.0e-3]])
-      self.decoder.weight.data = torch.tensor([[2.0,-2.0],
-                                               [-2.0,2.0]])
-      self.rnn.bias_z.data = torch.tensor([1.0])
+    #if self.rnn_type == 'monoGRU':
+      #self.rnn.W_hh.data = torch.tensor([[1.0e-3,0.0],
+      #                                   [0.0,1.0e-3]])
+      #self.decoder.weight.data = torch.tensor([[2.0,-2.0],
+      #                                         [-2.0,2.0]])
+      #self.rnn.bias_z.data = torch.tensor([1.0])
       
   def forward(self, inputs):
     '''Expects inputs shaped (n_batch, n_seq, n_features)
