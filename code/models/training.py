@@ -302,7 +302,7 @@ class Trainer:
         
         optimizer = torch.optim.AdamW(model_copy.parameters(), 
                                       lr=self.learning_rate,
-                                      weight_decay = 0)
+                                      weight_decay = 0.0)
         
         # Training history
         train_pred_losses = []

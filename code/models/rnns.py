@@ -46,6 +46,7 @@ class TinyRNN(nn.Module):
                fixed_decoder = False,
                weight_seed = 42,
                batch_norm = False,
+               loss_type = 'BC' #'BC' (biological constraints) or 'LPL' (latent predictive learning)
               ):
     super().__init__()
     
@@ -62,6 +63,7 @@ class TinyRNN(nn.Module):
     self.nonlinearity = nonlinearity
     self.input_encoding = input_encoding
     self.fixed_decoder = fixed_decoder
+    self.loss_type = loss_type
     
     # We then need an RNN and a decoder:
     if rnn_type == 'vanilla':
@@ -128,12 +130,23 @@ class TinyRNN(nn.Module):
     ## predicion loss:
     prediction_loss = nn.functional.cross_entropy(predictions, targets) #NB: this applies softmax itself
     ## for weight sparsity we need to select the right weights to regularise:
-    sparsity_loss = 0
-    for name, param in self.rnn.named_parameters():
-      if 'bias' not in name:
-        sparsity_loss += torch.abs(param).sum()
+    if self.loss_type == 'BC':
+        sparsity_loss = 0
+        for name, param in self.rnn.named_parameters():
+          if 'bias' not in name:
+            sparsity_loss += torch.abs(param).sum()
     ## for energy loss we simply take mean squared activations:
-    energy_loss = torch.mean(hidden_states**2)
+        energy_loss = torch.mean(hidden_states**2)
+        
+    elif self.loss_type == 'LPL':
+      #to prevent representational collapse: #the 1e-4 is an epsilon term to prevent infinite 
+      hebbian_loss = -torch.log(torch.var(hidden_states, dim=1)+1e-4).mean()
+      #then decorrelate via the sum of off-diagonals of squared covariance matrix.
+      decorrelation_loss = 0
+      for each_batch in range(hidden_states.shape[0]):
+        decorrelation_loss+= torch.triu(torch.cov(hidden_states[each_batch].T)**2, diagonal = 1).sum() 
+      #lazily hack it together as 
+      sparsity_loss, energy_loss = hebbian_loss, decorrelation_loss
     return prediction_loss, sparsity_loss*self.sparsity_lambda, energy_loss*self.energy_lambda
     
   def get_options_dict(self):
