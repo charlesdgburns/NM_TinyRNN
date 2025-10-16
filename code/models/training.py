@@ -35,9 +35,9 @@ class Trainer:
         weight_seeds: List[float] = [1,2,3,4,5,6,7,8,9,10], #[1,2,3,4,5,6,7,8,9,10],
         sparsity_lambdas: List[float] = [1e-5], #[1e-1,1e-3,1e-5],
         energy_lambdas: List[float] = [1e-2],
-        learning_rate: float = 0.005,
+        learning_rate: float = 1e-4,#0.005,
         batch_size: int = 8,
-        max_epochs: int = 1000,
+        max_epochs: int = 10000,
         early_stop: int = 200,
         train_seed: int = TRAIN_SEED
     ):
@@ -190,12 +190,13 @@ class Trainer:
         # Calculate split points
         n_folders = len(unique_folders)
         train_end = int(0.8 * n_folders)
-        val_end = train_end + int(0.1 * n_folders)
+        val_size = max(1, round(0.1 * n_folders))
+        test_size = n_folders - train_end - val_size
         
         # Assign folders to splits
         train_folders = unique_folders[:train_end]
-        val_folders = unique_folders[train_end:val_end]
-        test_folders = unique_folders[val_end:]
+        val_folders = unique_folders[train_end:train_end + val_size]
+        test_folders = unique_folders[train_end + val_size:]
         
         folder_name2idx = dataset.subject_df.groupby('session_folder_name')['sequence_block_idx'].unique()
 
@@ -299,7 +300,9 @@ class Trainer:
         model_copy = deepcopy(model)
         model_copy.load_state_dict(model.state_dict())
         
-        optimizer = torch.optim.Adam(model_copy.parameters(), lr=self.learning_rate)
+        optimizer = torch.optim.AdamW(model_copy.parameters(), 
+                                      lr=self.learning_rate,
+                                      weight_decay = 0)
         
         # Training history
         train_pred_losses = []

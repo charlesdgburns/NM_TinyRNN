@@ -7,6 +7,9 @@ import pandas as pd
 import numpy as np
 import torch
 
+from joblib import Parallel, delayed
+
+
 from NM_TinyRNN.code.models import training
 from NM_TinyRNN.code.models import datasets
 from NM_TinyRNN.code.models import rnns
@@ -20,7 +23,7 @@ PROCESSED_DATA_PATH = Path('./NM_TinyRNN/data/AB_behaviour/') #subfolders here a
 
 def run_training(overwrite=False):
     '''Submit jobs to HPC cluster via slurm to run training'''
-    train_df = get_train_info_df()
+    train_df = get_var3_info_df()
     if not overwrite:
         train_df = train_df[~train_df.completed]
     if train_df.empty:
@@ -32,18 +35,41 @@ def run_training(overwrite=False):
         os.system(f"sbatch {script_path}")
     print("All NM_TinyRNN jobs submitted to HPC. Check progress with 'squeue -u <username>'")
 
-
-def train_model_AB(data_path, 
+# Parallel wrapper
+def train_parallel(data_path, 
                    save_path,
                    model_type:str, 
-                   hidden_size:int, 
+                   hidden_size:int=2, 
                    nm_size:str=1, 
                    nm_dim:str=1, 
                    nm_mode:str=1,
                    input_encoding:str='unipolar',
-                   nonlinearity:str='tanh',
-                   constraint:str='sparsity',
-                   train_seed:int=42):
+                   nonlinearity:str='relu',
+                   constraint:str='energy',
+                   train_seed:int=42,
+                   weight_seeds=[1,2,3,4,5,6,7,8,9,10], n_jobs=-1, **kwargs):
+    '''Parallelizes training over weight_seeds. n_jobs=-1 uses all cores.'''
+    Parallel(n_jobs=n_jobs)(
+        delayed(train_model_AB)(data_path, Path(save_path)/f'weight_seed_{seed}', 
+                                model_type,hidden_size,
+                                nm_size,nm_dim,nm_mode,
+                                input_encoding,nonlinearity, constraint,
+                                train_seed = train_seed,
+                                weight_seeds=[seed])
+        for seed in weight_seeds)
+
+def train_model_AB(data_path, 
+                   save_path,
+                   model_type:str, 
+                   hidden_size:int=2, 
+                   nm_size:str=1, 
+                   nm_dim:str=1, 
+                   nm_mode:str=1,
+                   input_encoding:str='unipolar',
+                   nonlinearity:str='relu',
+                   constraint:str='energy',
+                   train_seed:int=42,
+                   weight_seeds:list=[1,2,3,4,5,6,7,8,9,10]):
     '''Minimal inputs required to test fit all model types.'''
     options = rnns.OPTIONS_DICT
     options['rnn_type'] = model_type
@@ -57,15 +83,19 @@ def train_model_AB(data_path,
     dataset = datasets.AB_Dataset(data_path)
     model = rnns.TinyRNN(**options)
     if constraint == 'sparsity':
-        trainer = training.Trainer(save_path, train_seed=train_seed,
-                                   energy_lambdas=[0]) #sparsity constraint
+        trainer = training.Trainer(save_path, 
+                                   weight_seeds = weight_seeds,
+                                   train_seed=train_seed,
+                                   energy_lambdas=[0]) #sparsity constraint only
     else: 
-        trainer = training.Trainer(save_path,train_seed=train_seed) #default range specified in training.py
+        trainer = training.Trainer(save_path,
+                                   weight_seeds=weight_seeds,
+                                   train_seed=train_seed) #default range specified in training.py
     trainer.fit(model,dataset)
     return None
 
 
-def get_NM_TinyRNN_SLURM_script(train_info, RAM="32GB", time_limit="23:59:00"):
+def get_NM_TinyRNN_SLURM_script(train_info, RAM="64GB", time_limit="23:59:00"):
     """
     Writes a SLURM script to run sleap tracking on the video from a session specified in video_info.
     Input: train_info: pd.Series
@@ -77,7 +107,7 @@ def get_NM_TinyRNN_SLURM_script(train_info, RAM="32GB", time_limit="23:59:00"):
 #SBATCH --output={JOBS_PATH}/out/{session_ID}.out
 #SBATCH --error={JOBS_PATH}/err/{session_ID}.err
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=8
 #SBATCH --mem={RAM}
 #SBATCH --time={time_limit}
 set -euo pipefail
@@ -104,7 +134,7 @@ conda activate /nfs/nhome/live/cburns/miniconda3/envs/NM_TinyRNN
 
 echo "Running training"
 python -c "from NM_TinyRNN.code.models import parallelised_training as pat; \
-pat.train_model_AB('{train_info.data_path}','{train_info.save_path}','{train_info.model_type}',{int(train_info.hidden_size)},{int(train_info.nm_size)},{int(train_info.nm_dim)},'{train_info.nm_mode}', '{train_info.input_encoding}', '{train_info.nonlinearity}','{train_info.constraint}',{int(train_info.train_seed)})"
+pat.train_parallel('{train_info.data_path}','{train_info.save_path}','{train_info.model_type}',{int(train_info.hidden_size)},{int(train_info.nm_size)},{int(train_info.nm_dim)},'{train_info.nm_mode}', '{train_info.input_encoding}', '{train_info.nonlinearity}','{train_info.constraint}',{int(train_info.train_seed)})"
 """
     script_path = JOBS_PATH/'slurm'/f'{session_ID}.sh'  
     with open(script_path, "w") as f:
@@ -112,10 +142,12 @@ pat.train_model_AB('{train_info.data_path}','{train_info.save_path}','{train_inf
 
     return script_path
 
-
-def get_train_info_df(processed_data_path = PROCESSED_DATA_PATH, save_path = SAVE_PATH):
+def get_var1_info_df(processed_data_path = PROCESSED_DATA_PATH, save_path = SAVE_PATH):
     '''Builds a dataframe with each subject and for each model combination.
-    Checks whether a model combination has been run before or not.'''
+    Checks whether a model combination has been run before or not.
+    
+    Saving out this function for later use. This is the first run we did with WS18.
+    Here there's a ton of hyperparameters.'''
     #see each subject
     df_dict = {'subject_ID':[],'train_seed':[],'model_type':[],'hidden_size':[],
                'nonlinearity':[],'input_encoding':[],'constraint':[],
@@ -162,6 +194,86 @@ def get_train_info_df(processed_data_path = PROCESSED_DATA_PATH, save_path = SAV
                                                 df_dict[k].append(v)
     return pd.DataFrame(df_dict)
 
+
+
+def get_var2_info_df(processed_data_path = PROCESSED_DATA_PATH, save_path = SAVE_PATH):
+    '''Builds a dataframe with each subject and for each model combination.
+    Checks whether a model combination has been run before or not.
+    Second run with just monoGRU - select hyperparameters set in training.py script
+    energy_lambda = [1e-2], sparsity_lambda = [1e-5]. 
+    Only variability across weight and training seeds.
+    '''
+    #see each subject
+    df_dict = {'subject_ID':[],'train_seed':[],'model_type':[],'hidden_size':[],
+               'nonlinearity':[],'input_encoding':[],'constraint':[],
+               'nm_size':[],'nm_dim':[],'nm_mode':[],
+               'model_id':[],'save_path':[],'data_path':[], 'completed':[]}
+   
+    for subdir in processed_data_path.iterdir():
+        print(subdir)
+        subject_ID = subdir.stem
+        data_path = PROCESSED_DATA_PATH/subject_ID
+        if not subdir.is_dir():
+            continue
+        for train_seed in [1,2,3,4,5,6,7,8,9,10]: #later add more seeds
+            for model_type in ['monoGRU']:#['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
+                for constraint in ['energy']:
+                    for nonlinearity in ['relu']:
+                        for input_encoding in ['unipolar']:
+                            for hidden_size in [2]:
+                                nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
+                                #nmrnns are tricky since we're testing this.
+                                model_id =  f'{hidden_size}_unit_{model_type}'
+                                model_save_path = save_path/'run_2'/subject_ID/f'random_seed_{train_seed}'/model_type/constraint
+                                completed = (model_save_path/f'{model_id}_trials_data.htsv').exists()
+                                for k,v in zip(df_dict.keys(),
+                                            [subject_ID,train_seed,model_type,hidden_size,
+                                                nonlinearity, input_encoding,constraint,
+                                            nm_size,nm_dim,nm_mode,
+                                            model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
+                                            df_dict[k].append(v)
+                               
+    return pd.DataFrame(df_dict)
+    
+
+def get_var3_info_df(processed_data_path = PROCESSED_DATA_PATH, save_path = SAVE_PATH):
+    '''Builds a dataframe with each subject and for each model combination.
+    Checks whether a model combination has been run before or not.
+    Second run with just monoGRU - select hyperparameters set in training.py script
+    energy_lambda = [1e-2], sparsity_lambda = [1e-5]. 
+    Only variability across weight and training seeds.
+    '''
+    #see each subject
+    df_dict = {'subject_ID':[],'train_seed':[],'model_type':[],'hidden_size':[],
+               'nonlinearity':[],'input_encoding':[],'constraint':[],
+               'nm_size':[],'nm_dim':[],'nm_mode':[],
+               'model_id':[],'save_path':[],'data_path':[], 'completed':[]}
+   
+    for subdir in processed_data_path.iterdir():
+        print(subdir)
+        subject_ID = subdir.stem
+        data_path = PROCESSED_DATA_PATH/subject_ID
+        if not subdir.is_dir():
+            continue
+        for train_seed in range(1,51): #later add more seeds
+            for model_type in ['monoGRU']:#['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
+                for constraint in ['energy']:
+                    for nonlinearity in ['relu']:
+                        for input_encoding in ['unipolar']:
+                            for hidden_size in [2]:
+                                nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
+                                #nmrnns are tricky since we're testing this.
+                                model_id =  f'{hidden_size}_unit_{model_type}'
+                                model_save_path = save_path/'run_3'/subject_ID/f'random_seed_{train_seed}'/model_type/constraint
+                                completed = (model_save_path/f'{model_id}_trials_data.htsv').exists()
+                                for k,v in zip(df_dict.keys(),
+                                            [subject_ID,train_seed,model_type,hidden_size,
+                                                nonlinearity, input_encoding,constraint,
+                                            nm_size,nm_dim,nm_mode,
+                                            model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
+                                            df_dict[k].append(v)
+                               
+    return pd.DataFrame(df_dict)
     
                     
     

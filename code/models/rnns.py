@@ -98,9 +98,15 @@ class TinyRNN(nn.Module):
     np.random.seed(self.weight_seed)
     if torch.cuda.is_available():
       torch.cuda.manual_seed(self.weight_seed)
-    stdv = 1.0 / math.sqrt(self.H)
+    stdv = 1e-3 ##1.0 / math.sqrt(self.H)
     for p in self.parameters():
         p.data.uniform_(-stdv, stdv)
+    if self.rnn_type == 'monoGRU':
+      self.rnn.W_hh.data = torch.tensor([[1.0e-3,0.0],
+                                         [0.0,1.0e-3]])
+      self.decoder.weight.data = torch.tensor([[2.0,-2.0],
+                                               [-2.0,2.0]])
+      self.rnn.bias_z.data = torch.tensor([1.0])
       
   def forward(self, inputs):
     '''Expects inputs shaped (n_batch, n_seq, n_features)
@@ -138,10 +144,12 @@ class TinyRNN(nn.Module):
                     'out_size':self.O,
                     'sparsity_lambda':self.sparsity_lambda,
                     'energy_lambda': self.energy_lambda,
-                    'input_forced_choice':self.input_forced_choice,
                     'weight_seed':self.weight_seed,
                     'nonlinearity':self.nonlinearity,
-                    'batch_norm': hasattr(self,'batch_norm'),}
+                    'input_encoding':self.input_encoding,
+                    'input_forced_choice':self.input_forced_choice,
+                    'batch_norm': hasattr(self,'batch_norm'),
+                    'fixed_decoder':self.fixed_decoder}
     if self.rnn_type == 'NMRNN':
       options_dict['nm_size']=self.nm_size
       options_dict['nm_dim']=self.nm_dim
