@@ -35,7 +35,8 @@ class Trainer:
         weight_seeds: List[float] = [1,2,3,4,5,6,7,8,9,10], #[1,2,3,4,5,6,7,8,9,10],
         sparsity_lambdas: List[float] = [1e-5], #[1e-1,1e-3,1e-5],
         energy_lambdas: List[float] = [1e-2],
-        learning_rate: float = 1e-4,#0.005,
+        hebbian_lambdas: List[float] = [0],
+        learning_rate: float = 1e-4, #1e-4,#0.005,
         batch_size: int = 8,
         max_epochs: int = 10000,
         early_stop: int = 200,
@@ -56,6 +57,7 @@ class Trainer:
         self.save_path = Path(save_path) #ensure it's a Path object
         self.sparsity_lambdas = sparsity_lambdas
         self.energy_lambdas = energy_lambdas
+        self.hebbian_lambdas = hebbian_lambdas
         self.weight_seeds = weight_seeds
         self.learning_rate = learning_rate
         self.batch_size = batch_size
@@ -97,29 +99,32 @@ class Trainer:
         ## TRAINING ##
         for sparsity_lambda in self.sparsity_lambdas:
             for energy_lambda in self.energy_lambdas:
-                for weight_seed in self.weight_seeds:
-                    print(f"\nTraining with \n sparsity lambda = {sparsity_lambda}, \n weight seed = {weight_seed}, \n energy lambda = {energy_lambda}")
-                    # Reset model to initial state for each set of values
-                    model.sparsity_lambda = sparsity_lambda 
-                    model.energy_lambda = energy_lambda
-                    model.weight_seed = weight_seed
-                    model.init_weights() #reset model weights before training.
-                
-                    losses_dict, val_pred_loss = self._train_single_model(
-                        model, train_loader, val_loader)
+                for hebbian_lambda in self.hebbian_lambdas:
+                    for weight_seed in self.weight_seeds:
+                        print(f"\nTraining with  \n weight seed = {weight_seed},\n sparsity lambda = {sparsity_lambda}, \n energy lambda = {energy_lambda}, \n hebbian lambda = {hebbian_lambda}")
+                        # Reset model to initial state for each set of values
+                        model.sparsity_lambda = sparsity_lambda 
+                        model.energy_lambda = energy_lambda
+                        model.hebbian_lambda = hebbian_lambda
+                        model.weight_seed = weight_seed
+                        model.init_weights() #reset model weights before training.
                     
-                    all_results.append(losses_dict)
-                    
-                    # Track best model across all sparsity values
-                    if val_pred_loss < best_overall_val_loss:
-                        best_overall_val_loss = val_pred_loss
-                        best_model_info = {
-                            'sparsity_lambda': sparsity_lambda,
-                            'energy_lambda': energy_lambda,
-                            'weight_seed': weight_seed,
-                            'val_pred_loss': val_pred_loss,
-                            'model_state': losses_dict['best_model_state']
-                        }
+                        losses_dict, val_pred_loss = self._train_single_model(
+                            model, train_loader, val_loader)
+                        
+                        all_results.append(losses_dict)
+                        
+                        # Track best model across all sparsity values
+                        if val_pred_loss < best_overall_val_loss:
+                            best_overall_val_loss = val_pred_loss
+                            best_model_info = {
+                                'sparsity_lambda': sparsity_lambda,
+                                'energy_lambda': energy_lambda,
+                                'hebbian_lambda':hebbian_lambda,
+                                'weight_seed': weight_seed,
+                                'val_pred_loss': val_pred_loss,
+                                'model_state': losses_dict['best_model_state']
+                            }
                     
                 
         ## EVAL AND SAVING ##
@@ -130,11 +135,13 @@ class Trainer:
         # Evaluate on test set using run_epoch // we only really care about prediction cross-entropy
         print(f"\nEvaluating best model (sparsity = {best_model_info['sparsity_lambda']:.0e}, energy = {best_model_info['energy_lambda']}, weight_seed = {best_model_info['weight_seed']}) on test set...")
         model.load_state_dict(best_model_info['model_state'])
-        model.sparsity_lambda = best_model_info['sparsity_lambda'] #need to set these again for options dict further down
+        #need to set hyperparameters for generating the correct options_dict further down
+        model.sparsity_lambda = best_model_info['sparsity_lambda'] 
         model.energy_lambda = best_model_info['energy_lambda']
+        model.hebbian_lambda = best_model_info['hebbian_lambda']
         model.weight_seed = best_model_info['weight_seed']
         model.eval()
-        eval_pred_loss, _, _ = self._run_epoch(model, test_loader, None, 
+        eval_pred_loss, _, _,_ = self._run_epoch(model, test_loader, None, 
                                             training=False)
         best_model_info['eval_pred_loss'] = eval_pred_loss
         print(f"Evaluation loss: {eval_pred_loss:.6f}")
@@ -160,7 +167,8 @@ class Trainer:
                     'val_pred_loss': result['val_pred_losses'][epoch],
                     'train_pred_loss': result['train_pred_losses'][epoch],
                     'train_sparsity': result['train_sparsity'][epoch],
-                    'train_energy': result['train_energy'][epoch]
+                    'train_energy': result['train_energy'][epoch],
+                    'train_hebbian':result['train_hebbian'][epoch]
                 })
         
         training_losses_df = pd.DataFrame(df_data)
@@ -252,6 +260,7 @@ class Trainer:
         total_pred_loss = 0
         total_sparsity_loss = 0
         total_energy_loss = 0
+        total_hebbian_loss= 0
         
         context_manager = torch.no_grad() if not training else torch.enable_grad()
         with context_manager:
@@ -267,21 +276,23 @@ class Trainer:
                 free_choice = free_choice.flatten()
                 masked_pred = predictions.reshape(B*S,model.O)[free_choice]
                 masked_targets = batch_targets.reshape(B*S,model.O)[free_choice]
-                prediction_loss, sparsity_loss, energy_loss =  model.compute_losses(masked_pred,masked_targets, hidden_states)
+                prediction_loss, sparsity_loss, energy_loss, hebbian_loss =  model.compute_losses(masked_pred,masked_targets, hidden_states)
                 
                 if training and optimizer is not None:
-                    loss = prediction_loss + sparsity_loss + energy_loss
+                    loss = prediction_loss + sparsity_loss + energy_loss + hebbian_loss
                     loss.backward()
                     optimizer.step()
                 
                 total_pred_loss += prediction_loss.item()
                 total_sparsity_loss += (sparsity_loss).item()
                 total_energy_loss += (energy_loss).item()
+                total_hebbian_loss += (hebbian_loss).item()
         avg_pred_loss = total_pred_loss / len(dataloader)
         avg_sparsity_loss = total_sparsity_loss / len(dataloader)
         avg_energy_loss = total_energy_loss / len(dataloader)
+        avg_hebbian_loss = total_hebbian_loss / len(dataloader)
         
-        return avg_pred_loss, avg_sparsity_loss, avg_energy_loss
+        return avg_pred_loss, avg_sparsity_loss, avg_energy_loss, avg_hebbian_loss
     
     def _train_single_model(
         self,
@@ -308,6 +319,7 @@ class Trainer:
         train_pred_losses = []
         train_sparsities= []
         train_energies = []
+        train_hebbians = []
         val_pred_losses = []
         
         best_val_pred_loss = float('inf')
@@ -316,17 +328,18 @@ class Trainer:
         
         for epoch in tqdm(range(self.max_epochs), desc=f"λ={model.sparsity_lambda:.0e}"):
             # Training epoch
-            train_pred_loss, train_sparsity, train_energy = self._run_epoch(
+            train_pred_loss, train_sparsity, train_energy, train_hebbian = self._run_epoch(
                 model_copy, train_loader, optimizer, training=True)
             
             # Validation epoch // here we only care about cross-entropy of predictions
-            val_pred_loss, _, _ = self._run_epoch(model_copy, val_loader, None, 
+            val_pred_loss, _, _,_ = self._run_epoch(model_copy, val_loader, None, 
                                                training=False)
             
             # Store losses
             train_pred_losses.append(train_pred_loss)
             train_sparsities.append(train_sparsity)
             train_energies.append(train_energy)
+            train_hebbians.append(train_hebbian)
             val_pred_losses.append(val_pred_loss)
             
             # Early stopping check
@@ -347,6 +360,7 @@ class Trainer:
             'train_pred_losses': train_pred_losses,
             'train_sparsity': train_sparsities,
             'train_energy': train_energies,
+            'train_hebbian':train_hebbians,
             'val_pred_losses': val_pred_losses,
             'epochs_trained': len(train_pred_losses),
             'best_val_pred_loss': best_val_pred_loss,

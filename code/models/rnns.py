@@ -40,10 +40,11 @@ class TinyRNN(nn.Module):
                nm_mode: str = 'low_rank',
                sparsity_lambda:float = 1e-2,
                energy_lambda:float = 0,
+               hebbian_lambda:float = 0,
                input_encoding = 'unipolar',
                input_forced_choice = False,
                nonlinearity = 'tanh',
-               fixed_decoder = False,
+               init_decoder = False,
                weight_seed = 42,
                batch_norm = False,
                loss_type = 'BC' #'BC' (biological constraints) or 'LPL' (latent predictive learning)
@@ -60,10 +61,12 @@ class TinyRNN(nn.Module):
     self.weight_seed = weight_seed
     self.sparsity_lambda = sparsity_lambda
     self.energy_lambda = energy_lambda
+    self.hebbian_lambda = hebbian_lambda
     self.nonlinearity = nonlinearity
     self.input_encoding = input_encoding
-    self.fixed_decoder = fixed_decoder
+    self.init_decoder = init_decoder
     self.loss_type = loss_type
+    self.batch_norm = batch_norm
     
     # We then need an RNN and a decoder:
     if rnn_type == 'vanilla':
@@ -100,16 +103,13 @@ class TinyRNN(nn.Module):
     np.random.seed(self.weight_seed)
     if torch.cuda.is_available():
       torch.cuda.manual_seed(self.weight_seed)
-    stdv = 1e-3 ##1.0 / math.sqrt(self.H)
-    for p in self.parameters():
+    stdv = 1e-3 #/ math.sqrt(self.H) #1e-3 
+    for p in self.rnn.parameters():
         p.data.uniform_(-stdv, stdv)
-    #if self.rnn_type == 'monoGRU':
-      #self.rnn.W_hh.data = torch.tensor([[1.0e-3,0.0],
-      #                                   [0.0,1.0e-3]])
-      #self.decoder.weight.data = torch.tensor([[2.0,-2.0],
-      #                                         [-2.0,2.0]])
-      #self.rnn.bias_z.data = torch.tensor([1.0])
-      
+    if self.init_decoder:
+      self.decoder.weight.data = torch.tensor([[2.0,-2.0],
+                                               [-2.0,2.0]])
+     
   def forward(self, inputs):
     '''Expects inputs shaped (n_batch, n_seq, n_features)
     For AB dataset, n_features are ordered as:
@@ -119,35 +119,23 @@ class TinyRNN(nn.Module):
     if self.input_encoding == 'bipolar':
       inputs = inputs*2-1 #maps 0 to -1 and 1 to 1.
     hidden, _ = self.rnn(inputs)
-    if self.fixed_decoder:
-      predictions = hidden @ torch.tensor([[2.0,-2.0],
-                                           [-2.0,2.0]])
-    else:
-      predictions = self.decoder(hidden)
+    predictions = self.decoder(hidden)
     return predictions, hidden
 
   def compute_losses(self, predictions,targets, hidden_states):
     ## predicion loss:
     prediction_loss = nn.functional.cross_entropy(predictions, targets) #NB: this applies softmax itself
     ## for weight sparsity we need to select the right weights to regularise:
-    if self.loss_type == 'BC':
-        sparsity_loss = 0
-        for name, param in self.rnn.named_parameters():
-          if 'bias' not in name:
-            sparsity_loss += torch.abs(param).sum()
+    sparsity_loss = 0
+    for name, param in self.rnn.named_parameters():
+      if 'bias' not in name:
+        sparsity_loss += torch.abs(param).sum()
     ## for energy loss we simply take mean squared activations:
-        energy_loss = torch.mean(hidden_states**2)
-        
-    elif self.loss_type == 'LPL':
-      #to prevent representational collapse: #the 1e-4 is an epsilon term to prevent infinite 
-      hebbian_loss = -torch.log(torch.var(hidden_states, dim=1)+1e-4).mean()
-      #then decorrelate via the sum of off-diagonals of squared covariance matrix.
-      decorrelation_loss = 0
-      for each_batch in range(hidden_states.shape[0]):
-        decorrelation_loss+= torch.triu(torch.cov(hidden_states[each_batch].T)**2, diagonal = 1).sum() 
-      #lazily hack it together as 
-      sparsity_loss, energy_loss = hebbian_loss, decorrelation_loss
-    return prediction_loss, sparsity_loss*self.sparsity_lambda, energy_loss*self.energy_lambda
+    energy_loss = torch.mean(hidden_states**2)
+    #to prevent representational collapse: #the 1e-4 is an epsilon term to prevent infinite 
+    hebbian_loss = -torch.log(torch.var(hidden_states, dim=1)).mean()
+
+    return prediction_loss, sparsity_loss*self.sparsity_lambda, energy_loss*self.energy_lambda, hebbian_loss*self.hebbian_lambda
     
   def get_options_dict(self):
     '''Helper function to later save and reinstate model'''
@@ -157,12 +145,13 @@ class TinyRNN(nn.Module):
                     'out_size':self.O,
                     'sparsity_lambda':self.sparsity_lambda,
                     'energy_lambda': self.energy_lambda,
+                    'hebbian_lamba': self.hebbian_lambda,
                     'weight_seed':self.weight_seed,
                     'nonlinearity':self.nonlinearity,
                     'input_encoding':self.input_encoding,
                     'input_forced_choice':self.input_forced_choice,
-                    'batch_norm': hasattr(self,'batch_norm'),
-                    'fixed_decoder':self.fixed_decoder}
+                    'batch_norm': self.batch_norm,
+                    'init_decoder':self.init_decoder}
     if self.rnn_type == 'NMRNN':
       options_dict['nm_size']=self.nm_size
       options_dict['nm_dim']=self.nm_dim
@@ -181,7 +170,7 @@ class TinyRNN(nn.Module):
 
 class MonoGated(nn.Module):
   '''A minimal gated RNN with a 1D gating signal.'''
-  def __init__(self, input_size,hidden_size, nonlinearity = 'tanh',
+  def __init__(self, input_size,hidden_size, nonlinearity = 'relu',
                subnetwork: bool = False):
     super().__init__() #init nn.Module
     self.input_size = input_size
@@ -233,7 +222,8 @@ class MonoGated(nn.Module):
         z_past = self.activation(x_past@self.W_iz + z_past@self.W_hz) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
         z_t = self.sigmoid(z_past@self.W_z+self.bias_z) #compress onto 1D
       else:
-        z_t = self.sigmoid(x_past[:,0].unsqueeze(1)@self.W_iz + h_past@self.W_hz + self.bias_z)
+        reward_t = x_past[:,0].unsqueeze(1)
+        z_t = self.sigmoid(reward_t@self.W_iz + h_past@self.W_hz + self.bias_z)
 
       ## options to override gates and/or save them:
       if 'z_t' in fixed_gates.keys():
