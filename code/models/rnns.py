@@ -40,15 +40,14 @@ class TinyRNN(nn.Module):
                nm_mode: str = 'low_rank',
                sparsity_lambda:float = 1e-2,
                energy_lambda:float = 0,
-               hebbian_lambda:float = 0,
+               hebbian_lambda:float = None,
                input_encoding = 'unipolar',
                input_forced_choice = False,
                nonlinearity = 'tanh',
                init_decoder = False,
                weight_seed = 42,
                batch_norm = False,
-               loss_type = 'BC' #'BC' (biological constraints) or 'LPL' (latent predictive learning)
-              ):
+               ):
     super().__init__()
     
     # add attributes
@@ -65,7 +64,6 @@ class TinyRNN(nn.Module):
     self.nonlinearity = nonlinearity
     self.input_encoding = input_encoding
     self.init_decoder = init_decoder
-    self.loss_type = loss_type
     self.batch_norm = batch_norm
     
     # We then need an RNN and a decoder:
@@ -123,19 +121,22 @@ class TinyRNN(nn.Module):
     return predictions, hidden
 
   def compute_losses(self, predictions,targets, hidden_states):
+    losses = {}
     ## predicion loss:
-    prediction_loss = nn.functional.cross_entropy(predictions, targets) #NB: this applies softmax itself
+    losses['prediction'] = nn.functional.cross_entropy(predictions, targets) #NB: this applies softmax itself
     ## for weight sparsity we need to select the right weights to regularise:
-    sparsity_loss = 0
+    losses['sparsity'] = 0
     for name, param in self.rnn.named_parameters():
       if 'bias' not in name:
-        sparsity_loss += torch.abs(param).sum()
+        losses['sparsity'] += torch.abs(param).sum()*self.sparsity_lambda
     ## for energy loss we simply take mean squared activations:
-    energy_loss = torch.mean(hidden_states**2)
+    losses['energy']  = torch.mean(hidden_states**2)*self.energy_lambda
     #to prevent representational collapse: #the 1e-4 is an epsilon term to prevent infinite 
-    hebbian_loss = -torch.log(torch.var(hidden_states, dim=1)).mean()
-
-    return prediction_loss, sparsity_loss*self.sparsity_lambda, energy_loss*self.energy_lambda, hebbian_loss*self.hebbian_lambda
+    if self.hebbian_lambda is not None:
+       losses['hebbian'] = -torch.log(torch.var(hidden_states, dim=1)).mean()*self.hebbian_lambda
+    else:
+      losses['hebbian'] = torch.tensor([0])
+    return losses
     
   def get_options_dict(self):
     '''Helper function to later save and reinstate model'''

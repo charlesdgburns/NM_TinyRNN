@@ -297,22 +297,22 @@ def get_var4_info_df(processed_data_path = PROCESSED_DATA_PATH, save_path = SAVE
             continue
         for train_seed in range(1,21): #later add more seeds
             for model_type in ['monoGRU','GRU']:#['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
-                nonlinearity = 'relu' if model_type =='monoGRU' else 'tanh'
-                constraint = 'energy' if model_type == 'monoGRU' else 'sparsity'
-                input_encoding = 'unipolar'
-                for hidden_size in [2]:
-                    nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
-                    #nmrnns are tricky since we're testing this.
-                    model_id =  f'{hidden_size}_unit_{model_type}'
-                    model_save_path = save_path/'run_3'/subject_ID/f'random_seed_{train_seed}'/model_type/constraint
-                    completed = (model_save_path/f'{model_id}_trials_data.htsv').exists()
-                    for k,v in zip(df_dict.keys(),
-                                [subject_ID,train_seed,model_type,hidden_size,
-                                    nonlinearity, input_encoding,constraint,
-                                nm_size,nm_dim,nm_mode,
-                                model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
-                                df_dict[k].append(v)
-                        
+                for constraint in ['energy','sparsity']:
+                    nonlinearity = 'relu' if constraint =='energy' else 'tanh'
+                    input_encoding = 'unipolar'
+                    for hidden_size in [1,2]:
+                        nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
+                        #nmrnns are tricky since we're testing this.
+                        model_id =  f'{hidden_size}_unit_{model_type}'
+                        model_save_path = save_path/'run_4'/subject_ID/f'random_seed_{train_seed}'/model_type/constraint
+                        completed = (model_save_path/f'{model_id}_trials_data.htsv').exists()
+                        for k,v in zip(df_dict.keys(),
+                                    [subject_ID,train_seed,model_type,hidden_size,
+                                        nonlinearity, input_encoding,constraint,
+                                    nm_size,nm_dim,nm_mode,
+                                    model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
+                                    df_dict[k].append(v)
+                            
     return pd.DataFrame(df_dict)
     
                     

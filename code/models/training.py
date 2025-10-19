@@ -35,10 +35,10 @@ class Trainer:
         weight_seeds: List[float] = [1,2,3,4,5,6,7,8,9,10], #[1,2,3,4,5,6,7,8,9,10],
         sparsity_lambdas: List[float] = [1e-5], #[1e-1,1e-3,1e-5],
         energy_lambdas: List[float] = [1e-2],
-        hebbian_lambdas: List[float] = [0],
+        hebbian_lambdas: List[float] = [None],
         learning_rate: float = 1e-4, #1e-4,#0.005,
         batch_size: int = 8,
-        max_epochs: int = 10000,
+        max_epochs: int = 10,
         early_stop: int = 200,
         train_seed: int = TRAIN_SEED
     ):
@@ -109,21 +109,38 @@ class Trainer:
                         model.weight_seed = weight_seed
                         model.init_weights() #reset model weights before training.
                     
-                        losses_dict, val_pred_loss = self._train_single_model(
+                        losses_dict, best_model_dict = self._train_single_model(
                             model, train_loader, val_loader)
+                        #append all the hyperparameters for each run
+                        n_epochs = len(losses_dict['train_prediction'])
+                        losses_dict['sparsity_lambda'] = np.repeat(sparsity_lambda,n_epochs )
+                        losses_dict['energy_lambda'] = np.repeat(energy_lambda, n_epochs)
+                        losses_dict['hebbian_lambda'] = np.repeat(hebbian_lambda, n_epochs)
+                        losses_dict['weight_seed'] = np.repeat(weight_seed,n_epochs)
+                        losses_dict['epoch'] = np.arange(1,n_epochs+1)
                         
                         all_results.append(losses_dict)
                         
                         # Track best model across all sparsity values
-                        if val_pred_loss < best_overall_val_loss:
-                            best_overall_val_loss = val_pred_loss
+                        if best_model_dict['val_pred_loss'] < best_overall_val_loss:
+                            best_overall_val_loss = best_model_dict['val_pred_loss']
                             best_model_info = {
                                 'sparsity_lambda': sparsity_lambda,
                                 'energy_lambda': energy_lambda,
                                 'hebbian_lambda':hebbian_lambda,
                                 'weight_seed': weight_seed,
-                                'val_pred_loss': val_pred_loss,
-                                'model_state': losses_dict['best_model_state']
+                                'val_pred_loss': best_model_dict['val_pred_loss'],
+                                'model_state': best_model_dict['model_state']
+                            }
+                        # catch nan values
+                        if best_model_info is None:
+                            best_model_info = {
+                                'sparsity_lambda': sparsity_lambda,
+                                'energy_lambda': energy_lambda,
+                                'hebbian_lambda':hebbian_lambda,
+                                'weight_seed': weight_seed,
+                                'val_pred_loss': best_model_dict['val_pred_loss'],
+                                'model_state': best_model_dict['model_state']
                             }
                     
                 
@@ -141,10 +158,10 @@ class Trainer:
         model.hebbian_lambda = best_model_info['hebbian_lambda']
         model.weight_seed = best_model_info['weight_seed']
         model.eval()
-        eval_pred_loss, _, _,_ = self._run_epoch(model, test_loader, None, 
+        eval_losses = self._run_epoch(model, test_loader, None, 
                                             training=False)
-        best_model_info['eval_pred_loss'] = eval_pred_loss
-        print(f"Evaluation loss: {eval_pred_loss:.6f}")
+        best_model_info['eval_pred_loss'] = eval_losses['prediction']
+        print(f"Evaluation loss: {eval_losses['prediction']:.6f}")
         
         # Save model info
         model_info = self.__dict__.copy()
@@ -157,21 +174,7 @@ class Trainer:
             json.dump(model_info, f, indent=2)
         
         # Create training losses DataFrame
-        df_data = []
-        for result in all_results:
-            max_epochs = len(result['train_pred_losses'])
-            for epoch in range(max_epochs):
-                df_data.append({
-                    'sparsity_lambda': result['sparsity_lambda'],
-                    'epoch': epoch,
-                    'val_pred_loss': result['val_pred_losses'][epoch],
-                    'train_pred_loss': result['train_pred_losses'][epoch],
-                    'train_sparsity': result['train_sparsity'][epoch],
-                    'train_energy': result['train_energy'][epoch],
-                    'train_hebbian':result['train_hebbian'][epoch]
-                })
-        
-        training_losses_df = pd.DataFrame(df_data)
+        training_losses_df = pd.concat([pd.DataFrame(x) for x in all_results if type(x) is dict])
         
         # Save training history
         losses_path = os.path.join(self.save_path, f'{model_id}_training_losses.htsv')
@@ -199,7 +202,6 @@ class Trainer:
         n_folders = len(unique_folders)
         train_end = int(0.8 * n_folders)
         val_size = max(1, round(0.1 * n_folders))
-        test_size = n_folders - train_end - val_size
         
         # Assign folders to splits
         train_folders = unique_folders[:train_end]
@@ -249,18 +251,14 @@ class Trainer:
             training: Whether this is a training epoch
             
         Returns:
-            avg_pred_loss: Average prediction loss
-            avg_constraint: Average sparsity loss (weighted by lambda)
+           epoch_losses: dictionary with loss type as keys and avg loss as value
         """
         if training:
             model.train()
         else:
             model.eval()
         
-        total_pred_loss = 0
-        total_sparsity_loss = 0
-        total_energy_loss = 0
-        total_hebbian_loss= 0
+        epoch_losses = {}
         
         context_manager = torch.no_grad() if not training else torch.enable_grad()
         with context_manager:
@@ -276,23 +274,19 @@ class Trainer:
                 free_choice = free_choice.flatten()
                 masked_pred = predictions.reshape(B*S,model.O)[free_choice]
                 masked_targets = batch_targets.reshape(B*S,model.O)[free_choice]
-                prediction_loss, sparsity_loss, energy_loss, hebbian_loss =  model.compute_losses(masked_pred,masked_targets, hidden_states)
+                losses =  model.compute_losses(masked_pred,masked_targets, hidden_states)
                 
                 if training and optimizer is not None:
-                    loss = prediction_loss + sparsity_loss + energy_loss + hebbian_loss
+                    loss = sum([x for x in losses.values()])
                     loss.backward()
                     optimizer.step()
+               #store losses for later plotting
+                for loss_type, loss_value in losses.items():
+                    if len(epoch_losses)<len(losses):#first epoch needs initialisation
+                        epoch_losses[loss_type]= 0
+                    epoch_losses[loss_type]+=(loss_value.item())/len(dataloader) #division to get mean
                 
-                total_pred_loss += prediction_loss.item()
-                total_sparsity_loss += (sparsity_loss).item()
-                total_energy_loss += (energy_loss).item()
-                total_hebbian_loss += (hebbian_loss).item()
-        avg_pred_loss = total_pred_loss / len(dataloader)
-        avg_sparsity_loss = total_sparsity_loss / len(dataloader)
-        avg_energy_loss = total_energy_loss / len(dataloader)
-        avg_hebbian_loss = total_hebbian_loss / len(dataloader)
-        
-        return avg_pred_loss, avg_sparsity_loss, avg_energy_loss, avg_hebbian_loss
+        return epoch_losses
     
     def _train_single_model(
         self,
@@ -316,35 +310,32 @@ class Trainer:
                                       weight_decay = 0.0)
         
         # Training history
-        train_pred_losses = []
-        train_sparsities= []
-        train_energies = []
-        train_hebbians = []
-        val_pred_losses = []
-        
+        losses_dict={}
+        best_model_dict = {}
+
         best_val_pred_loss = float('inf')
         epochs_without_improvement = 0
         best_model_state = None
         
         for epoch in tqdm(range(self.max_epochs), desc=f"λ={model.sparsity_lambda:.0e}"):
             # Training epoch
-            train_pred_loss, train_sparsity, train_energy, train_hebbian = self._run_epoch(
+            train_losses = self._run_epoch(
                 model_copy, train_loader, optimizer, training=True)
             
             # Validation epoch // here we only care about cross-entropy of predictions
-            val_pred_loss, _, _,_ = self._run_epoch(model_copy, val_loader, None, 
-                                               training=False)
+            validation_losses = self._run_epoch(model_copy, val_loader, None, 
+                                           training=False)
             
             # Store losses
-            train_pred_losses.append(train_pred_loss)
-            train_sparsities.append(train_sparsity)
-            train_energies.append(train_energy)
-            train_hebbians.append(train_hebbian)
-            val_pred_losses.append(val_pred_loss)
-            
+            for loss_type, loss_value in train_losses.items():
+                if len(losses_dict) <= len(train_losses): #instantiate the first lists
+                    losses_dict[f'train_{loss_type}']=[]
+                    losses_dict['val_pred_losses'] = [] #instantiate this here also
+                losses_dict[f'train_{loss_type}'].append(loss_value)
+            losses_dict['val_pred_losses'].append(validation_losses['prediction'])    
             # Early stopping check
-            if val_pred_loss < best_val_pred_loss:
-                best_val_pred_loss = val_pred_loss
+            if validation_losses['prediction'] < best_val_pred_loss:
+                best_val_pred_loss = validation_losses['prediction']
                 epochs_without_improvement = 0
                 best_model_state = model_copy.to('cpu').state_dict().copy()
             else:
@@ -353,22 +344,21 @@ class Trainer:
             if epochs_without_improvement >= self.early_stop:
                 print(f"Early stopping after {epoch + 1} epochs")
                 break
-                
-        # Store training history
-        losses_dict = {
-            'sparsity_lambda': model.sparsity_lambda,
-            'train_pred_losses': train_pred_losses,
-            'train_sparsity': train_sparsities,
-            'train_energy': train_energies,
-            'train_hebbian':train_hebbians,
-            'val_pred_losses': val_pred_losses,
-            'epochs_trained': len(train_pred_losses),
-            'best_val_pred_loss': best_val_pred_loss,
-            'best_model_state': best_model_state
-        }
-        
-        return losses_dict, best_val_pred_loss
+            
+            if np.isnan(train_losses['hebbian']) or np.isnan(validation_losses['prediction']):
+                print('NaN hebbian loss, skipping training')
+                best_val_pred_loss = np.nan
+                epochs_without_improvement = np.nan
+                best_model_state = model_copy.to('cpu').state_dict().copy()
+                break
 
+        # Store further training history
+        best_model_dict['epochs_trained'] = epoch+1
+        best_model_dict['val_pred_loss'] = best_val_pred_loss
+        best_model_dict['model_state'] = best_model_state
+
+        return losses_dict, best_model_dict
+    
     def get_model_trial_by_trial_df(self, model, dataset):
         '''Runs through the entire dataset (also training data)'''
         model.eval()
