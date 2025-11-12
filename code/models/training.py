@@ -38,7 +38,7 @@ class Trainer:
         hebbian_lambdas: List[float] = [None],
         learning_rate: float = 1e-4, #1e-4,#0.005,
         batch_size: int = 8,
-        max_epochs: int = 10,
+        max_epochs: int = 10000,
         early_stop: int = 200,
         train_seed: int = TRAIN_SEED
     ):
@@ -130,6 +130,7 @@ class Trainer:
                                 'hebbian_lambda':hebbian_lambda,
                                 'weight_seed': weight_seed,
                                 'val_pred_loss': best_model_dict['val_pred_loss'],
+                                'epochs_trained':best_model_dict['epochs_trained'],
                                 'model_state': best_model_dict['model_state']
                             }
                         # catch nan values
@@ -140,6 +141,7 @@ class Trainer:
                                 'hebbian_lambda':hebbian_lambda,
                                 'weight_seed': weight_seed,
                                 'val_pred_loss': best_model_dict['val_pred_loss'],
+                                'epochs_trained':best_model_dict['epochs_trained'],
                                 'model_state': best_model_dict['model_state']
                             }
                     
@@ -168,6 +170,7 @@ class Trainer:
         model_info['model_id'] = model_id
         model_info['save_path'] = str(model_info['save_path']) #fix possible posix path issues
         model_info['best_val_pred_loss'] = best_model_info['val_pred_loss']
+        model_info['epochs_trained'] = best_model_info['epochs_trained']
         model_info['eval_pred_loss'] = best_model_info['eval_pred_loss']
         model_info['options_dict'] = model.get_options_dict()
         with open(os.path.join(self.save_path, f'{model_id}_info.json'), 'w') as f:

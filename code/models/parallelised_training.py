@@ -290,7 +290,6 @@ def get_var4_info_df(processed_data_path = PROCESSED_DATA_PATH, save_path = SAVE
                'model_id':[],'save_path':[],'data_path':[], 'completed':[]}
    
     for subdir in processed_data_path.iterdir():
-        print(subdir)
         subject_ID = subdir.stem
         data_path = PROCESSED_DATA_PATH/subject_ID
         if not subdir.is_dir():
@@ -303,7 +302,7 @@ def get_var4_info_df(processed_data_path = PROCESSED_DATA_PATH, save_path = SAVE
                     for hidden_size in [1,2]:
                         nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
                         #nmrnns are tricky since we're testing this.
-                        model_id =  f'{hidden_size}_unit_{model_type}'
+                        model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
                         model_save_path = save_path/'run_4'/subject_ID/f'random_seed_{train_seed}'/model_type/constraint
                         completed = (model_save_path/f'{model_id}_trials_data.htsv').exists()
                         for k,v in zip(df_dict.keys(),

@@ -38,8 +38,8 @@ class TinyRNN(nn.Module):
                nm_size: int = 1, #specific to NM_RNNs
                nm_dim: int = 1, #specific to NM_RNNs
                nm_mode: str = 'low_rank',
-               sparsity_lambda:float = 1e-2,
-               energy_lambda:float = 0,
+               sparsity_lambda:float = 1e-5,
+               energy_lambda:float = 1e-2,
                hebbian_lambda:float = None,
                input_encoding = 'unipolar',
                input_forced_choice = False,
