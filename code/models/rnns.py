@@ -191,7 +191,7 @@ class MonoGated(nn.Module):
       self.W_iz = nn.Parameter(torch.Tensor(input_size, hidden_size))                # (I,Z)
       self.W_hz = nn.Parameter(torch.Tensor(hidden_size, hidden_size))                # (I,Z)
     else:
-      self.W_iz = nn.Parameter(torch.Tensor(input_size-1, 1))                # (I,Z)
+      self.W_iz = nn.Parameter(torch.Tensor(input_size, 1))                # (I,Z)
       self.W_hz = nn.Parameter(torch.Tensor(hidden_size, 1))                # (I,Z)
     
     self.bias_h = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
@@ -223,8 +223,8 @@ class MonoGated(nn.Module):
         z_past = self.activation(x_past@self.W_iz + z_past@self.W_hz) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
         z_t = self.sigmoid(z_past@self.W_z+self.bias_z) #compress onto 1D
       else:
-        reward_t = x_past[:,0].unsqueeze(1)
-        z_t = self.sigmoid(reward_t@self.W_iz + h_past@self.W_hz + self.bias_z)
+        #reward_t = x_past[:,0].unsqueeze(1)
+        z_t = self.sigmoid(x_past@self.W_iz + h_past@self.W_hz + self.bias_z)
 
       ## options to override gates and/or save them:
       if 'z_t' in fixed_gates.keys():
