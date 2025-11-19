@@ -233,7 +233,7 @@ class MonoGated(nn.Module):
         gate_activations['update'].append(z_t.unsqueeze(0)) 
       ## continued computation of hidden state:
       n_t = self.activation(x_past@self.W_ih+h_past@self.W_hh+self.bias_h)
-      h_past = (1-z_t)*n_t + (z_t)*h_past #(n_batch,hidden_size) #NOTE h_past is tehnically h_t now, but in the next for-loop it will be h_past. ;)
+      h_past = (1-z_t)*h_past + (z_t)*n_t #(n_batch,hidden_size) #NOTE h_past is tehnically h_t now, but in the next for-loop it will be h_past. ;)
       hidden_sequence.append(h_past.unsqueeze(0)) #appending (1,n_batch,n_hidden) to a big list.
 
     hidden_sequence = torch.cat(hidden_sequence, dim=0) #(n_sequence, n_batch, n_hidden) gather all inputs along the first dimenstion

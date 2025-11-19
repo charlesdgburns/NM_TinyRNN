@@ -32,14 +32,14 @@ class Trainer:
     def __init__(
         self,
         save_path: Path,
-        weight_seeds: List[float] = [1,2,3,4,5,6,7,8,9,10], #[1,2,3,4,5,6,7,8,9,10],
+        weight_seeds: List[float] = [1,2,3,4,5], #[1,2,3,4,5,6,7,8,9,10],
         sparsity_lambdas: List[float] = [1e-5], #[1e-1,1e-3,1e-5],
         energy_lambdas: List[float] = [1e-2],
         hebbian_lambdas: List[float] = [None],
-        learning_rate: float = 1e-4, #1e-4,#0.005,
+        learning_rate: float = 1e-2, #1e-4,#0.005,
         batch_size: int = 8,
-        max_epochs: int = 10000,
-        early_stop: int = 200,
+        max_epochs: int = 100,
+        early_stop: int = 20,
         train_seed: int = TRAIN_SEED
     ):
         """
