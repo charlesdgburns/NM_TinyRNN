@@ -344,7 +344,9 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH, save_path = SAVE_P
                 for hidden_size in [1,2]:
                     model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
                     model_save_path = save_path/'run_DA'/subject_ID/f'random_seed_{train_seed}'/model_type/constraint
-                    completed = (model_save_path/f'{model_id}_trials_data.htsv').exists()
+                    completed = 1
+                    for weight_seed in range(1,6):
+                        completed *= (model_save_path/f'weight_seed_{weight_seed}'/f'{model_id}_trials_data.htsv').exists()
                     for k,v in zip(df_dict.keys(),
                         [subject_ID,train_seed,model_type,hidden_size,
                         nonlinearity, input_encoding,constraint,

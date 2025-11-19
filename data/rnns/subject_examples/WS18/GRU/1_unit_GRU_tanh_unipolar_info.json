@@ -1,0 +1,39 @@
+{
+  "save_path": "NM_TinyRNN/data/rnns/run_DA/WS18/random_seed_1/GRU/sparsity/weight_seed_4",
+  "sparsity_lambdas": [
+    1e-05
+  ],
+  "energy_lambdas": [
+    0
+  ],
+  "hebbian_lambdas": [
+    null
+  ],
+  "weight_seeds": [
+    4
+  ],
+  "learning_rate": 0.01,
+  "batch_size": 8,
+  "max_epochs": 100,
+  "early_stop": 20,
+  "train_seed": 1,
+  "model_id": "1_unit_GRU_tanh_unipolar",
+  "best_val_pred_loss": 0.48400741815567017,
+  "epochs_trained": 100,
+  "eval_pred_loss": 0.48487186431884766,
+  "options_dict": {
+    "rnn_type": "GRU",
+    "input_size": 3,
+    "hidden_size": 1,
+    "out_size": 2,
+    "sparsity_lambda": 1e-05,
+    "energy_lambda": 0,
+    "hebbian_lamba": null,
+    "weight_seed": 4,
+    "nonlinearity": "tanh",
+    "input_encoding": "unipolar",
+    "input_forced_choice": false,
+    "batch_norm": false,
+    "init_decoder": false
+  }
+}
