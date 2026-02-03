@@ -27,6 +27,7 @@ class AB_Dataset(Dataset):
         for session_dir in self.subject_data_path.iterdir():
             if session_dir.is_dir():
                 trials_df = pd.read_csv(session_dir/'trials.htsv', sep = '\t')
+                assert np.all([x in trials_df.columns for x in ['forced_choice', 'outcome', 'choice', 'good_poke']]), "DataFrame missing required columns"
                 remainder = (len(trials_df)%(self.sequence_length+1))
                 trials_df = trials_df.iloc[:-remainder]
                 trials_df['session_trial_idx'] = range(len(trials_df))

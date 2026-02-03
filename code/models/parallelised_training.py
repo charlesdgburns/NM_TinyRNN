@@ -25,7 +25,7 @@ def run_training(overwrite=False):
     '''Submit jobs to HPC cluster via slurm to run training'''
     train_df = get_DA_info_df()
     if not overwrite:
-        train_df = train_df[~train_df.completed]
+        train_df = train_df[train_df.completed==False]
     if train_df.empty:
         print("All files have been registered. No new videos to track.")
         return
@@ -346,6 +346,49 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH, save_path = SAVE_P
                     model_save_path = save_path/'run_DA'/subject_ID/f'random_seed_{train_seed}'/model_type/constraint
                     completed = 1
                     for weight_seed in range(1,6):
+                        completed *= (model_save_path/f'weight_seed_{weight_seed}'/f'{model_id}_trials_data.htsv').exists()
+                    for k,v in zip(df_dict.keys(),
+                        [subject_ID,train_seed,model_type,hidden_size,
+                        nonlinearity, input_encoding,constraint,
+                        nm_size,nm_dim,nm_mode,
+                        model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
+                        df_dict[k].append(v)
+                        
+    return pd.DataFrame(df_dict)
+
+                  
+                    
+def get_ws02_info_df(processed_data_path = PROCESSED_DATA_PATH, save_path = SAVE_PATH):
+    '''Builds a dataframe with each subject and for each model combination.
+    Checks whether a model combination has been run before or not.
+    Comparing standard GRU with monoGRU - select hyperparameters set in training.py script
+    energy_lambda = [1e-2], sparsity_lambda = [1e-5]. 
+    Only variability across weight and training seeds.
+    '''
+    #see each subject
+    df_dict = {'subject_ID':[],'train_seed':[],'model_type':[],'hidden_size':[],
+               'nonlinearity':[],'input_encoding':[],'constraint':[],
+               'nm_size':[],'nm_dim':[],'nm_mode':[],
+               'model_id':[],'save_path':[],'data_path':[], 'completed':[]}
+   
+    for subdir in processed_data_path.iterdir():
+        if not 'WS02' in subdir.stem:
+            continue
+        subject_ID = subdir.stem
+        data_path = PROCESSED_DATA_PATH/subject_ID
+        if not subdir.is_dir():
+            continue
+        for train_seed in range(1,21): #later add more seeds
+            for model_type in ['monoGRU','GRU']:#['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
+                constraint = 'energy' if model_type == 'monoGRU' else'sparsity'
+                nonlinearity = 'relu' if constraint =='energy' else 'tanh'
+                input_encoding = 'unipolar'
+                nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
+                for hidden_size in [1,2]:
+                    model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
+                    model_save_path = save_path/'run_ws02'/subject_ID/f'random_seed_{train_seed}'/model_type/constraint
+                    completed = 1
+                    for weight_seed in range(1,21):
                         completed *= (model_save_path/f'weight_seed_{weight_seed}'/f'{model_id}_trials_data.htsv').exists()
                     for k,v in zip(df_dict.keys(),
                         [subject_ID,train_seed,model_type,hidden_size,
