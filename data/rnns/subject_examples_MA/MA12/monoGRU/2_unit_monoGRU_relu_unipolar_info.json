@@ -1,0 +1,39 @@
+{
+  "save_path": "NM_TinyRNN/data/rnns/run_MA_fast/MA12/random_seed_6/monoGRU/energy/weight_seed_3",
+  "sparsity_lambdas": [
+    1e-05
+  ],
+  "energy_lambdas": [
+    0.01
+  ],
+  "hebbian_lambdas": [
+    null
+  ],
+  "weight_seeds": [
+    3
+  ],
+  "learning_rate": 0.01,
+  "batch_size": 8,
+  "max_epochs": 100,
+  "early_stop": 20,
+  "train_seed": 6,
+  "model_id": "2_unit_monoGRU_relu_unipolar",
+  "best_val_pred_loss": 0.46743547916412354,
+  "epochs_trained": 73,
+  "eval_pred_loss": 0.5435341775417327,
+  "options_dict": {
+    "rnn_type": "monoGRU",
+    "input_size": 3,
+    "hidden_size": 2,
+    "out_size": 2,
+    "sparsity_lambda": 1e-05,
+    "energy_lambda": 0.01,
+    "hebbian_lamba": null,
+    "weight_seed": 3,
+    "nonlinearity": "relu",
+    "input_encoding": "unipolar",
+    "input_forced_choice": false,
+    "batch_norm": false,
+    "init_decoder": false
+  }
+}

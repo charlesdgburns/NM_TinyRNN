@@ -7,7 +7,7 @@ from pathlib import Path
 #global variables #
 
 DATA_PATH = './NM_TinyRNN/data/AB_behaviour/WS16'
-SEQUENCE_LENGTH = 150 # Define your desired sequence length
+SEQUENCE_LENGTH = 20 # Define your desired sequence length
 
 
 

@@ -40,7 +40,9 @@ class Trainer:
         batch_size: int = 8,
         max_epochs: int = 100,
         early_stop: int = 20,
-        train_seed: int = TRAIN_SEED
+        train_seed: int = TRAIN_SEED,
+        TBPTT: int = 0,
+        save_gradients: bool = False,
     ):
         """
         Simple and concise trainer for neural networks with hyperparameter tuning.
