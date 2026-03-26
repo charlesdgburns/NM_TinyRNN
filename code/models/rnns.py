@@ -84,6 +84,9 @@ class TinyRNN(nn.Module):
     elif rnn_type == 'stereoGRU2':
       self.rnn = StereoGated(self.I,self.H, self.nonlinearity,
                              subnetwork = True)
+    elif rnn_type == 'constGate':
+       self.rnn = MonoGated(self.I,self.H, self.nonlinearity, 
+                            constant_gate=True)
     elif rnn_type == 'NMRNN':
       self.nm_size = nm_size
       self.nm_dim = nm_dim
@@ -172,17 +175,24 @@ class TinyRNN(nn.Module):
 class MonoGated(nn.Module):
   '''A minimal gated RNN with a 1D gating signal.'''
   def __init__(self, input_size,hidden_size, nonlinearity = 'relu',
-               subnetwork: bool = False):
+               subnetwork: bool = False, constant_gate: bool = False):
     super().__init__() #init nn.Module
+    #options
     self.input_size = input_size
     self.hidden_size = hidden_size
     self.subnetwork = subnetwork
+    self.constant_gate = constant_gate
+
+    #activation functions
     self.sigmoid = nn.Sigmoid() #maybe consider setting this to something else
+    self.nonlinearity = nonlinearity
     if nonlinearity == 'relu':
       self.activation = nn.ReLU() 
     elif nonlinearity == 'tanh':
       self.activation = nn.Tanh()
-
+    elif nonlinearity == 'linear':
+       self.activation = nn.Identity()
+       
     # Parameters
     self.W_ih = nn.Parameter(torch.Tensor(input_size, hidden_size))      # (I,H)
     self.W_hh = nn.Parameter(torch.Tensor(hidden_size, hidden_size))     # (H,H)
@@ -190,10 +200,11 @@ class MonoGated(nn.Module):
       self.W_z = nn.Parameter(torch.Tensor(hidden_size, 1))                # (I,Z)
       self.W_iz = nn.Parameter(torch.Tensor(input_size, hidden_size))                # (I,Z)
       self.W_hz = nn.Parameter(torch.Tensor(hidden_size, hidden_size))                # (I,Z)
-    else:
+    elif not self.subnetwork and not constant_gate:
       self.W_iz = nn.Parameter(torch.Tensor(input_size, 1))                # (I,Z)
       self.W_hz = nn.Parameter(torch.Tensor(hidden_size, 1))                # (I,Z)
-    
+    elif constant_gate:
+      self.z = nn.Parameter(torch.Tensor(1))
     self.bias_h = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
     self.bias_z = nn.Parameter(torch.Tensor(1))
   
@@ -219,12 +230,18 @@ class MonoGated(nn.Module):
     for t in range(sequence_size):
       x_past = inputs[:,t,:] #(n_batch,input_size)
       #for computational efficiency we do two matrix multiplications and then do indexing further down:
-      if self.subnetwork:
+      
+      #computing the gate: (maybe we want an option to compute gate only on reward? #reward_t = x_past[:,0].unsqueeze(1))
+      if not self.subnetwork and not self.constant_gate and self.nonlinearity!='linear':
+        # the standard gating mechanism
+        z_t = self.sigmoid(x_past@self.W_iz + h_past@self.W_hz + self.bias_z)
+      elif self.subnetwork and self.nonlinearity!='linear':
         z_past = self.activation(x_past@self.W_iz + z_past@self.W_hz) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
         z_t = self.sigmoid(z_past@self.W_z+self.bias_z) #compress onto 1D
-      else:
-        #reward_t = x_past[:,0].unsqueeze(1)
-        z_t = self.sigmoid(x_past@self.W_iz + h_past@self.W_hz + self.bias_z)
+      elif self.nonlinearity == 'linear' and not self.constant_gate:
+        z_t = x_past@self.W_iz + h_past@self.W_hz + self.bias_z
+      elif self.constant_gate:
+        z_t = self.z.expand([batch_size,1])
 
       ## options to override gates and/or save them:
       if 'z_t' in fixed_gates.keys():
@@ -260,6 +277,8 @@ class StereoGated(nn.Module):
       self.activation = nn.ReLU() 
     elif nonlinearity == 'tanh':
       self.activation = nn.Tanh()
+    elif nonlinearity == 'linear':
+       self.activation = nn.Identity()
 
     # Parameters
     self.W_ih = nn.Parameter(torch.Tensor(input_size, hidden_size))      # (I,H)
@@ -278,7 +297,7 @@ class StereoGated(nn.Module):
     ''' inputs are a tensor of shape (batch_size, sequence_size, input_size)
         outputs are tensor of shape (batch_size, sequence_size, hidden_size)
         -----
-        option to add fixed_gates dictionary with '_t' or 'z_t' keys, 
+        option to add fixed_gates dictionary with 'r_t' or 'z_t' keys, 
         which must be tensors of shape (n_batch,n_hidden).'''
 
     batch_size, sequence_size, _ = inputs.shape
@@ -332,7 +351,8 @@ class ManualGRU(nn.Module):
       self.activation = nn.Tanh()
     elif nonlinearity == 'relu':
       self.activation = nn.ReLU()
-
+    elif nonlinearity == 'linear':
+       self.activation = nn.Identity()
     self.W_from_in = nn.Parameter(torch.Tensor(input_size, hidden_size*3))
     self.W_from_h = nn.Parameter(torch.Tensor(hidden_size, hidden_size*3))
     self.bias = nn.Parameter(torch.Tensor(hidden_size*6))
@@ -466,7 +486,8 @@ class ManualNMRNN(nn.Module):
           self.activation = nn.Tanh()
         elif nonlinearity == 'relu':
           self.activation = nn.ReLU()
-
+        elif nonlinearity == 'linear':
+          self.activation = nn.Identity()
        # assert nm_dim <= nm_size, "there must be at least as many subnetwork units as nm_dim size"
         self.nm_size = nm_size
         self.nm_dim = nm_dim
