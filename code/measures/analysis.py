@@ -36,6 +36,8 @@ class model_data():
 # utilities #
 
 def load_data(filepath):
+    if isinstance(filepath, Path):
+        filepath = str(filepath)
     if filepath.endswith(".json"):
         with open(filepath, "r") as f:
             data = json.load(f)

@@ -47,7 +47,7 @@ def train_parallel(data_path,
                    nonlinearity:str='relu',
                    constraint:str='energy',
                    train_seed:int=42,
-                   weight_seeds=[i for i in range(1,6)], 
+                   weight_seeds=[i for i in range(1,21)], 
                    n_jobs=-1, **kwargs):
     '''Parallelizes training over weight_seeds. n_jobs=-1 uses all cores.'''
     Parallel(n_jobs=n_jobs)(

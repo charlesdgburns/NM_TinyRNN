@@ -22,7 +22,7 @@ OPTIONS_DICT = {'rnn_type':'GRU',
                 'nm_dim':1,
                 'nm_mode':'low_rank',
                 'weight_seed':42,
-                'sparsity_lambda':1e-4, #constrain weights (not biases)
+                'sparsity_lambda':1e-5, #constrain weights (not biases)
                 'energy_lambda':1e-2, #constrain hidden activations
                 'input_forced_choice':False,
                 'input_encoding': 'unipolar', #'unipolar' {0,1} or 'bipolar' {-1,1}
