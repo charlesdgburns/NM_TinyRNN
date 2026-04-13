@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
+
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
@@ -38,7 +39,7 @@ class Trainer:
         hebbian_lambdas: List[float] = [None],
         learning_rate: float = 1e-2, #1e-4,#0.005,
         batch_size: int = 8,
-        max_epochs: int = 100,
+        max_epochs: int = 1000,
         early_stop: int = 20,
         train_seed: int = TRAIN_SEED,
         TBPTT: int = 0,
@@ -195,37 +196,56 @@ class Trainer:
         trial_by_trial_df.to_csv(self.save_path/f'{model_id}_trials_data.htsv', sep = '\t', index=False)
         return training_losses_df
     
-    def _split_dataset(self, dataset) -> Tuple[Subset, Subset, Subset]:
-        """Split dataset into train/val/test (80/10/10) respecting session folders."""
-    
-        # Get unique folders and shuffle them
+
+    def _split_dataset(self, dataset) -> Tuple[Subset, Subset, Subset, dict]:
+        """
+        Split dataset into train/val/test (80/10/10).
+        The test set is fixed via a constant seed (42), 
+        while train/val are shuffled via self.train_seed.
+        """
+        
         unique_folders = dataset.subject_df['session_folder_name'].unique()
-        np.random.seed(self.train_seed)
-        np.random.shuffle(unique_folders)
-        
-        # Calculate split points
         n_folders = len(unique_folders)
-        train_end = int(0.8 * n_folders)
+        
+        # 1. Calculate sizes
+        test_size = max(1, round(0.1 * n_folders))
         val_size = max(1, round(0.1 * n_folders))
+        # Train is whatever is left after test and val
         
-        # Assign folders to splits
-        train_folders = unique_folders[:train_end]
-        val_folders = unique_folders[train_end:train_end + val_size]
-        test_folders = unique_folders[train_end + val_size:]
+        # 2. Extract the fixed Test Set
+        # We sort to ensure the starting order is identical across all machines/runs
+        all_folders_sorted = sorted(unique_folders)
         
+        state_test = np.random.RandomState(42)
+        state_test.shuffle(all_folders_sorted)
+        
+        test_folders = all_folders_sorted[:test_size]
+        remaining_folders = all_folders_sorted[test_size:]
+        
+        # 3. Extract Train/Val from the remainder using the variable seed
+        state_train = np.random.RandomState(self.train_seed)
+        state_train.shuffle(remaining_folders)
+        
+        # Since we already took 10% for test, we split the remainder
+        # For an 80/10 split of the TOTAL, we take the first (total * 0.8) for train
+        train_end = int(0.8 * n_folders)
+        train_folders = remaining_folders[:train_end]
+        val_folders = remaining_folders[train_end:]
+
+        # 4. Map folders back to indices
         folder_name2idx = dataset.subject_df.groupby('session_folder_name')['sequence_block_idx'].unique()
 
-        indices_dict = {}
-        indices_dict['indices_train'] = np.concat([folder_name2idx[x] for x in train_folders])
-        indices_dict['indices_validation'] = np.concat([folder_name2idx[x] for x in val_folders])
-        indices_dict['indices_evaluation'] = np.concat([folder_name2idx[x] for x in test_folders])
+        indices_dict = {
+            'indices_train': np.concatenate([folder_name2idx[x] for x in train_folders]),
+            'indices_validation': np.concatenate([folder_name2idx[x] for x in val_folders]),
+            'indices_evaluation': np.concatenate([folder_name2idx[x] for x in test_folders])
+        }
 
         train_dataset = Subset(dataset, indices_dict['indices_train'])
         val_dataset = Subset(dataset, indices_dict['indices_validation'])
         test_dataset = Subset(dataset, indices_dict['indices_evaluation'])
-      
-        return train_dataset, val_dataset, test_dataset, indices_dict
     
+        return train_dataset, val_dataset, test_dataset, indices_dict
     def _create_dataloader(self, dataset, shuffle: bool = True) -> DataLoader:
         """Create dataloader with deterministic shuffling."""
         generator = torch.Generator()
