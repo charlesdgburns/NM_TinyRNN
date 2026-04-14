@@ -107,6 +107,12 @@ class TinyRNN(nn.Module):
     stdv = 1e-3 #/ math.sqrt(self.H) #1e-3 
     for p in self.rnn.parameters():
         p.data.uniform_(-stdv, stdv)
+    if 'monoGRU' in self.rnn_type:
+       self.rnn.bias_z.data = torch.tensor(1.0) #this initialises the gate bias to be open at the start of training, which empirically seems to help training.
+    if self.rnn_type == "GRU":
+      #following Pytorch default initialisation for GRU biases, which sets the reset gate bias to 1 and the update gate bias to 0.
+      self.rnn.bias.data[self.H:2*self.H] = torch.tensor(1.0) #reset gate bias
+      self.rnn.bias.data[:self.H] = torch.tensor(1.0) #update gate bias
     if self.init_decoder:
       self.decoder.weight.data = torch.tensor([[2.0,-2.0],
                                                [-2.0,2.0]])

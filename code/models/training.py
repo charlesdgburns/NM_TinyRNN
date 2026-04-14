@@ -39,7 +39,7 @@ class Trainer:
         hebbian_lambdas: List[float] = [None],
         learning_rate: float = 1e-2, #1e-4,#0.005,
         batch_size: int = 8,
-        max_epochs: int = 1000,
+        max_epochs: int = 100,
         early_stop: int = 20,
         train_seed: int = TRAIN_SEED,
         TBPTT: int = 0,
@@ -200,8 +200,10 @@ class Trainer:
     def _split_dataset(self, dataset) -> Tuple[Subset, Subset, Subset, dict]:
         """
         Split dataset into train/val/test (80/10/10).
-        The test set is fixed via a constant seed (42), 
+        The test set is fixed via a constant seed (0) to ensure comparability across runs, 
         while train/val are shuffled via self.train_seed.
+        The split is done at the session folder level to ensure that entire sessions are kept together,
+        
         """
         
         unique_folders = dataset.subject_df['session_folder_name'].unique()
@@ -209,14 +211,11 @@ class Trainer:
         
         # 1. Calculate sizes
         test_size = max(1, round(0.1 * n_folders))
-        val_size = max(1, round(0.1 * n_folders))
-        # Train is whatever is left after test and val
-        
         # 2. Extract the fixed Test Set
         # We sort to ensure the starting order is identical across all machines/runs
         all_folders_sorted = sorted(unique_folders)
         
-        state_test = np.random.RandomState(42)
+        state_test = np.random.RandomState(0) #fixed seed for test set
         state_test.shuffle(all_folders_sorted)
         
         test_folders = all_folders_sorted[:test_size]

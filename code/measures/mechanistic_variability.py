@@ -10,12 +10,14 @@ This is written for the 2-armed bandit reversal task modelled trial-by-trial.
 Note that comparisons must be somehow aligned in the hidden unit activations.
 """
 #imports
+import os
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from pathlib import Path
+import seaborn as sns
 
-from xarray import corr
+os.chdir(Path('/home/charlesdgburns/Coding/')) #set the working directory to the root of the project
 ##local imports
 from NM_TinyRNN.code.models import parallelised_training as pat
 from NM_TinyRNN.code.measures import analysis
@@ -26,8 +28,8 @@ SAVE_PATH = Path("NM_TinyRNN/data/rnns/mech_var")
 # FUNCTIONS #
 
 # %1 code to run the training #
-def train_models(train_seeds =list(range(1, 6)),
-                 weight_seeds =list(range(1, 6)),
+def train_models(train_seeds =list(range(1, 21)),
+                 weight_seeds =list(range(1, 21)),
                  subjects= ["WS16"]):
     for each_subject in subjects:
         data_path = AB_DATA_PATH / f"{each_subject}"
@@ -55,7 +57,7 @@ def train_models(train_seeds =list(range(1, 6)),
                                 constraint='energy')
     print("Training complete.")
     return None
-
+train_models()
 # %2 code to compare performance across train and weight seeds #
 def build_analysis_df(save_path=SAVE_PATH):
     '''Iterates over the saved models and builds a dataframe
@@ -104,8 +106,8 @@ def add_eval_CE(analysis_df):
 analysis_df = build_analysis_df(SAVE_PATH)
 analysis_df = add_eval_CE(analysis_df)
 
-print(analysis_df.head())
-
+sns.stripplot(analysis_df,x='train_seed',y='eval_CE', hue = 'model_id')
+plt.show()
 # %3 code to compare similarity of activations (hidden units and gates) #
 
     
@@ -137,9 +139,9 @@ def compute_similarities(analysis_df):
                     
                     #load activations for both models
                     data_A = analysis.load_data(row_i.trials_data_path)
-                    data_A = _reorder_trials_df(data_A) #this ensures that hidden_1 always correlates with logit_value, and hidden_2 with prob_A, across all models. This is necessary for the similarity comparisons to be meaningful.
+                    data_A = _standardize_hidden_units(data_A) #this ensures that hidden_1 always correlates with logit_value, and hidden_2 with prob_A, across all models. This is necessary for the similarity comparisons to be meaningful.
                     data_B = analysis.load_data(row_j.trials_data_path)
-                    data_B = _reorder_trials_df(data_B) #same reordering for model B
+                    data_B = _standardize_hidden_units(data_B) #same reordering for model B
                     if data_A is None or data_B is None:
                         #exclude model if no unit correlates with the logits.
                         hidden_state_similarity = np.nan
@@ -188,39 +190,66 @@ def compute_similarities(analysis_df):
     })
     return similarity_df
 
+def _standardize_hidden_units(trials_df: pd.DataFrame, verbose: bool = False):
+    """
+    Standardizes a 2-unit network so hidden_1 is positively correlated with logits.
+    Detects tanh vs ReLU automatically to apply the correct inversion.
+    """
+    # 1. Calculate correlations
+    corr1 = np.corrcoef(trials_df.hidden_1, trials_df.logit_value)[0,1]
+    corr2 = np.corrcoef(trials_df.hidden_2, trials_df.logit_value)[0,1]
+    if verbose:
+        print(f"corr1:{corr1}\n corr2: {corr2}")
+    #treat nan's as zero correlation, which means we won't reorder or flip the units, but we also won't exclude the model from the analysis.
+    if np.isnan(corr1):
+        corr1 = -np.inf
+    if np.isnan(corr2):
+        corr2 = -np.inf
+    # 2. Permutation: Ensure Unit 1 is the 'most positive' correlation
+    if corr2 > corr1:
+        if verbose: print("Swapping Unit 1 and Unit 2.")
+        for prefix in ['hidden_', 'gate_update_', 'gate_reset_']:
+            col1, col2 = f"{prefix}1", f"{prefix}2"
+            if col1 in trials_df.columns and col2 in trials_df.columns:
+                trials_df[col1], trials_df[col2] = trials_df[col2], trials_df[col1]
+        corr1 = corr2 # Update after swap
 
-def _reorder_trials_df(trials_df: pd.DataFrame, verbose: bool = False):
-    """Reorders hidden_1 and hidden_2 activations so hidden 1 correlates with logits always.
-    If a standard GRU, then we also flip the gates to match the reordering.
-    Input: trial_data_df: dataframe containing hidden_1, hidden_2,
-    Note: this only works for 2 unit networks."""
-
-    logit_corr = np.corrcoef(trials_df.hidden_1,trials_df.logit_value)[0,1]
-    if logit_corr< -0.5: #negatively correlating with logit?
-        #double-check that the second hidden unit correlates with prob_A
-        logit_corr2 = np.corrcoef(trials_df.hidden_2,trials_df.logit_value)[0,1]
-        if logit_corr2 < -0.5:
-            print("Error: none of the unit activations correlate with logits. Returning none.")
-            corr3 = np.corrcoef(trials_df.hidden_1.max() - trials_df.hidden_1,trials_df.prob_A)[0,1]
-            print(f"corr1: {logit_corr} \n corr2: {logit_corr2}")
-            print(f"corr3: {corr3}")
-            return None
-        #then we flip the hidden_1 and hidden_2 activations, and also the gates if multiple exist
-        trials_df['hidden_1'], trials_df['hidden_2'] = trials_df['hidden_2'], trials_df['hidden_1']
-        if 'gate_update_2' in trials_df.columns:
-            #two gates means it must be standard GRU, so we flip the gates too
-            trials_df['gate_update_1'], trials_df['gate_update_2'] = trials_df['gate_update_2'], trials_df['gate_update_1']
-            trials_df['gate_reset_1'], trials_df['gate_reset_2'] = trials_df['gate_reset_2'], trials_df['gate_reset_1']
-        if verbose:
-            print("Hidden units and gate activations have been reordered.")
-    elif logit_corr >  0.5:
-        if verbose:
-            print("Activations already aligned.")
+    # 3. Inversion: If Unit 1 is still negative, flip it based on activation type
+    if corr1 < -0.1:
+        # Check if it's tanh (centered) or ReLU (positive-only)
+        h1_min = trials_df.hidden_1.min()
+        
+        if h1_min < -0.1:
+            # Tanh logic: Simply flip the sign around 0
+            if verbose: print("Inverting Unit 1 (tanh detected).")
+            trials_df['hidden_1'] = -trials_df['hidden_1']
+        else:
+            # ReLU/Sigmoid logic: Flip within the observed range
+            if verbose: print("Inverting Unit 1 (ReLU/Sigmoid detected).")
+            trials_df['hidden_1'] = trials_df['hidden_1'].max() - trials_df['hidden_1']
+            
     return trials_df
+best_idx = analysis_df.groupby(['model_id','train_seed'])['eval_CE'].idxmin()
+best_models_df = analysis_df.loc[best_idx]
+sim_df = compute_similarities(best_models_df)
 
+fig, ax = plt.subplots(1,3,figsize=(15,5))
+sns.stripplot(best_models_df,x='model_id',y='eval_CE', ax=ax[0])
+sns.stripplot(sim_df, x='model_id',y='hidden_state_similarity', ax=ax[1])
+sns.stripplot(sim_df, x='model_id',y='update_gate_similarity', ax = ax[2])
 
+ax[0].set(title='performance')
+ax[1].set(title='hidden states')
+ax[2].set(title='gating mechanism')
+fig.tight_layout()
+plt.show()
 
-
+for each_model in best_models_df.itertuples():
+    trials_data = analysis.load_data(each_model.trials_data_path)
+    trials_data = _standardize_hidden_units(trials_data)
+    fig, ax = plt.subplots(figsize = (3,3))
+    sns.scatterplot(trials_data, x='hidden_1',y='hidden_2',hue='logit_value',ax=ax, palette='coolwarm')
+    fig.suptitle(each_model.model_id)
 # %4 code to compare the parameters (weights) of models #
 
 
