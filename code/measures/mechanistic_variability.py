@@ -43,7 +43,7 @@ def train_models(train_seeds =list(range(1, 6)),
                                 weight_seeds=weight_seeds,
                                 n_jobs=-1,
                                 model_type = "GRU",
-                                nonlinearity='tanh',
+                               nonlinearity='tanh',
                                 constraint='sparsity')
             #train standard GRU with 'biological constraints'
             pat.train_parallel(data_path=data_path,
@@ -66,22 +66,31 @@ def train_models(train_seeds =list(range(1, 6)),
             
             pat.train_parallel(data_path=data_path,
                                save_path=save_path,
-                                train_seed=each_train_seed,
-                                weight_seeds=weight_seeds,
+                               train_seed=each_train_seed,
+                               weight_seeds=weight_seeds,
                                 n_jobs=-1,
-                                model_type = "monoGRU",
-                                nonlinearity='tanh',
-                                constraint='sparsity')
+                                model_type = "vanilla",
+                                nonlinearity='relu',
+                               constraint='sparsity')
             
             pat.train_parallel(data_path=data_path,
                                save_path=save_path,
                                 train_seed=each_train_seed,
-                                weight_seeds=weight_seeds,
+                               weight_seeds=weight_seeds,
                                 n_jobs=-1,
                                 model_type = "constGate",
                                 nonlinearity='relu',
                                 constraint='energy')
             
+            ##vanilla RNN for comparison
+            pat.train_parallel(data_path=data_path,
+                               save_path=save_path,
+                                train_seed=each_train_seed,
+                                weight_seeds=weight_seeds,
+                                n_jobs=-1,
+                                model_type = "vanilla",
+                                nonlinearity='relu',
+                                constraint='energy')
     print("Training complete.")
     return None
 train_models()
@@ -357,3 +366,19 @@ cont_df = parameter_contribution_df(best_models_df)
 update_gate_df = cont_df[['update' in x for x in cont_df.variable]]
 fig, ax = plt.subplots(figsize=(10,5))
 sns.stripplot(update_gate_df, x='variable', y='value', hue='model_id', ax = ax)
+sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
+plt.show()
+
+## example logit plot
+
+
+min_idx = best_models_df.query('model_id=="2_unit_vanilla_relu_unipolar"').eval_CE.idxmin()
+
+model = best_models_df.loc[min_idx]
+params = analysis.load_data(model.model_state_path)
+
+trials_data = analysis.load_data(model.trials_data_path)
+
+sns.scatterplot(trials_data, x= 'logit_past',y='logit_change',hue='trial_type')
+
+fig.tight_layout()
