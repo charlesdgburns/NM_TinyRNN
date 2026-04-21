@@ -98,7 +98,7 @@ def train_model_AB(data_path,
 
 def get_NM_TinyRNN_SLURM_script(train_info, RAM="64GB", time_limit="23:59:00"):
     """
-    Writes a SLURM script to run sleap tracking on the video from a session specified in video_info.
+    Writes a SLURM script to run sleep tracking on the video from a session specified in video_info.
     Input: train_info: pd.Series
     Output: script_path: str, path to the SLURM script (saved in /jobs/slurm/)
     """

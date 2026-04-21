@@ -104,15 +104,14 @@ class TinyRNN(nn.Module):
     np.random.seed(self.weight_seed)
     if torch.cuda.is_available():
       torch.cuda.manual_seed(self.weight_seed)
-    stdv = 1e-3 #/ math.sqrt(self.H) #1e-3 
+    stdv = 1e-4 #/ math.sqrt(self.H) #1e-3 
     for p in self.rnn.parameters():
         p.data.uniform_(-stdv, stdv)
     if 'monoGRU' in self.rnn_type:
        self.rnn.bias_z.data = torch.tensor(1.0) #this initialises the gate bias to be open at the start of training, which empirically seems to help training.
     if self.rnn_type == "GRU":
-      #following Pytorch default initialisation for GRU biases, which sets the reset gate bias to 1 and the update gate bias to 0.
-      self.rnn.bias.data[self.H:2*self.H] = torch.tensor(1.0) #reset gate bias
-      self.rnn.bias.data[:self.H] = torch.tensor(1.0) #update gate bias
+      self.rnn.bias_z.data = torch.tensor(1.0)#update gate bias
+      self.rnn.bias_r.data = torch.tensor(1.0)#reset gate bias
     if self.init_decoder:
       self.decoder.weight.data = torch.tensor([[2.0,-2.0],
                                                [-2.0,2.0]])
@@ -359,10 +358,16 @@ class ManualGRU(nn.Module):
       self.activation = nn.ReLU()
     elif nonlinearity == 'linear':
        self.activation = nn.Identity()
-    self.W_from_in = nn.Parameter(torch.Tensor(input_size, hidden_size*3))
-    self.W_from_h = nn.Parameter(torch.Tensor(hidden_size, hidden_size*3))
-    self.bias = nn.Parameter(torch.Tensor(hidden_size*6))
-
+    self.W_ih = nn.Parameter(torch.Tensor(input_size, hidden_size))       # (I,H)
+    self.W_hh = nn.Parameter(torch.Tensor(hidden_size, hidden_size))      # (H,H)
+    self.W_iz = nn.Parameter(torch.Tensor(input_size, hidden_size))       # (I,Z)
+    self.W_hz = nn.Parameter(torch.Tensor(hidden_size, hidden_size))      # (I,Z)
+    self.W_ir = nn.Parameter(torch.Tensor(input_size, hidden_size))       # (I,R)
+    self.W_hr = nn.Parameter(torch.Tensor(hidden_size, hidden_size))      # (H,R)
+    self.bias_h = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
+    self.bias_z = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
+    self.bias_r = nn.Parameter(torch.Tensor(hidden_size))
+  
   def forward(self, inputs, init_states = None, 
               return_gate_activations=False,
               fixed_gates = {}):
@@ -383,13 +388,8 @@ class ManualGRU(nn.Module):
 
     for t in range(sequence_size):
       x_past = inputs[:,t,:] #(n_batch,input_size)
-      #for computational efficiency we do two matrix multiplications and then do indexing further down:
-      from_input = x_past@self.W_from_in + self.bias[:3*self.hidden_size]
-      from_input = from_input.view(batch_size,3, self.hidden_size) #(n_batch,3,n_hidden)
-      from_hidden = h_past@self.W_from_h + self.bias[3*self.hidden_size:]
-      from_hidden = from_hidden.view(batch_size, 3, self.hidden_size) #(n_batch,3, n_hidden)
-      r_t = self.sigmoid(from_input[:,0]+from_hidden[:,0]) #(n_batch,n_hidden), ranging from 0 to 1
-      z_t = self.sigmoid(from_input[:,1]+from_hidden[:,1]) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
+      r_t = self.sigmoid(x_past@self.W_ir + h_past@self.W_hr+self.bias_r) #(n_batch,n_hidden), ranging from 0 to 1
+      z_t = self.sigmoid(x_past@self.W_iz + h_past@self.W_hz+self.bias_z) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
       ## options to override gates and/or save them:
       if 'z_t' in fixed_gates.keys():
         z_t= fixed_gates['z_t']
@@ -399,7 +399,7 @@ class ManualGRU(nn.Module):
         gate_activations['reset'].append(r_t.unsqueeze(0)) 
         gate_activations['update'].append(z_t.unsqueeze(0))
       ## continued computation of hidden state:
-      n_t = self.activation(from_input[:,2]+r_t*(from_hidden[:,2])).view(batch_size, self.hidden_size) #(n_batch,n_hidden)
+      n_t = self.activation(x_past@self.W_ih + r_t*(h_past@self.W_hh) + self.bias_h).view(batch_size, self.hidden_size) #(n_batch,n_hidden)
       h_past = (1-z_t)*n_t + z_t*h_past #(n_batch,hidden_size) #NOTE h_past is tehnically h_t now, but in the next for-loop it will be h_past. ;)
       hidden_sequence.append(h_past.unsqueeze(0)) #appending (1,n_batch,n_hidden) to a big list.
 
