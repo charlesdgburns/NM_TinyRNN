@@ -28,7 +28,7 @@ SAVE_PATH = Path("NM_TinyRNN/data/rnns/mech_var")
 # FUNCTIONS #
 
 # %1 code to run the training #
-def train_models(train_seeds =list(range(1, 2)),
+def train_models(train_seeds =list(range(1, 6)),
                  weight_seeds =list(range(1, 21)),
                  subjects= ["WS16"]):
     for each_subject in subjects:
@@ -148,6 +148,12 @@ analysis_df = add_performance(analysis_df)
 best_idx = analysis_df.groupby(['model_id','train_seed'])['val_CE'].idxmin()
 best_models_df = analysis_df.loc[best_idx]
 sns.stripplot(analysis_df,x='train_seed',y='eval_CE', hue = 'model_id')
+plt.show()
+
+fig, ax= plt.subplots()
+sns.stripplot(best_models_df, x='model_id',y='eval_CE',
+              hue='model_id',dodge=True, legend=True)
+sns.move_legend(ax,"upper left", bbox_to_anchor=(1, 1))
 plt.show()
 # %3 code to compare similarity of activations (hidden units and gates) #
 
@@ -365,7 +371,8 @@ cont_df = parameter_contribution_df(best_models_df)
 
 update_gate_df = cont_df[['update' in x for x in cont_df.variable]]
 fig, ax = plt.subplots(figsize=(10,5))
-sns.stripplot(update_gate_df, x='variable', y='value', hue='model_id', ax = ax)
+sns.stripplot(update_gate_df, x='variable', y='value', 
+              hue='model_id',dodge=True, ax = ax)
 sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
 plt.show()
 
