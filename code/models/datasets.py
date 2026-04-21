@@ -7,7 +7,7 @@ import pandas as pd
 from pathlib import Path
 
 DATA_PATH = './NM_TinyRNN/data/AB_behaviour/WS16'
-SEQUENCE_LENGTH = 150
+SEQUENCE_LENGTH = 50
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 

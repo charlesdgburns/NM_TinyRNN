@@ -26,7 +26,7 @@ class Trainer:
         energy_lambdas: List[float] = [1e-3],
         hebbian_lambdas: List[float] = [None],
         learning_rate: float = 1e-2,
-        batch_size: int = 8,
+        batch_size: int = 32,
         max_epochs: int = 1000,
         early_stop: int = 20,
         train_seed: int = TRAIN_SEED,

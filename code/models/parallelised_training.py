@@ -81,7 +81,7 @@ def train_model_AB(data_path,
     options['input_encoding'] = input_encoding
     options['nonlinearity'] = nonlinearity
     
-    dataset = datasets.AB_SessionDataset(data_path)
+    dataset = datasets.AB_Dataset(data_path)
     model = rnns.TinyRNN(**options)
     if constraint == 'sparsity':
         trainer = training.Trainer(save_path, 

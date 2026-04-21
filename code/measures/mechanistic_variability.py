@@ -29,7 +29,7 @@ SAVE_PATH = Path("NM_TinyRNN/data/rnns/mech_var")
 
 # %1 code to run the training #
 def train_models(train_seeds =list(range(1, 2)),
-                 weight_seeds =list(range(1, 6)),
+                 weight_seeds =list(range(1, 21)),
                  subjects= ["WS16"]):
     for each_subject in subjects:
         data_path = AB_DATA_PATH / f"{each_subject}"
