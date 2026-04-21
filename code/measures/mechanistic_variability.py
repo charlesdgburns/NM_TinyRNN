@@ -17,7 +17,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-os.chdir(Path('/home/charlesdgburns/Coding/')) #set the working directory to the root of the project
+#os.chdir(Path('/home/charlesdgburns/Coding/')) #set the working directory to the root of the project
 ##local imports
 from NM_TinyRNN.code.models import parallelised_training as pat
 from NM_TinyRNN.code.measures import analysis
@@ -28,8 +28,8 @@ SAVE_PATH = Path("NM_TinyRNN/data/rnns/mech_var")
 # FUNCTIONS #
 
 # %1 code to run the training #
-def train_models(train_seeds =list(range(1, 6)),
-                 weight_seeds =list(range(1, 21)),
+def train_models(train_seeds =list(range(1, 2)),
+                 weight_seeds =list(range(1, 6)),
                  subjects= ["WS16"]):
     for each_subject in subjects:
         data_path = AB_DATA_PATH / f"{each_subject}"
