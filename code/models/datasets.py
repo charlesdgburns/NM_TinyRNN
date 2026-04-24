@@ -7,7 +7,7 @@ import pandas as pd
 from pathlib import Path
 
 DATA_PATH = './NM_TinyRNN/data/AB_behaviour/WS16'
-SEQUENCE_LENGTH = 20
+SEQUENCE_LENGTH = 64
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
@@ -23,6 +23,31 @@ def _encode_df(df):
 REQUIRED = ['forced_choice', 'outcome', 'choice', 'good_poke']
 
 
+# ── DataLoader factory ─────────────────────────────────────────────────────────
+
+def get_dataloader(dataset, split, splits=None, shuffle=None, batch_size=8, seed=0):
+    """
+    Return a DataLoader for 'train', 'val', 'eval', or 'all'.
+
+    For AB_SessionDataset, batch_size is always 1 (sessions are variable length).
+    For AB_Dataset, batch_size is used as given; shuffling is seeded via `seed`.
+    """
+    if splits is None:
+        splits = dataset._session_split()
+
+    subset  = dataset if split == 'all' else Subset(dataset, splits[split])
+    shuffle = (split == 'train') if shuffle is None else shuffle
+
+    if isinstance(dataset, AB_SessionDataset):
+        if batch_size != 1:
+            print(f"Notice: AB_SessionDataset ignores batch_size={batch_size}; using 1.")
+        # num_workers > 0 incompatible with CUDA tensors in dataset
+        return DataLoader(subset, batch_size=1, shuffle=shuffle, num_workers=0,
+                          collate_fn=lambda b: b[0])
+    else:
+        generator = torch.Generator().manual_seed(seed) if shuffle else None
+        return DataLoader(subset, batch_size=batch_size, shuffle=shuffle,
+                          num_workers=0, generator=generator)
 # ── AB_Dataset (sequence/batch based) ─────────────────────────────────────────
 
 class AB_Dataset(Dataset):
@@ -69,12 +94,17 @@ class AB_Dataset(Dataset):
     def __getitem__(self, idx):
         return self.inputs[idx], self.targets[idx]
 
-    def _session_split(self, eval_frac=0.1, val_frac=0.1, seed_eval=42, seed_split=0):
+    def _session_split(self, eval_frac=0.1, val_frac=0.1, seed_eval=-1, seed_split=0):
         """80/10/10 split on sessions; returns index lists over sequence blocks."""
         folders = np.array(sorted(self.subject_df['session_folder_name'].unique()))
         n = len(folders)
+        n_eval_folders = math.ceil(n*eval_frac)
 
-        eval_folders = np.random.default_rng(seed_eval).choice(folders, size=math.ceil(n * eval_frac), replace=False)
+        if seed_eval == -1:
+            eval_folders = folders[-n_eval_folders:]
+        else:
+            eval_folders = np.random.default_rng(seed_eval).choice(folders, size=n_eval_folders, replace=False)
+
         rest_folders = np.setdiff1d(folders, eval_folders)
         val_folders  = np.random.default_rng(seed_split).choice(rest_folders, size=math.ceil(len(rest_folders) * val_frac), replace=False)
         train_folders = np.setdiff1d(rest_folders, val_folders)
@@ -165,29 +195,3 @@ class AB_SessionDataset(Dataset):
                 labels[s:e] = split_name
         return labels
 
-
-# ── DataLoader factory ─────────────────────────────────────────────────────────
-
-def get_dataloader(dataset, split, splits=None, shuffle=None, batch_size=8, seed=0):
-    """
-    Return a DataLoader for 'train', 'val', 'eval', or 'all'.
-
-    For AB_SessionDataset, batch_size is always 1 (sessions are variable length).
-    For AB_Dataset, batch_size is used as given; shuffling is seeded via `seed`.
-    """
-    if splits is None:
-        splits = dataset._session_split()
-
-    subset  = dataset if split == 'all' else Subset(dataset, splits[split])
-    shuffle = (split == 'train') if shuffle is None else shuffle
-
-    if isinstance(dataset, AB_SessionDataset):
-        if batch_size != 1:
-            print(f"Notice: AB_SessionDataset ignores batch_size={batch_size}; using 1.")
-        # num_workers > 0 incompatible with CUDA tensors in dataset
-        return DataLoader(subset, batch_size=1, shuffle=shuffle, num_workers=0,
-                          collate_fn=lambda b: b[0])
-    else:
-        generator = torch.Generator().manual_seed(seed) if shuffle else None
-        return DataLoader(subset, batch_size=batch_size, shuffle=shuffle,
-                          num_workers=0, generator=generator)

@@ -22,9 +22,9 @@ class Trainer:
         self,
         save_path: Path,
         weight_seeds: List[float] = [1, 2, 3, 4, 5],
-        sparsity_lambdas: List[float] = [1e-5],
+        sparsity_lambdas: List[float] = [1e-7],
         energy_lambdas: List[float] = [1e-3],
-        hebbian_lambdas: List[float] = [None],
+        hebbian_lambdas: List[float] = [0.0],
         learning_rate: float = 1e-2,
         batch_size: int = 32,
         max_epochs: int = 1000,
@@ -46,7 +46,7 @@ class Trainer:
     def fit(self, model, dataset) -> pd.DataFrame:
         print(f"Starting training | dataset size: {len(dataset)}")
 
-        splits = dataset._session_split(seed_split=self.train_seed)
+        splits = dataset._session_split(seed_split=self.train_seed, eval_frac=0.1, val_frac=0.1)
         train_loader = get_dataloader(dataset, 'train', splits, batch_size=self.batch_size, seed=self.train_seed)
         val_loader   = get_dataloader(dataset, 'val',   splits, batch_size=self.batch_size)
         eval_loader  = get_dataloader(dataset, 'eval',  splits, batch_size=self.batch_size)
@@ -148,11 +148,11 @@ class Trainer:
                 free_choice = (batch_inputs[:, :, 0] == 0)
                 free_choice[:, :-1] = free_choice[:, 1:].clone()
                 free_choice = free_choice.flatten()
-
-                losses = model.compute_losses(
+                params_dict = {k:v for k,v in model.rnn.named_parameters()}
+                losses = model.compute_losses(params_dict,
                     predictions.reshape(B * S, model.O)[free_choice],
                     batch_targets.reshape(B * S, model.O)[free_choice],
-                    hidden_states)
+                    hidden_states, model.sparsity_lambda, model.energy_lambda, model.hebbian_lambda)
 
                 if training and optimizer is not None:
                     sum(losses.values()).backward()

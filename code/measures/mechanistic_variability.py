@@ -28,69 +28,34 @@ SAVE_PATH = Path("NM_TinyRNN/data/rnns/mech_var")
 # FUNCTIONS #
 
 # %1 code to run the training #
-def train_models(train_seeds =list(range(1, 6)),
-                 weight_seeds =list(range(1, 21)),
+def train_models(train_seeds = list(range(1, 3)),
+                 weight_seeds = list(range(1, 11)),
                  subjects= ["WS16"]):
     for each_subject in subjects:
         data_path = AB_DATA_PATH / f"{each_subject}"
         for each_train_seed in train_seeds:
-
-            save_path = SAVE_PATH/f"{each_subject}/train_seed_{each_train_seed}"
-            #train the standard GRU's
-            pat.train_parallel(data_path=data_path,
-                               save_path=save_path,
-                                train_seed=each_train_seed,
-                                weight_seeds=weight_seeds,
-                                n_jobs=-1,
-                                model_type = "GRU",
-                               nonlinearity='tanh',
-                                constraint='sparsity')
-            #train standard GRU with 'biological constraints'
-            pat.train_parallel(data_path=data_path,
-                               save_path=save_path,
-                                train_seed=each_train_seed,
-                                weight_seeds=weight_seeds,
-                                n_jobs=-1,
-                                model_type = "GRU",
-                                nonlinearity='relu',
-                                constraint='energy')
-            #then train the monoGRU's
-            pat.train_parallel(data_path=data_path,
-                               save_path=save_path,
-                                train_seed=each_train_seed,
-                                weight_seeds=weight_seeds,
-                                n_jobs=-1,
-                                model_type = "monoGRU",
-                                nonlinearity='relu',
-                                constraint='energy')
-            
-            pat.train_parallel(data_path=data_path,
-                               save_path=save_path,
-                               train_seed=each_train_seed,
-                               weight_seeds=weight_seeds,
-                                n_jobs=-1,
-                                model_type = "vanilla",
-                                nonlinearity='relu',
-                               constraint='sparsity')
-            
-            pat.train_parallel(data_path=data_path,
-                               save_path=save_path,
-                                train_seed=each_train_seed,
-                               weight_seeds=weight_seeds,
-                                n_jobs=-1,
-                                model_type = "constGate",
-                                nonlinearity='relu',
-                                constraint='energy')
-            
-            ##vanilla RNN for comparison
-            pat.train_parallel(data_path=data_path,
-                               save_path=save_path,
-                                train_seed=each_train_seed,
-                                weight_seeds=weight_seeds,
-                                n_jobs=-1,
-                                model_type = "vanilla",
-                                nonlinearity='relu',
-                                constraint='energy')
+            for each_model_type in ['monoGRU']:#['GRU','monoGRU','constGate','vanilla']:
+                save_path = SAVE_PATH/f"{each_subject}/train_seed_{each_train_seed}"
+                #train with 'standard' constraints (tanh nonlinearity and sparsity constraint) for comparison
+                #pat.train_parallel(data_path=data_path,
+                #                save_path=save_path,
+                #                    train_seed=each_train_seed,
+                #                    weight_seeds=weight_seeds,
+                #                    n_jobs=-1,
+                #                    model_type = each_model_type,
+                #                nonlinearity='tanh',
+                #                    constraint='sparsity')
+                
+                #train with 'biological constraints'
+                pat.train_parallel(data_path=data_path,
+                                save_path=save_path,
+                                    train_seed=each_train_seed,
+                                    weight_seeds=weight_seeds,
+                                    n_jobs=-1,
+                                    model_type = each_model_type,
+                                    nonlinearity='relu',
+                                    constraint='energy')
+                
     print("Training complete.")
     return None
 train_models()
@@ -107,7 +72,7 @@ def build_analysis_df(save_path=SAVE_PATH):
             # Extract folder levels
             subject_id = path.parts[-3]
             train_seed = path.parts[-2][-1]
-            weight_seed = path.parts[-1][-1]
+            weight_seed = path.parts[-1].split('_')[-1]
 
             # Find the info file to determine the MODEL_ID
             info_files = list(path.glob("*_info.json"))
@@ -129,21 +94,42 @@ def build_analysis_df(save_path=SAVE_PATH):
 
     return pd.DataFrame(data_rows)
 
-def add_performance(analysis_df):
+def add_data(analysis_df):
     '''Open the info dictionary and add the cross-entropy loss predicted on the evaluation data.'''
     evaluation_CEs = []
     validation_CEs = []
+    sparsity_lambdas = []
+    energy_lambdas = []
+    
     for each_row in analysis_df.itertuples():
         print(each_row.info_path)
         info_dict = analysis.load_data(str(each_row.info_path))
         evaluation_CEs.append(info_dict['eval_pred_loss'])
         validation_CEs.append(info_dict['best_val_pred_loss'])
+        sparsity_lambdas.append(info_dict['options_dict']['sparsity_lambda'])
+        energy_lambdas.append(info_dict['options_dict']['energy_lambda'])
+
     analysis_df['eval_CE'] = evaluation_CEs
     analysis_df['val_CE'] = validation_CEs
+    analysis_df['sparsity_lambda'] = sparsity_lambdas
+    analysis_df['energy_lambda'] = energy_lambdas
+
     return analysis_df
 
 analysis_df = build_analysis_df(SAVE_PATH)
-analysis_df = add_performance(analysis_df)
+analysis_df = add_data(analysis_df)
+
+mono_df = analysis_df.query("model_id=='2_unit_monoGRU_relu_unipolar'")
+mono_df.sort_values(by=['train_seed','weight_seed'])
+n_train_seeds = mono_df.train_seed.nunique()
+n_weight_seeds = mono_df.weight_seed.nunique()
+fig, ax = plt.subplots(n_train_seeds,n_weight_seeds, figsize = (n_weight_seeds*3, n_train_seeds*3))
+flat_ax = ax.flatten()
+for i, each_row in enumerate(mono_df.itertuples()):
+    trials_data = analysis.load_data(each_row.trials_data_path)
+    sns.scatterplot(trials_data, x='hidden_1',y='hidden_2',
+                    hue='logit_value',palette='coolwarm',
+                    legend = False, ax = flat_ax[i])
 
 best_idx = analysis_df.groupby(['model_id','train_seed'])['val_CE'].idxmin()
 best_models_df = analysis_df.loc[best_idx]
@@ -310,13 +296,6 @@ ax[2].set(title='gating mechanism')
 fig.tight_layout()
 plt.show()
 
-for each_model in best_models_df.itertuples():
-    trials_data = analysis.load_data(each_model.trials_data_path)
-    trials_data = _standardize_hidden_units(trials_data)
-    fig, ax = plt.subplots(figsize = (3,3))
-    sns.scatterplot(trials_data, x='hidden_1',y='hidden_2',hue='logit_value',ax=ax, palette='coolwarm')
-    fig.suptitle(each_model.model_id)
-
 
 
 # %4 code to compare the parameters (weights) of models #
@@ -325,6 +304,7 @@ def parameter_contribution_df(best_models_df):
     contributions_dict = {'model_id':[],
                         'train_seed':[],
                         'weight_seed':[],
+                        'performance':[],
                         'variable':[],
                         'value':[]}
     for each_model in best_models_df.itertuples():
@@ -362,7 +342,7 @@ def parameter_contribution_df(best_models_df):
                 contributions_dict['model_id'].append(each_model.model_id)
                 contributions_dict['train_seed'].append(each_model.train_seed)
                 contributions_dict['weight_seed'].append(each_model.weight_seed)
-
+                contributions_dict['performance'].append(each_model.eval_CE)
 
     return pd.DataFrame(contributions_dict)
     

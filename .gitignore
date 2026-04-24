@@ -4,6 +4,9 @@
 **data/rnns/WS18
 **data/rnns/run**
 **data/rnns/mech_var
+**data/rnns/gpu_test
+**data/rnns/nested**
+
 
 **data/WS16
 # Byte-compiled / optimized / DLL files

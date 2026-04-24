@@ -22,7 +22,7 @@ OPTIONS_DICT = {'rnn_type':'GRU',
                 'nm_dim':1,
                 'nm_mode':'low_rank',
                 'weight_seed':42,
-                'sparsity_lambda':1e-5, #constrain weights (not biases)
+                'sparsity_lambda':1e-6, #constrain weights (not biases)
                 'energy_lambda':1e-2, #constrain hidden activations
                 'input_forced_choice':False,
                 'input_encoding': 'unipolar', #'unipolar' {0,1} or 'bipolar' {-1,1}
@@ -40,7 +40,7 @@ class TinyRNN(nn.Module):
                nm_mode: str = 'low_rank',
                sparsity_lambda:float = 1e-5,
                energy_lambda:float = 1e-2,
-               hebbian_lambda:float = None,
+               hebbian_lambda:float = 0.0,
                input_encoding = 'unipolar',
                input_forced_choice = False,
                nonlinearity = 'tanh',
@@ -68,7 +68,7 @@ class TinyRNN(nn.Module):
     
     # We then need an RNN and a decoder:
     if rnn_type == 'vanilla':
-      self.rnn = torch.nn.RNN(self.I,self.H, 
+      self.rnn = ManualVanilla(self.I,self.H, 
                               nonlinearity=self.nonlinearity) #vanilla RNN with tanh nonlinearity 
     elif rnn_type == 'GRU':
       self.rnn = ManualGRU(self.I,self.H, self.nonlinearity)
@@ -104,14 +104,19 @@ class TinyRNN(nn.Module):
     np.random.seed(self.weight_seed)
     if torch.cuda.is_available():
       torch.cuda.manual_seed(self.weight_seed)
-    stdv = 1e-4 #/ math.sqrt(self.H) #1e-3 
-    for p in self.rnn.parameters():
-        p.data.uniform_(-stdv, stdv)
+    #initialise weights as small, uniformly distributed:
+    stdv = 1e-3 #/ math.sqrt(self.H) #1e-3 
+    for name, p in self.rnn.named_parameters():
+        if 'W' in name:
+          p.data.uniform_(-stdv, stdv)
+        if 'bias' in name:
+          p.data = torch.zeros_like(p.data)
+    #we initialise gate biases to be open at the start of training, similar to initialising LSTM forget_gates with a bias of 1.
     if 'monoGRU' in self.rnn_type:
-       self.rnn.bias_z.data = torch.tensor(1.0) #this initialises the gate bias to be open at the start of training, which empirically seems to help training.
+       self.rnn.bias_z.data = torch.tensor(1.0) 
     if self.rnn_type == "GRU":
-      self.rnn.bias_z.data = torch.tensor(1.0)#update gate bias
-      self.rnn.bias_r.data = torch.tensor(1.0)#reset gate bias
+      self.rnn.bias_z.data = torch.ones_like(self.rnn.bias_z.data) #update gate bias
+      self.rnn.bias_r.data = torch.ones_like(self.rnn.bias_r.data) #reset gate bias
     if self.init_decoder:
       self.decoder.weight.data = torch.tensor([[2.0,-2.0],
                                                [-2.0,2.0]])
@@ -128,24 +133,34 @@ class TinyRNN(nn.Module):
     predictions = self.decoder(hidden)
     return predictions, hidden
 
-  def compute_losses(self, predictions,targets, hidden_states):
+  def compute_losses(self, params, predictions, targets, hidden_states, 
+                   sparsity_lambda, energy_lambda, hebbian_lambda):
     losses = {}
-    ## predicion loss:
-    losses['prediction'] = nn.functional.cross_entropy(predictions, targets) #NB: this applies softmax itself
-    ## for weight sparsity we need to select the right weights to regularise:
-    losses['sparsity'] = 0
-    for name, param in self.rnn.named_parameters():
-      if 'bias' not in name:
-        losses['sparsity'] += torch.abs(param).sum()*self.sparsity_lambda
-    ## for energy loss we simply take mean squared activations:
-    losses['energy']  = torch.mean(hidden_states**2)*self.energy_lambda
-    #to prevent representational collapse: #the 1e-4 is an epsilon term to prevent infinite 
-    if self.hebbian_lambda is not None:
-       losses['hebbian'] = -torch.log(torch.var(hidden_states, dim=1)).mean()*self.hebbian_lambda
-    else:
-      losses['hebbian'] = torch.tensor([0])
-    return losses
+
+    # 1. Prediction loss
+    losses['prediction'] = torch.nn.functional.cross_entropy(predictions, targets)
+
+    # 2. Sparsity loss (Branchless)
+    sparsity_val = predictions.new_zeros(()) 
+    for name, param in params.items():
+        # This 'if' is OK because 'name' is a string, not a batched Tensor value
+        if 'bias' not in name:
+            sparsity_val = sparsity_val + torch.abs(param).sum()
+    losses['sparsity'] = sparsity_val * sparsity_lambda
+
+    # 3. Energy loss
+    losses['energy'] = torch.mean(hidden_states**2) * energy_lambda
+
+    # 4. Hebbian loss (Branchless)
+    # We remove the 'if hebbian_lambda != 0' check entirely.
+    # The 1e-4 epsilon prevents the log(0) crash even if the lambda is 0.
+    var = torch.var(hidden_states, dim=0) + 1e-6
+    hebbian_term = (-torch.log(var)).max()
     
+    losses['hebbian'] = hebbian_term * hebbian_lambda
+
+    return losses
+  
   def get_options_dict(self):
     '''Helper function to later save and reinstate model'''
     options_dict = {'rnn_type':self.rnn_type,
@@ -220,7 +235,7 @@ class MonoGated(nn.Module):
     ''' inputs are a tensor of shape (batch_size, sequence_size, input_size)
         outputs are tensor of shape (batch_size, sequence_size, hidden_size)
         -----
-        option to add fixed_gates dictionary with '_t' or 'z_t' keys, 
+        option to add fixed_gates dictionary with 'z_t' key, 
         which must be tensors of shape (n_batch,n_hidden).'''
     batch_size, sequence_size, _ = inputs.shape
     hidden_sequence = []
@@ -633,4 +648,57 @@ class ManualNMRNN(nn.Module):
             return W * s_t.view(B, H, 1) # broadcast across cols -> scale rows
         else:
             raise ValueError(f"row mode expects nm_dim==1 or nm_dim==hidden_size ({H}), got {s_t.shape[1]}")
+
+class ManualVanilla(nn.Module):
+  '''Manual Vanilla coded to run training in parallel
+  Returns: (hidden_sequence, h_past) if return_gate_activations=False,
+           (hidden_sequence, gate_activations) if -||- = True'''
+  def __init__(self,input_size,hidden_size, nonlinearity = 'tanh'):
+    super().__init__() #init nn.Module
+    self.input_size = input_size
+    self.hidden_size = hidden_size
+    self.sigmoid = nn.Sigmoid()
+    if nonlinearity == 'tanh':  
+      self.activation = nn.Tanh()
+    elif nonlinearity == 'relu':
+      self.activation = nn.ReLU()
+    elif nonlinearity == 'linear':
+       self.activation = nn.Identity()
+    self.W_ih = nn.Parameter(torch.Tensor(input_size, hidden_size))       # (I,H)
+    self.W_hh = nn.Parameter(torch.Tensor(hidden_size, hidden_size))      # (H,H)
+    self.bias_h = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
+    
+  def forward(self, inputs, init_states = None, 
+              return_gate_activations=False, #dded argument for API reasons
+              fixed_gates = {}):
+    ''' inputs are a tensor of shape (batch_size, sequence_size, input_size)
+        outputs are tensor of shape (batch_size, sequence_size, hidden_size)
+        -----
+        option to add fixed_gates dictionary with 'r_t' or 'z_t' keys, 
+        which must be tensors of shape (n_batch,n_hidden).'''
+
+    batch_size, sequence_size, _ = inputs.shape
+    hidden_sequence = []
+    if return_gate_activations:
+      gate_activations = {} #will just return empty
+    if init_states is None:
+      h_past = torch.zeros(batch_size, self.hidden_size).to(inputs.device) #(n_hidden,batch_size)
+    else:
+      h_past = init_states
+
+    for t in range(sequence_size):
+      x_past = inputs[:,t,:] #(n_batch,input_size)
+     
+      ## continued computation of hidden state:
+      #the future becomes the past here
+      h_past = self.activation(x_past@self.W_ih + (h_past@self.W_hh) + self.bias_h).view(batch_size, self.hidden_size) #(n_batch,n_hidden)
+      hidden_sequence.append(h_past.unsqueeze(0)) #appending (1,n_batch,n_hidden) to a big list.
+
+    hidden_sequence = torch.cat(hidden_sequence, dim=0) #(n_sequence, n_batch, n_hidden) gather all inputs along the first dimenstion
+    hidden_sequence = hidden_sequence.transpose(0, 1).contiguous() #reshape to batch first (n_batch,n_seq,n_hidden)
+    
+    if return_gate_activations:
+      return hidden_sequence, gate_activations
+    else:
+      return hidden_sequence, h_past #this is standard in Pytorch, to output sequence of hidden states alongside most recent hidden state.
 
