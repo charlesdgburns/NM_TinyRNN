@@ -152,8 +152,7 @@ class TinyRNN(nn.Module):
     losses['energy'] = torch.mean(hidden_states**2) * energy_lambda
 
     # 4. Hebbian loss (Branchless)
-    # We remove the 'if hebbian_lambda != 0' check entirely.
-    # The 1e-4 epsilon prevents the log(0) crash even if the lambda is 0.
+    # The 1e-6 epsilon penalises dead units (with 0 variance), while also preventing crashing. 
     var = torch.var(hidden_states, dim=0) + 1e-6
     hebbian_term = (-torch.log(var)).max()
     
@@ -657,7 +656,6 @@ class ManualVanilla(nn.Module):
     super().__init__() #init nn.Module
     self.input_size = input_size
     self.hidden_size = hidden_size
-    self.sigmoid = nn.Sigmoid()
     if nonlinearity == 'tanh':  
       self.activation = nn.Tanh()
     elif nonlinearity == 'relu':

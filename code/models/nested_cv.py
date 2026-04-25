@@ -104,7 +104,7 @@ def _blocks_for_sessions(dataset: AB_Dataset, session_names) -> list[int]:
 def nested_cv_splits(
     dataset: AB_Dataset,
     n_outer_loops: int = 5,
-    outer_loop_number: int = 0,
+    outer_loop_number: int = 1,
 ) -> dict:
     """
     Compute index splits for one outer-loop iteration.
@@ -238,14 +238,13 @@ def _run_inner_fold(
 
     fold_idx = fold_info["fold_idx"]
     seed     = _fold_seed(train_seed, fold_idx)
-    _set_global_seeds(seed)
+    #_set_global_seeds(seed)
 
     # Build split dict in the format get_dataloader already expects
     splits = {
         "train": fold_info["train"],
         "val":   fold_info["val"],
-        # eval key unused inside TrainerGPU but kept for API compatibility
-        "eval":  [],
+        "eval":  outer_eval_blocks,
     }
 
     # TrainerGPU uses dataset._session_split() internally; we monkey-patch it
@@ -260,7 +259,7 @@ def _run_inner_fold(
         train_seed = seed,
         **trainer_kwargs,
     )
-
+  
     best_state_dict, best_config = trainer.fit(base_model, patched_dataset)
     best_val_loss = trainer._last_best_val_loss   # see note *
 
@@ -301,7 +300,7 @@ def _run_inner_fold(
 def run_outer_fold(
     base_model,
     dataset:            AB_Dataset,
-    outer_loop_number:  int        = 0,
+    outer_loop_number:  int        = 1,
     n_outer_loops:      int        = 10,
     trainer_kwargs:     dict       = None,
     train_seed:         int        = 42,

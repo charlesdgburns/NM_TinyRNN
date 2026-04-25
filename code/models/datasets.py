@@ -53,40 +53,62 @@ def get_dataloader(dataset, split, splits=None, shuffle=None, batch_size=8, seed
 class AB_Dataset(Dataset):
     """Splits sessions into fixed-length sequences. Supports batch_size > 1."""
 
-    def __init__(self, data_path, sequence_length=SEQUENCE_LENGTH, device=DEVICE):
+    def __init__(self, subject_data_path, sequence_length=SEQUENCE_LENGTH, device=DEVICE):
         self.device = device
         self.sequence_length = sequence_length
-        self.subject_df = self._load(data_path)
-        self.inputs, self.targets = self._make_sequences()
+        self.subject_data_path = Path(subject_data_path)
+        self.subject_df = self._load_and_concat_data( )
+        self.inputs, self.targets = self._create_sequences()
 
-    def _load(self, data_path):
-        frames, n_blocks = [], 0
-        for d in sorted(Path(data_path).iterdir()):
-            if not d.is_dir():
-                continue
-            df = pd.read_csv(d / 'trials.htsv', sep='\t')
-            assert all(c in df.columns for c in REQUIRED), f"{d.stem}: missing columns"
-            remainder = len(df) % (self.sequence_length + 1)
-            if remainder:
-                df = df.iloc[:-remainder]
-            df['session_folder_name'] = d.stem
-            df['sequence_block_idx']  = np.arange(len(df)) // (self.sequence_length + 1) + n_blocks
-            n_blocks += len(df) // (self.sequence_length + 1)
-            frames.append(_encode_df(df))
-        assert frames, f"No valid sessions found under {data_path}"
-        return pd.concat(frames, ignore_index=True)
+    def _load_and_concat_data(self):
+        subject_data = []
+        session_folder_name = []
+        n_blocks = 0
+        for session_dir in self.subject_data_path.iterdir():
+            if session_dir.is_dir():
+                trials_df = pd.read_csv(session_dir/'trials.htsv', sep = '\t')
+                assert np.all([x in trials_df.columns for x in ['forced_choice', 'outcome', 'choice', 'good_poke']]), "DataFrame missing required columns"
+                remainder = (len(trials_df)%(self.sequence_length+1))
+                trials_df['session_folder_name'] = np.repeat(session_dir.stem, len(trials_df))
+                trials_df['session_trial_idx'] = range(len(trials_df))
+                trials_df['sequence_block_idx'] = np.arange(len(trials_df))//(self.sequence_length+1) + n_blocks
+                trials_df['block_trial_idx'] = np.concatenate([np.arange(0,len(trials_df)-remainder),np.repeat(np.nan,remainder)])
+                n_blocks+=len(trials_df)//(self.sequence_length+1)
+                subject_data.append(trials_df)
+                session_folder_name.extend(np.repeat(session_dir.stem, len(subject_data[-1]))) 
+        self.session_folder_name = session_folder_name
+        df =  pd.concat(subject_data)
+        # Convert boolean and categorical columns to numerical
+        df['forced_choice'] = df['forced_choice'].astype(int)
+        df['outcome'] = df['outcome'].astype(int)
+        df['choice'] = df['choice'].astype('category').cat.codes.astype(int) #this is consistent with below
+        df['good_poke'] = df['good_poke'].astype('category').cat.codes.astype(int) #consistent with above
+        percent_excluded = df.block_trial_idx.isna().mean()
+        print(f'Sequence length {self.sequence_length} excludes {percent_excluded:.1%} of trials')
+        return df
 
-    def _make_sequences(self):
-        raw = torch.tensor(
-            self.subject_df[['forced_choice', 'outcome', 'choice']].values,
-            dtype=torch.float32)
-        remainder = len(raw) % (self.sequence_length + 1)
-        if remainder:
-            raw = raw[:-remainder]
-        seqs = raw.view(-1, self.sequence_length + 1, raw.size(1))
-        inputs  = seqs[:, :-1, :]
-        targets = F.one_hot(seqs[:, 1:, 2].long(), num_classes=2).float()
-        return inputs.to(self.device), targets.to(self.device)
+    def _create_sequences(self):
+        # Convert to tensor and handle potential remainders
+        data_tensor = torch.tensor(self.subject_df[['forced_choice', 'outcome', 'choice']].values, dtype=torch.float32)
+        num_rows = data_tensor.size(0)
+        remainder = num_rows % (self.sequence_length+1) #add one here and below to account for time shifting
+        if remainder != 0:
+            data_tensor = data_tensor[:-remainder] # Trim off the remainder
+
+        # Reshape into sequences
+        num_sequences = data_tensor.size(0) // (self.sequence_length+1)
+        sequences = data_tensor.view(num_sequences, self.sequence_length+1, data_tensor.size(1))
+
+        # Create inputs and targets
+        # Inputs are 'forced_choice', 'outcome', and 'choice' at time t
+        inputs = sequences[:, :-1, :]
+        # Targets are 'choice' at time t+1, one-hot encoded
+        targets_codes = sequences[:, 1:, 2].long() # Get the categorical codes as long tensor
+        targets = torch.nn.functional.one_hot(targets_codes, num_classes=2).float() # One-hot encode
+        return inputs, targets
+
+    def __len__(self):
+        return self.inputs.size(0)
 
     def __len__(self):
         return len(self.inputs)

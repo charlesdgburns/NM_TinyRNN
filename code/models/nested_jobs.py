@@ -36,7 +36,7 @@ PROCESSED_DATA_PATH = Path('./NM_TinyRNN/data/AB_behaviour/') #subfolders here a
 ### top level ###
 
 
-def run_training(overwrite=False):
+def run_training(overwrite=False, test = True):
     '''Submit jobs to HPC cluster via slurm to run training'''
     train_df = get_job_info_df()
     if not overwrite:
@@ -44,6 +44,8 @@ def run_training(overwrite=False):
     if train_df.empty:
         print("All files have been registered. No new videos to track.")
         return
+    if test == True:
+       train_df = train_df.query('subject_ID=="WS16" and model_type == "monoGRU"')
     #Computing outer loops sequentially:
     train_df = train_df.drop_duplicates(['subject_ID','model_id'])
     for session_info in train_df.itertuples():
@@ -84,8 +86,8 @@ def get_job_info_df(processed_data_path = PROCESSED_DATA_PATH,
                         model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
                         model_save_path = save_path/'nested_DA'/subject_ID/model_type/constraint
                         completed = 1
-                        for inner_loop_n in range(1,N_OUTER_LOOPS):
-                            completed *= (model_save_path/f'outer_loop_{outer_loop_n}'/f'inner_loop_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
+                        for inner_loop_n in range(0,N_OUTER_LOOPS-1):
+                            completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
                         for k,v in zip(df_dict.keys(),
                             [subject_ID,outer_loop_n,model_type,hidden_size,
                             nonlinearity, input_encoding,constraint,

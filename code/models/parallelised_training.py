@@ -13,7 +13,6 @@ from joblib import Parallel, delayed
 from NM_TinyRNN.code.models import training
 from NM_TinyRNN.code.models import datasets
 from NM_TinyRNN.code.models import rnns
-from NM_TinyRNN.code.models import nested
 
 
 JOBS_PATH  = Path("./Jobs/NM_TinyRNN")

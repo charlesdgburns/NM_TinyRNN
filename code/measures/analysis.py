@@ -28,47 +28,77 @@ RNNS_PATH = DATA_PATH/'rnns' #this folder should contain a folder per subject, a
 # info_df
 ## Our approach for analyses will be based on pandas dataframes, first just getting one that points to relevant data.
 
-def add_data_to_info_df(info_df, n_jobs=-1):
-    '''Parallelised version - processes all model rows concurrently.'''
-    results = Parallel(n_jobs=n_jobs)(
-        delayed(get_best_model_data)(row) for row in info_df.itertuples()
-    ) # see the function get_best_model_data below.
-    for each_data_column in results[0].keys():
-        info_df[each_data_column] = [r[each_data_column] for r in results]
-    return info_df
 
-
-def get_best_model_data(each_model):
-    '''Process a single model row - find best weight seed by val CE.'''
-    empty_row = {k: None for k in ["info_path", "model_state_path", "training_losses_path",
-                                    "trials_data_path", "eval_CE", "best_weight_seed", "best_val_CE"]}
+def get_analysis_df(info_df, mode='all', n_jobs=-1):
+    '''
+    Load model data in parallel.
     
-    if each_model.completed == False:
-        print(f"Model {each_model.model_id} has not completed training, skipping.")
-        return empty_row
+    Args:
+        info_df: DataFrame with model information
+        mode: 'all' to get all outer/inner combinations, 
+              'best' to get best inner model for each outer loop
+        n_jobs: Number of parallel jobs (-1 for all cores)
+    '''
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(get_model_data)(row, mode) for row in info_df.itertuples()
+    )
+    expanded_df = pd.DataFrame([r for result_list in results for r in result_list])
+    return expanded_df if not expanded_df.empty else pd.DataFrame()
+ 
+def get_model_data(each_model, mode='all'):
+    '''Load data for model. Reads all inner folders once, filters by mode.'''
+    if not each_model.completed:
+        print(f"Model {each_model.model_id} has not completed training.")
+        return []
+    
+    model_save_path = Path(each_model.save_path)
+    outer_folder = model_save_path/ f"outer_fold_{each_model.outer_loop_n}"
+    
+    base_row = {col: getattr(each_model, col) for col in each_model._fields}
+    all_rows = []
+    best_per_outer = {}
 
-    train_seed_path = each_model.save_path
-    best_val_CE = np.inf
-    result = empty_row.copy()
-
-    for each_weight_seed in train_seed_path.iterdir():
-        if not each_weight_seed.is_dir():
+    best_per_outer = None
+    
+    for inner_idx, inner_folder in enumerate(sorted(outer_folder.iterdir())):
+        if not inner_folder.is_dir():
             continue
-        temp_info_path = each_weight_seed / f'{each_model.model_id}_info.json'
-        info_dict = load_data(temp_info_path)
-        val_CE = info_dict['best_val_pred_loss']
-        if val_CE < best_val_CE:
-            best_val_CE = val_CE
-            result = {
-                "info_path": temp_info_path,
-                "model_state_path": each_weight_seed / f'{each_model.model_id}_model_state.pth',
-                "training_losses_path": each_weight_seed / f'{each_model.model_id}_training_losses.htsv',
-                "trials_data_path": each_weight_seed / f'{each_model.model_id}_trials_data.htsv',
-                "eval_CE": info_dict['eval_pred_loss'],
-                "best_weight_seed": str(each_weight_seed).split('_')[-1],
-                "best_val_CE": best_val_CE,
+        
+        info_path = inner_folder / f'{each_model.model_id}_info.json'
+        if not info_path.exists():
+            continue
+        
+        try:
+            info_dict = load_data(info_path)
+            winning_config = info_dict.get('winning_config', {})
+            row = {
+                **base_row,
+                "inner_loop_idx": inner_idx,
+                "info_path": str(info_path),
+                "model_state_path": str(inner_folder / f'{each_model.model_id}_model_state.pth'),
+                "training_losses_path": str(inner_folder / f'{each_model.model_id}_training_losses.htsv'),
+                "trials_data_path": str(inner_folder / f'{each_model.model_id}_trials_data.htsv'),
+                "eval_CE": info_dict.get('eval_pred_loss'),
+                "best_val_CE": info_dict.get('val_loss'),
+                "weight_seed": winning_config.get('weight_seed'),
+                "sparsity_lambda": winning_config.get('sparsity_lambda'),
+                "energy_lambda": winning_config.get('energy_lambda')
             }
-    return result
+            all_rows.append(row)
+            
+            # Track best for this outer loop
+            val_loss = info_dict.get('val_loss', float('inf'))
+            if best_per_outer is None or val_loss < best_per_outer['best_val_CE']:
+                best_per_outer = row
+        except Exception as e:
+            print(f"Error processing {info_path}: {e}")
+
+    if mode == 'all':
+        return all_rows
+    elif mode == 'best':
+        return [row for row in best_per_outer.values() if row is not None]
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
 
 # functions for generating plots with a good overview #
 

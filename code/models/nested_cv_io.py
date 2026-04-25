@@ -232,8 +232,8 @@ def save_inner_fold_results(
         "n_outer_eval_blocks":  len(outer_eval_blocks) if outer_eval_blocks else 0,
         "hparam_ranges":        hparam_ranges,
         **(
-            {"model_options": _json_safe(base_model.get_options_dict())}
-            if hasattr(base_model, "get_options_dict") else {}
+            {"model_options": _json_safe(eval_model.get_options_dict())}
+            if hasattr(eval_model, "get_options_dict") else {}
         ),
     }
 

@@ -68,20 +68,20 @@ class TrainerGPU:
         train_loader = get_dataloader(dataset, 'train', splits, batch_size=self.batch_size)
         val_loader   = get_dataloader(dataset, 'val',   splits, batch_size=self.batch_size)
         
-        #set random seed
-                
-        torch.manual_seed(TRAIN_SEED)
-        np.random.seed(TRAIN_SEED)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed(TRAIN_SEED)
-
-
+        
         # Initialize Parallel State
         params, buffers = self._initialize_parallel_models(base_model)
         # Move params to device and enable gradients
         params = {k: v.to(device).detach().requires_grad_(True) for k, v in params.items()}
         buffers = {k: v.to(device) for k, v in buffers.items()}
         
+        # set random seed AFTER initialising weights. 
+        # This ensures reproducibility in training loop  
+        torch.manual_seed(TRAIN_SEED)
+        np.random.seed(TRAIN_SEED)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(TRAIN_SEED)
+            
         optimizer = torch.optim.AdamW(params.values(), lr=self.learning_rate)
 
         # Trackers for each model

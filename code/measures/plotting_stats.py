@@ -5,7 +5,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+import pingouin as pg
+from scipy.stats import ttest_rel, f_oneway
 from statsmodels.stats.multitest import multipletests
+from itertools import combinations
+
+
 
 
 ## Two-variable t-tests plotted easily ##
@@ -18,7 +23,8 @@ def plot_paired_comparison(df,
                            filter_by=None,
                            dodge_offset=0.15,
                            colors=None,
-                           correction_method='fdr_bh'):
+                           correction_method='fdr_bh',
+                           ax=None):
     """
     Plots a paired comparison of y across levels of x, grouped by within_variable.
     Performs a paired t-test across levels of x, paired by paired_across.
@@ -37,8 +43,8 @@ def plot_paired_comparison(df,
     colors            : list of 2 colours for the two x levels, optional
     correction_method : str, multiple comparison correction method (default: 'fdr_bh')
                         any method accepted by statsmodels.stats.multitest.multipletests
+    ax                : matplotlib axis, optional. If None, creates a new figure and axis.
     """
-    from statsmodels.stats.multitest import multipletests
 
     df = df.copy()
 
@@ -54,9 +60,9 @@ def plot_paired_comparison(df,
         df = df.groupby(group_cols)[y].mean().reset_index()
 
     # --- Validate x has exactly 2 levels ---
-    x_levels = sorted(df[x].unique())
-    if len(x_levels) != 2:
-        raise ValueError(f"'{x}' must have exactly 2 levels for a paired t-test, found: {x_levels}")
+    if df[x].nunique() != 2:
+        x_vals = sorted(df[x].unique())
+        raise ValueError(f"'{x}' must have exactly 2 levels for a paired t-test, found: {x_vals}")
 
     within_levels = sorted(df[within_variable].unique())
     n_groups = len(within_levels)
@@ -67,6 +73,7 @@ def plot_paired_comparison(df,
     # --- First pass: collect paired data and raw p-values ---
     all_paired = []
     raw_pvals = []
+    x_levels = None
     for group in within_levels:
         group_df = df[df[within_variable] == group]
 
@@ -77,6 +84,13 @@ def plot_paired_comparison(df,
             print(dupe_check[dupe_check > 1])
 
         paired = group_df.pivot(index=paired_across, columns=x, values=y).dropna()
+
+        # Extract x_levels from actual pivot columns to ensure type consistency
+        if x_levels is None:
+            x_levels = sorted(paired.columns.tolist())
+            if len(x_levels) != 2:
+                raise ValueError(f"'{x}' must have exactly 2 levels in pivot, found: {x_levels}")
+
         all_paired.append(paired)
 
         if paired.empty or len(paired) < 2:
@@ -97,7 +111,11 @@ def plot_paired_comparison(df,
 
     # --- Plot ---
     y_range = df[y].max() - df[y].min()
-    fig, ax = plt.subplots(figsize=(3 * n_groups, 6))
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(3 * n_groups, 6))
+        created_fig = True
+    else:
+        created_fig = False
 
     for i, (group, paired, p_val_corr) in enumerate(zip(within_levels, all_paired, corrected_pvals)):
         if paired.empty:
@@ -133,15 +151,14 @@ def plot_paired_comparison(df,
                  f'grouped by {within_variable}, paired across {paired_across}\n'
                  f'(multiple comparison correction: {correction_method})')
     ax.legend(title=x)
-    plt.tight_layout()
-    plt.show()
+    if created_fig:
+        plt.tight_layout()
+        plt.show()
+    return ax
 
 
 ## anova ##
 
-from scipy.stats import ttest_rel, f_oneway
-from statsmodels.stats.multitest import multipletests
-from itertools import combinations
 def plot_repeated_measures_anova(df,
                                   y,
                                   x,
@@ -149,7 +166,8 @@ def plot_repeated_measures_anova(df,
                                   mean_across=None,
                                   filter_by=None,
                                   colors=None,
-                                  correction_method='fdr_bh'):
+                                  correction_method='fdr_bh',
+                                  ax=None):
     """
     Plots a repeated measures ANOVA comparison of y across levels of x,
     with post-hoc paired t-tests, FDR correction, and bracket annotations.
@@ -166,12 +184,9 @@ def plot_repeated_measures_anova(df,
     filter_by         : dict, optional filters e.g. {'nonlinearity': 'relu'}
     colors            : list of colours, one per level of x, optional
     correction_method : str, multiple comparison correction method (default: 'fdr_bh')
+    ax                : matplotlib axis, optional. If None, creates a new figure and axis.
     """
-    import pingouin as pg
-    from scipy.stats import ttest_rel
-    from statsmodels.stats.multitest import multipletests
-    from itertools import combinations
-
+    
     df = df.copy()
 
     # --- Filter ---
@@ -250,7 +265,11 @@ def plot_repeated_measures_anova(df,
     color_map   = {level: colors[i] for i, level in enumerate(x_levels)}
     x_positions = {level: i for i, level in enumerate(x_levels)}
 
-    fig, ax = plt.subplots(figsize=(2.5 * n_levels, 7))
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(2.5 * n_levels, 7))
+        created_fig = True
+    else:
+        created_fig = False
 
     # Connecting lines across subjects
     for subject in wide.index:
@@ -289,6 +308,11 @@ def plot_repeated_measures_anova(df,
                 f"{sig}\nΔ={res['mean_diff']:.3f}",
                 ha='center', va='bottom', fontsize=9)
 
+    # Adjust y-axis to include brackets
+    if sig_pairs_sorted:
+        y_max_with_brackets = y_max + bracket_step * (len(sig_pairs_sorted) + 1)
+        ax.set_ylim(top=y_max_with_brackets)
+
     ax.set_title(f'Repeated measures ANOVA: {y} by {x}\n'
                  f'F={f_stat:.2f}, p={p_anova:.4f}, ηg²={ng2:.3f}\n'
                  f'{sphericity_str} | Post-hoc: {correction_method} corrected',
@@ -297,8 +321,9 @@ def plot_repeated_measures_anova(df,
     ax.set_xticklabels(x_levels)
     ax.set_xlabel(x)
     ax.set_ylabel(y)
-    plt.tight_layout()
-    plt.show()
+    if created_fig:
+        plt.tight_layout()
+        plt.show()
 
-    return anova_result, pair_results
+    return anova_result, pair_results, ax
     
