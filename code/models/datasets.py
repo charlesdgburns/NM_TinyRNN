@@ -64,18 +64,22 @@ class AB_Dataset(Dataset):
         subject_data = []
         session_folder_name = []
         n_blocks = 0
-        for session_dir in self.subject_data_path.iterdir():
-            if session_dir.is_dir():
-                trials_df = pd.read_csv(session_dir/'trials.htsv', sep = '\t')
-                assert np.all([x in trials_df.columns for x in ['forced_choice', 'outcome', 'choice', 'good_poke']]), "DataFrame missing required columns"
-                remainder = (len(trials_df)%(self.sequence_length+1))
-                trials_df['session_folder_name'] = np.repeat(session_dir.stem, len(trials_df))
-                trials_df['session_trial_idx'] = range(len(trials_df))
-                trials_df['sequence_block_idx'] = np.arange(len(trials_df))//(self.sequence_length+1) + n_blocks
-                trials_df['block_trial_idx'] = np.concatenate([np.arange(0,len(trials_df)-remainder),np.repeat(np.nan,remainder)])
-                n_blocks+=len(trials_df)//(self.sequence_length+1)
-                subject_data.append(trials_df)
-                session_folder_name.extend(np.repeat(session_dir.stem, len(subject_data[-1]))) 
+        subdirs = [x for x in self.subject_data_path.iterdir() if x.is_dir()]
+        subdirs.sort()
+        for session_dir in subdirs:
+            trials_df = pd.read_csv(session_dir/'trials.htsv', sep = '\t')
+            assert np.all([x in trials_df.columns for x in ['forced_choice', 'outcome', 'choice', 'good_poke']]), "DataFrame missing required columns"
+            T, S = len(trials_df), (self.sequence_length)
+            remainder = T%(S+1) # the +1 here is to account for the shift in trials between inputs and targets when creating sequences.
+            trials_df['session_folder_name'] = np.repeat(session_dir.stem, len(trials_df))
+            trials_df['session_trial_idx'] = range(len(trials_df))
+            trials_df['sequence_block_idx'] = np.concatenate([np.arange(T-remainder)//(S+1),
+                                                              np.repeat(np.nan,remainder)]) + n_blocks
+            trials_df['block_trial_idx'] = np.concatenate([np.arange(T-remainder),
+                                                           np.repeat(np.nan,remainder)])
+            n_blocks+=(T-remainder)//(S+1)
+            subject_data.append(trials_df)
+            session_folder_name.extend(np.repeat(session_dir.stem, len(subject_data[-1]))) 
         self.session_folder_name = session_folder_name
         df =  pd.concat(subject_data)
         # Convert boolean and categorical columns to numerical
@@ -88,8 +92,11 @@ class AB_Dataset(Dataset):
         return df
 
     def _create_sequences(self):
-        # Convert to tensor and handle potential remainders
-        data_tensor = torch.tensor(self.subject_df[['forced_choice', 'outcome', 'choice']].values, dtype=torch.float32)
+        # We want to train models faster by batching sessions into blocks of given sequence length
+        # We want to respect sessions (no blocks across sessions), which is handled when loading the data.
+        # this is handled by sequence_block_idx NaN values
+        trials_data = self.subject_df.dropna() #we are dropping the np.nan values added when applying the blocks
+        data_tensor = torch.tensor(trials_data[['forced_choice', 'outcome', 'choice']].values, dtype=torch.float32)
         num_rows = data_tensor.size(0)
         remainder = num_rows % (self.sequence_length+1) #add one here and below to account for time shifting
         if remainder != 0:

@@ -53,6 +53,9 @@ to get a rough per-subprocess upper bound in MiB.
 
 from __future__ import annotations
 
+
+import random
+
 import math
 import os
 from copy import deepcopy
@@ -89,12 +92,14 @@ def _session_chunks(sessions: np.ndarray, k: int) -> list[np.ndarray]:
 
 def _blocks_for_sessions(dataset: AB_Dataset, session_names) -> list[int]:
     """Return sorted sequence-block indices for the given session names."""
-    block_map = dataset.subject_df.groupby("session_folder_name")[
+    block_map = dataset.subject_df.dropna().groupby("session_folder_name")[
         "sequence_block_idx"
     ].unique()
-    return sorted(
+    blocks = sorted(
         np.concatenate([block_map[s] for s in session_names if s in block_map]).tolist()
     )
+    blocks = [int(x) for x in blocks] #convert float to int, very important
+    return blocks
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -131,7 +136,7 @@ def nested_cv_splits(
             f"outer_loop_number must be in [1, {n_outer_loops}], "
             f"got {outer_loop_number}."
         )
-
+    
     sessions = _get_sessions(dataset)
     chunks   = _session_chunks(sessions, n_outer_loops)   # list of K arrays
 
@@ -184,7 +189,6 @@ def _fold_seed(train_seed: int, inner_fold_idx: int) -> int:
 
 def _set_global_seeds(seed: int) -> None:
     """Pin every relevant RNG in a subprocess."""
-    import random
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -254,7 +258,7 @@ def _run_inner_fold(
 
     # TrainerGPU gets its own temp save path so it doesn't write into the
     # nested CV directory structure.  The canonical save is handled below.
-    from NM_TinyRNN.code.models.gpu_training import TrainerGPU   # adjust path
+    from NM_TinyRNN.code.models.training_fast import TrainerGPU   # adjust path
     trainer = TrainerGPU(
         train_seed = seed,
         **trainer_kwargs,

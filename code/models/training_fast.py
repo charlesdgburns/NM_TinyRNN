@@ -15,7 +15,7 @@ class TrainerGPU:
     def __init__(
         self,
         weight_seeds: list = list(range(1,11)),
-        sparsity_lambdas: list = [1e-4, 1e-5, 1e-6],
+        sparsity_lambdas: list = [1e-1,1e-2,1e-3,1e-4, 1e-5],
         energy_lambdas: list = [0.1, 1e-2, 1e-3],
         hebbian_lambdas: list = [0.0], # Changed None to 0.0 for tensor compatibility
         learning_rate: float = 1e-2,
@@ -68,7 +68,6 @@ class TrainerGPU:
         train_loader = get_dataloader(dataset, 'train', splits, batch_size=self.batch_size)
         val_loader   = get_dataloader(dataset, 'val',   splits, batch_size=self.batch_size)
         
-        
         # Initialize Parallel State
         params, buffers = self._initialize_parallel_models(base_model)
         # Move params to device and enable gradients
@@ -82,7 +81,9 @@ class TrainerGPU:
         if torch.cuda.is_available():
             torch.cuda.manual_seed(TRAIN_SEED)
             
-        optimizer = torch.optim.AdamW(params.values(), lr=self.learning_rate)
+        optimizer = torch.optim.AdamW(params.values(), 
+                                      lr=self.learning_rate,
+                                      weight_decay = 0.0) #important detail here, otherwise sparsity_lambda is misleading
 
         # Trackers for each model
         best_val_losses = torch.full((self.num_models,), float('inf'), device=device)
@@ -104,46 +105,25 @@ class TrainerGPU:
             x: input batch [Batch, Seq, Features]
             y: target batch [Batch, Seq, Outputs]
             """
-            
             # 1. Functional forward pass
             # We use (p, b) to ensure we use the specific weights for this hyperparameter set
             predictions, hidden_states = functional_call(base_model, (p, b), x)
-            
-            B, S, O = predictions.shape # Batch, Sequence, Output dims
-
-            # 2. Replicate your "Free Choice" masking logic
-            # Identifies trials where the model actually made a choice (input[:, :, 0] == 0)
-            free_choice = (x[:, :, 0] == 0)
-            
-            # Your specific shift logic: free_choice[:, :-1] = free_choice[:, 1:]
-            # Note: .clone() is used to avoid in-place modification issues inside vmap
-            mask = free_choice.clone()
-            mask[:, :-1] = free_choice[:, 1:].clone()
-            mask_flat = mask.flatten()
-
-            # 3. Apply mask to predictions and targets
-            # We flatten [B, S] to [B*S] to select the valid trials
-            preds_to_eval = predictions.reshape(B * S, O)[mask_flat]
-            targets_to_eval = y.reshape(B * S, O)[mask_flat]
-
-            # 4. Compute the dictionary of losses
-            # We pass 'p' so the model can calculate its own sparsity loss on its own weights
-            # We pass 'hidden_states' flattened for the Hebbian/Energy calculations
+            forced_choice_mask = x[:,:,0]
             loss_dict = base_model.compute_losses(
                 params=p,
-                predictions=preds_to_eval,
-                targets=targets_to_eval,
-                hidden_states=hidden_states.reshape(B * S, -1),
+                predictions=predictions,
+                targets=y,
+                forced_choice_mask = forced_choice_mask,
+                hidden_states=hidden_states,
                 sparsity_lambda=s_lam,
                 energy_lambda=e_lam,
                 hebbian_lambda=h_lam
             )
-
             # 5. Return the sum of all components
             # Inside vmap, this results in a single scalar per model.
             # vmap then stacks these into a tensor of shape [num_models].
-            return sum(loss_dict.values())
-
+            return loss_dict
+        
         # Vectorize the loss function across the model dimension (dim 0)
         # in_dims: (0, 0, None, None, 0, 0, 0) means params/lambdas are unique per model, 
         # but data (x, y) is shared (None).
@@ -153,15 +133,15 @@ class TrainerGPU:
             if not active_mask.any(): break
 
             # --- Training Step ---
-            optimizer.zero_grad()
             for batch_x, batch_y in train_loader:
+                optimizer.zero_grad()
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
                 
                 # Compute parallel losses
-                losses = vectorized_loss_fn(params, buffers, batch_x, batch_y, s_vec, e_vec, h_vec)
+                loss_dict = vectorized_loss_fn(params, buffers, batch_x, batch_y, s_vec, e_vec, h_vec)
                 
                 # We only want to backprop for models that haven't early-stopped
-                masked_loss = (losses * active_mask).sum()
+                masked_loss = (sum(loss_dict.values()) * active_mask).sum()
                 masked_loss.backward()
                 optimizer.step()
 
@@ -170,7 +150,8 @@ class TrainerGPU:
                 current_val_losses = torch.zeros(self.num_models, device=device)
                 for v_x, v_y in val_loader:
                     v_x, v_y = v_x.to(device), v_y.to(device)
-                    current_val_losses += vectorized_loss_fn(params, buffers, v_x, v_y, s_vec, e_vec, h_vec)
+                    loss_dict = vectorized_loss_fn(params, buffers, v_x, v_y, s_vec, e_vec, h_vec)
+                    current_val_losses += loss_dict['prediction']
                 current_val_losses /= len(val_loader)
 
                 # Update best states and early stopping counters

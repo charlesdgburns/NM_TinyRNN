@@ -106,11 +106,11 @@ class TinyRNN(nn.Module):
       torch.cuda.manual_seed(self.weight_seed)
     #initialise weights as small, uniformly distributed:
     stdv = 1e-3 #/ math.sqrt(self.H) #1e-3 
-    for name, p in self.rnn.named_parameters():
-        if 'W' in name:
+    for name, p in self.named_parameters():
+        if 'W' or 'decoder' in name:
           p.data.uniform_(-stdv, stdv)
         if 'bias' in name:
-          p.data = torch.zeros_like(p.data)
+          p.data.zero_()
     #we initialise gate biases to be open at the start of training, similar to initialising LSTM forget_gates with a bias of 1.
     if 'monoGRU' in self.rnn_type:
        self.rnn.bias_z.data = torch.tensor(1.0) 
@@ -133,14 +133,48 @@ class TinyRNN(nn.Module):
     predictions = self.decoder(hidden)
     return predictions, hidden
 
-  def compute_losses(self, params, predictions, targets, hidden_states, 
-                   sparsity_lambda, energy_lambda, hebbian_lambda):
-    losses = {}
+  def compute_losses(self,
+                     predictions:torch.tensor, #(batch_size, seq_length, n_actions) output by model,
+                     targets:torch.tensor,     #(batch_size, seq_length, n_actions) from dataset batch loader
+                     forced_choice_mask:torch.tensor, #(batch_size, seq_length) IMPORTANT: take this from the input or set to zeros everywhere if no forced choices.
+                     params:dict,  
+                     hidden_states:torch.tensor, #(batch_size, seq_length, n_hidden) 
+                     sparsity_lambda:float, energy_lambda:float, hebbian_lambda:float):
+    '''Parameters: 
+       ----
+       predictions: torch.tensor #(batch_size, seq_length, n_outputs) output by model.forward()
+       targets: torch.tensor #(batch_size, seq_length, n_outputs) from dataset batch loader
+       forced_choice_mask: torch.tensor #(batch_size, seq_length) taken from input or set to zeros everywhere if there are no forced choices
+       params: dictionary usually from {k:v for k,v in model.named_parameters()}
+       hidden_states:torch.tensor #(batch_size,seq_length, n_hidden) output by model.forward()
+       sparsity_lambda: float, value weightng the sparsity on weights
+       energy_lambda: float, value weighting the constraint on energy of hidden activations
+       hebbian_lambda: float, value weighting hebbian constraint
+       
+       Returns
+       ----
+       losses: dictionary with 'prediction','sparsity','energy','hebbian' losses.
+       '''
+       
+    assert len(predictions.shape) == 3 and len(targets.shape)==3, f"predictions and targets must be shaped as (batch_size, seq_length, n_actions), got shape {predictions.shape}"   
+    assert len(targets.shape)==3, f"targets must be shaped as (batch_size, seq_length, n_actions), got shape {targets.shape}"   
+    assert len(forced_choice_mask.shape) == 2, f"forced_choice mask must be input as (batch_size, seq_length), got shape {forced_choice_mask.shape}" 
+    
+    losses = {} #We initialise a dictionary to store all the losses as we go computing them
 
     # 1. Prediction loss
+    # We need to refactor the predictions and targets, 
+    # and account for forced choices (which we don't want to be predicting)
+    B,S,O = predictions.shape #extract batch size and sequence length, and action/output size
+    free_choice = (forced_choice_mask==0)
+    mask = torch.ones_like(free_choice)
+    mask[:,:-1] = free_choice[:,1:].clone() #shifted one trial to the left to align inputs with targets/predictions
+    #now we flatten it all and compute the loss!
+    predictions = predictions.reshape(B*S,O)[mask.flatten()]
+    targets = targets.reshape(B*S,O)[mask.flatten()]
     losses['prediction'] = torch.nn.functional.cross_entropy(predictions, targets)
 
-    # 2. Sparsity loss (Branchless)
+    # 2. Sparsity loss
     sparsity_val = predictions.new_zeros(()) 
     for name, param in params.items():
         # This 'if' is OK because 'name' is a string, not a batched Tensor value
@@ -151,7 +185,7 @@ class TinyRNN(nn.Module):
     # 3. Energy loss
     losses['energy'] = torch.mean(hidden_states**2) * energy_lambda
 
-    # 4. Hebbian loss (Branchless)
+    # 4. Hebbian loss
     # The 1e-6 epsilon penalises dead units (with 0 variance), while also preventing crashing. 
     var = torch.var(hidden_states, dim=0) + 1e-6
     hebbian_term = (-torch.log(var)).max()
@@ -269,7 +303,7 @@ class MonoGated(nn.Module):
         gate_activations['update'].append(z_t.unsqueeze(0)) 
       ## continued computation of hidden state:
       n_t = self.activation(x_past@self.W_ih+h_past@self.W_hh+self.bias_h)
-      h_past = (1-z_t)*h_past + (z_t)*n_t #(n_batch,hidden_size) #NOTE h_past is tehnically h_t now, but in the next for-loop it will be h_past. ;)
+      h_past = (1-z_t)*n_t + (z_t)*h_past #(n_batch,hidden_size) #NOTE h_past is tehnically h_t now, but in the next for-loop it will be h_past. ;)
       hidden_sequence.append(h_past.unsqueeze(0)) #appending (1,n_batch,n_hidden) to a big list.
 
     hidden_sequence = torch.cat(hidden_sequence, dim=0) #(n_sequence, n_batch, n_hidden) gather all inputs along the first dimenstion

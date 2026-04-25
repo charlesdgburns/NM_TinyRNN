@@ -144,15 +144,14 @@ class Trainer:
                     optimizer.zero_grad()
 
                 predictions, hidden_states = model(batch_inputs)
-
-                free_choice = (batch_inputs[:, :, 0] == 0)
-                free_choice[:, :-1] = free_choice[:, 1:].clone()
-                free_choice = free_choice.flatten()
+                forced_choice_mask = batch_inputs[:,:,0]
                 params_dict = {k:v for k,v in model.rnn.named_parameters()}
-                losses = model.compute_losses(params_dict,
-                    predictions.reshape(B * S, model.O)[free_choice],
-                    batch_targets.reshape(B * S, model.O)[free_choice],
-                    hidden_states, model.sparsity_lambda, model.energy_lambda, model.hebbian_lambda)
+                losses = model.compute_losses(predictions,
+                                                batch_targets,
+                                                forced_choice_mask,
+                                                params_dict,
+                                                hidden_states, 
+                                                model.sparsity_lambda, model.energy_lambda, model.hebbian_lambda) #These are considered inputs to the loss function for fast parallelisation. 
 
                 if training and optimizer is not None:
                     sum(losses.values()).backward()

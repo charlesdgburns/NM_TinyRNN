@@ -8,7 +8,7 @@ save_path/
     inner_fold_M/
       info.json               hyperparams, trainer settings, split sizes, val loss
       model_state.pth         winning model weights
-      training_losses.htsv   epoch-by-epoch losses (from TrainerGPU if available)
+      training_losses.htsv    epoch-by-epoch losses (from TrainerGPU if available)
       trials_data.htsv        trial-by-trial activations / predictions
 
 Usage
@@ -80,67 +80,24 @@ def _json_safe(v: Any) -> Any:
 
 def compute_eval_loss(model, dataset, eval_block_indices: list) -> float:
     """
-    Compute the mean per-trial cross-entropy loss on the outer eval blocks,
-    masking out forced-choice trials exactly as the training loop does.
-
-    The masking logic mirrors _run_epoch in Trainer:
-      - A trial is a free-choice trial when forced_choice == 0.
-      - Because we predict the *next* trial's choice, the mask is shifted
-        by one step: mask[t] = free_choice[t+1].
-      - Loss is averaged over the surviving free-choice trials only.
-
-    Parameters
-    ----------
-    model             : trained model in eval() mode.
-    dataset           : full AB_Dataset (all sessions).
-    eval_block_indices: list of sequence_block_idx values for the outer eval set.
-
-    Returns
-    -------
-    float -- mean cross-entropy over free-choice trials in the eval set,
-             or np.nan if no eval trials exist.
+   
     """
     if not eval_block_indices:
         return float("nan")
 
     model.eval()
-
-    # Select eval trials from subject_df using block membership
-    block_col  = dataset.subject_df["sequence_block_idx"].values
-    eval_mask  = np.isin(block_col, list(eval_block_indices))
-    eval_df    = dataset.subject_df[eval_mask].reset_index(drop=True)
-
-    if eval_df.empty:
-        return float("nan")
-
-    # Build (1, T_eval, 3) input tensor for the eval trials only
-    raw = torch.tensor(
-        eval_df[["forced_choice", "outcome", "choice"]].values,
-        dtype=torch.float32,
-    ).unsqueeze(0)   # (1, T, 3)
-
     with torch.no_grad():
-        predictions, _ = model(raw)   # (1, T, 2) logits
+        inputs = dataset.inputs[eval_block_indices,:,:]
+        targets = dataset.targets[eval_block_indices,:,:]
+        forced_choice_mask = inputs[:,:,0]
+        predictions, hidden = model(inputs)
+        params = {k:v for k,v in model.named_parameters()}
+        losses = model.compute_losses(predictions,targets, forced_choice_mask,
+                                    params,
+                                    hidden,
+                                    model.sparsity_lambda,model.energy_lambda,model.hebbian_lambda)
 
-    # Replicate the free-choice shift from _run_epoch:
-    #   free_choice[t] is True when the animal made a free choice at trial t.
-    #   We predict the next trial, so mask[t] = free_choice[t+1].
-    forced_choice = (raw[0, :, 0] == 0)          # (T,)  True = free choice
-    mask          = forced_choice.clone()
-    mask[:-1]     = forced_choice[1:].clone()     # shift by one
-    mask          = mask.cpu()
-
-    if mask.sum() == 0:
-        return float("nan")
-
-    # Cross-entropy on the masked free-choice predictions
-    # targets: next trial's choice, one-hot encoded as class index
-    choices      = torch.tensor(eval_df["choice"].values, dtype=torch.long)
-    preds_masked = predictions[0][mask]     # (N_free, 2)
-    tgts_masked  = choices[mask]            # (N_free,)
-
-    loss = F.cross_entropy(preds_masked, tgts_masked).item()
-    return loss
+    return losses['prediction'].item()
 
 
 # ---------------------------------------------------------------------------

@@ -94,53 +94,114 @@ def add_data(analysis_df):
     analysis_df['energy_lambda'] = energy_lambdas
     return analysis_df
 
-def compute_similarities(analysis_df):
-    """Compute similarity of activations across outer loop and inner loop models."""
-    model_ids, model_A_w, model_A_t, model_B_w, model_B_t = [], [], [], [], []
-    h_sims, u_sims, r_sims, l_sims = [], [], [], []
+COMPONENTS = ['hidden', 'gate_update', 'gate_reset', 'logit_value']
 
-    unique_model_ids = analysis_df['model_id'].unique()
-    
-    for each_model in unique_model_ids:
-        model_rows = analysis_df[analysis_df['model_id'] == each_model]
-        for i, row_i in model_rows.reset_index().iterrows():
-            for j, row_j in model_rows.reset_index().iterrows():
-                if i < j:
-                    data_A = _standardize_hidden_units(analysis.load_data(row_i.trials_data_path))
-                    data_B = _standardize_hidden_units(analysis.load_data(row_j.trials_data_path))
-                    
-                    if data_A is None or data_B is None:
-                        h, u, r, l = [np.nan] * 4
-                    else:
-                        sim_results = {}
-                        for comp in ['hidden', 'gate_update', 'gate_reset', 'logit_value']:
-                            cols = [x for x in data_A.columns if x.startswith(comp)]
-                            if not cols:
-                                sim_results[comp] = np.nan
-                                continue
-                            try:
-                                comp_A = np.concatenate([data_A[x].values for x in cols])
-                                comp_B = np.concatenate([data_B[x].values for x in cols])
-                                sim_results[comp] = np.corrcoef(comp_A, comp_B)[0, 1]
-                            except:
-                                sim_results[comp] = np.nan
-                        
-                        h, u, r, l = sim_results.get('hidden'), sim_results.get('gate_update'), \
-                                     sim_results.get('gate_reset'), sim_results.get('logit_value')
-
-                    model_ids.append(each_model); model_A_t.append(row_i.outer_loop_n); model_A_w.append(row_i.inner_loop_idx)
-                    model_B_t.append(row_j.outer_loop_n); model_B_w.append(row_j.inner_loop_idx)
-                    h_sims.append(h); u_sims.append(u); r_sims.append(r); l_sims.append(l)
-
-    return pd.DataFrame({
-        "model_id": model_ids, "model_A_outer_n": model_A_t, "model_A_inner_n": model_A_w,
-        "model_B_outer_n": model_B_t, "model_B_inner_n": model_B_w,
-        "hidden_state_similarity": h_sims, "update_gate_similarity": u_sims,
-        "reset_gate_similarity": r_sims, "logit_similarity": l_sims
-    })
+def compute_similarities(analysis_df, n_jobs=-1):
+    """Compute similarity of activations within each (model_id, subject_id) group, in parallel."""
+    groups = list(analysis_df.groupby(['model_id', 'subject_ID']))
+ 
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(_process_group)(group_rows.reset_index(drop=True), model_id, subject_id)
+        for (model_id, subject_id), group_rows in groups
+    )
+ 
+    results = [r for r in results if r is not None]
+    return pd.DataFrame([row for result in results for row in result]) if results else pd.DataFrame()
+ 
+ 
+def _process_group(group_rows, model_id, subject_id):
+    """
+    For a single (model_id, subject_id):
+    - Builds a (n_trials, n_outer, n_inner, n_comp) matrix
+    - For each component, computes a vectorized (n_outer*n_inner, n_outer*n_inner) Pearson correlation matrix
+    - Reads off-diagonal pairs back into rows
+    """
+    outer_vals = sorted(group_rows['outer_loop_n'].unique())
+    inner_vals = sorted(group_rows['inner_loop_idx'].unique())
+    n_outer, n_inner = len(outer_vals), len(inner_vals)
+    n_folds = n_outer * n_inner
+    outer_idx_map = {v: i for i, v in enumerate(outer_vals)}
+    inner_idx_map = {v: i for i, v in enumerate(inner_vals)}
+ 
+    # Load and standardize all data into the grid
+    loaded = {}
+    for _, row in group_rows.iterrows():
+        data = analysis.load_data(row.trials_data_path)
+        if data is not None:
+            loaded[(row.outer_loop_n, row.inner_loop_idx)] = _standardize_hidden_units(data)
+ 
+    if len(loaded) < 2:
+        return None
+ 
+    ref_df = next(iter(loaded.values()))
+    n_trials = len(ref_df)
+ 
+    # Identify component columns from reference df
+    comp_cols = {comp: [c for c in ref_df.columns if c.startswith(comp)] for comp in COMPONENTS}
+    all_cols = [c for cols in comp_cols.values() for c in cols]
+    col_idx = {c: i for i, c in enumerate(all_cols)}
+    n_comp = len(all_cols)
+ 
+    # Build big matrix: (n_trials, n_outer, n_inner, n_comp)
+    big_matrix = np.full((n_trials, n_outer, n_inner, n_comp), np.nan)
+    for (outer, inner), df in loaded.items():
+        oi = outer_idx_map[outer]
+        ii = inner_idx_map[inner]
+        big_matrix[:, oi, ii, :] = df[all_cols].values
+ 
+    # Flatten (n_outer, n_inner) -> n_folds: (n_trials, n_folds, n_comp)
+    # Fold order: outer varies slowest, inner fastest (C-order)
+    X = big_matrix.reshape(n_trials, n_folds, n_comp)
+ 
+    # Upper triangle pairs (i < j), maps flat fold index back to (outer, inner)
+    fi, fj = np.triu_indices(n_folds, k=1)
+    fold_outer = np.array(outer_vals)[np.arange(n_folds) // n_inner]
+    fold_inner = np.array(inner_vals)[np.arange(n_folds) % n_inner]
+ 
+    results = []
+    for comp, cols in comp_cols.items():
+        if not cols:
+            continue
+        cidx = [col_idx[c] for c in cols]
+ 
+        # Extract component slice: (n_trials, n_folds, n_cidx)
+        X_comp = X[:, :, cidx]
+ 
+        # Concatenate component cols along trials axis -> (n_cidx * n_trials, n_folds)
+        # For each fold column: [col0_trial0..col0_trialN, col1_trial0..col1_trialN, ...]
+        X_comp = X_comp.transpose(2, 0, 1).reshape(-1, n_folds)  # (n_cidx * n_trials, n_folds)
+ 
+        # Pearson r via normalised dot product:
+        # subtract column mean, divide by column norm -> each column has mean=0, norm=1
+        # then corr(i,j) = col_i · col_j  (no further division needed)
+        X_comp = X_comp - np.nanmean(X_comp, axis=0, keepdims=True)
+        norms = np.linalg.norm(X_comp, axis=0, keepdims=True)
+        norms[norms == 0] = np.nan
+        X_comp = X_comp / norms  # each column now unit norm
+ 
+        corr_matrix = X_comp.T @ X_comp  # (n_folds, n_folds) — exact Pearson r
+ 
+        pair_sims = corr_matrix[fi, fj]  # upper triangle, shape (n_pairs,)
+ 
+        for k in range(len(fi)):
+            results.append({
+                "model_id":       model_id,
+                "subject_id":     subject_id,
+                "model_A_outer_n": fold_outer[fi[k]],
+                "model_A_inner_n": fold_inner[fi[k]],
+                "model_B_outer_n": fold_outer[fj[k]],
+                "model_B_inner_n": fold_inner[fj[k]],
+                "component":      comp,
+                "similarity":     pair_sims[k],
+            })
+ 
+    return results
+ 
 
 def _standardize_hidden_units(trials_df: pd.DataFrame, verbose: bool = False):
     """Standardizes a 2-unit network for alignment."""
+    if 'hidden_2' not in trials_df:
+        return trials_df #nothing to do here.
     if trials_df is None: return None
     corr1 = np.corrcoef(trials_df.hidden_1, trials_df.logit_value)[0,1]
     corr2 = np.corrcoef(trials_df.hidden_2, trials_df.logit_value)[0,1]

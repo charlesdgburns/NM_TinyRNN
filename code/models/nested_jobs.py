@@ -19,7 +19,7 @@ from NM_TinyRNN.code.models import datasets
 from NM_TinyRNN.code.models import rnns
 
 from NM_TinyRNN.code.models import nested_cv
-from NM_TinyRNN.code.models import gpu_training
+from NM_TinyRNN.code.models import training_fast
 
 # global variables
 N_OUTER_LOOPS = 10
