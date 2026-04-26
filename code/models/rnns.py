@@ -114,10 +114,13 @@ class TinyRNN(nn.Module):
     #we initialise gate biases to be open at the start of training, similar to initialising LSTM forget_gates with a bias of 1.
     if 'monoGRU' in self.rnn_type:
        self.rnn.bias_z.data = torch.tensor(1.0) 
-    if self.rnn_type == "GRU":
+    elif self.rnn_type == "GRU":
       self.rnn.bias_z.data = torch.ones_like(self.rnn.bias_z.data) #update gate bias
       self.rnn.bias_r.data = torch.ones_like(self.rnn.bias_r.data) #reset gate bias
-    if self.init_decoder:
+    elif self.rnn_type == "constGate":
+      self.rnn.z.data = torch.tensor(1.0)
+      
+    if self.init_decoder: #option to rotate decoder to read out along y=-x
       self.decoder.weight.data = torch.tensor([[2.0,-2.0],
                                                [-2.0,2.0]])
      
