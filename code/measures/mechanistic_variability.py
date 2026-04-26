@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-
+from joblib import Parallel, delayed
 ## local imports
 from NM_TinyRNN.code.models import parallelised_training as pat
 from NM_TinyRNN.code.measures import analysis
