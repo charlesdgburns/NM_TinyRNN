@@ -48,12 +48,15 @@ class TinyRNN(nn.Module):
                weight_seed = 42,
                batch_norm = False,
                ):
+    '''Note, input_size should correspond to the number of binary input variables (stacked).
+       Then set input_encoding to 'onehot' to transform the encoding. '''
     super().__init__()
     
     # add attributes
     self.input_forced_choice = input_forced_choice
     self.input_size = input_size
     self.I = input_size if input_forced_choice else input_size-1
+    self.I = 2**self.I if input_encoding == 'onehot' else self.I
     self.H = hidden_size
     self.O = out_size
     self.rnn_type = rnn_type
@@ -132,6 +135,13 @@ class TinyRNN(nn.Module):
       inputs = inputs[:,:,1:]
     if self.input_encoding == 'bipolar':
       inputs = inputs*2-1 #maps 0 to -1 and 1 to 1.
+    if self.input_encoding == 'onehot':
+      dims = inputs.shape[-1]
+      # we use torch.functional after transforming the vector into 1D categories
+      weights = 2 ** torch.arange(dims - 1, -1, -1, device=inputs.device)  
+      # Dot product to get indices
+      indices = (inputs * weights).sum(dim=-1).long()
+      inputs = torch.nn.functional.one_hot(indices, num_classes=2**dims).to(torch.float32)
     hidden, _ = self.rnn(inputs)
     predictions = self.decoder(hidden)
     return predictions, hidden
@@ -286,7 +296,6 @@ class MonoGated(nn.Module):
     for t in range(sequence_size):
       x_past = inputs[:,t,:] #(n_batch,input_size)
       #for computational efficiency we do two matrix multiplications and then do indexing further down:
-      
       #computing the gate: (maybe we want an option to compute gate only on reward? #reward_t = x_past[:,0].unsqueeze(1))
       if not self.subnetwork and not self.constant_gate and self.nonlinearity!='linear':
         # the standard gating mechanism
@@ -297,7 +306,7 @@ class MonoGated(nn.Module):
       elif self.nonlinearity == 'linear' and not self.constant_gate:
         z_t = x_past@self.W_iz + h_past@self.W_hz + self.bias_z
       elif self.constant_gate:
-        z_t = self.z.expand([batch_size,1])
+        z_t = self.sigmoid(self.z).expand([batch_size,1])
 
       ## options to override gates and/or save them:
       if 'z_t' in fixed_gates.keys():

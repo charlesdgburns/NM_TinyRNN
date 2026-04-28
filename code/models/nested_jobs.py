@@ -45,7 +45,7 @@ def run_training(overwrite=False, test = True):
         print("All files have been registered. No new videos to track.")
         return
     if test == True:
-       train_df = train_df.query('subject_ID=="WS16" and model_type == "monoGRU"')
+       train_df = train_df.query('model_type == "constGate"')
     #Computing outer loops sequentially:
     train_df = train_df.drop_duplicates(['subject_ID','model_id'])
     for session_info in train_df.itertuples():
@@ -78,22 +78,23 @@ def get_job_info_df(processed_data_path = PROCESSED_DATA_PATH,
             for model_type in ['vanilla','monoGRU','GRU', 'constGate']:#['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
                 nonlinearities = ['relu','tanh']
                 #nonlinearity = 'relu' if constraint =='energy' else 'tanh'
-                input_encoding = 'unipolar'
+                input_encodings = ['unipolar','onehot']
                 nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
                 for nonlinearity in nonlinearities:
-                    constraint= 'energy' if nonlinearity == 'relu' else 'sparsity'
-                    for hidden_size in [1,2]:
-                        model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
-                        model_save_path = save_path/'nested_DA'/subject_ID/model_type/constraint
-                        completed = 1
-                        for inner_loop_n in range(0,N_OUTER_LOOPS-1):
-                            completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
-                        for k,v in zip(df_dict.keys(),
-                            [subject_ID,outer_loop_n,model_type,hidden_size,
-                            nonlinearity, input_encoding,constraint,
-                            nm_size,nm_dim,nm_mode,
-                            model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
-                            df_dict[k].append(v)
+                    for input_encoding in input_encodings:
+                        constraint= 'energy' if nonlinearity == 'relu' else 'sparsity'
+                        for hidden_size in [1,2,3]:
+                            model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
+                            model_save_path = save_path/'nested_DA'/subject_ID/model_type/constraint
+                            completed = 1
+                            for inner_loop_n in range(0,N_OUTER_LOOPS-1):
+                                completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
+                            for k,v in zip(df_dict.keys(),
+                                [subject_ID,outer_loop_n,model_type,hidden_size,
+                                nonlinearity, input_encoding,constraint,
+                                nm_size,nm_dim,nm_mode,
+                                model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
+                                df_dict[k].append(v)
                             
     return pd.DataFrame(df_dict)
 

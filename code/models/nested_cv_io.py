@@ -285,6 +285,11 @@ def get_model_trial_by_trial_df(model, dataset, splits: dict) -> pd.DataFrame:
             inp    = raw if use_fc else raw[:, :, 1:]
             if getattr(model, "input_encoding", None) == "bipolar":
                 inp = inp * 2 - 1
+            if getattr(model, "input_encoding", None) == "onehot":
+                dims = inp.shape[-1]
+                weights = 2 ** torch.arange(dims - 1, -1, -1, device=inp.device)
+                indices = (inp * weights).sum(dim=-1).long()
+                inp = torch.nn.functional.one_hot(indices, num_classes=2**dims).to(torch.float32)
             _, gate_activations = model.rnn(inp, return_gate_activations=True)
             for gate_name, acts in gate_activations.items():
                 for u in range(acts.shape[-1]):
