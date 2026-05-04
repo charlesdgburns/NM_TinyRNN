@@ -95,7 +95,7 @@ class AB_Dataset(Dataset):
         # We want to train models faster by batching sessions into blocks of given sequence length
         # We want to respect sessions (no blocks across sessions), which is handled when loading the data.
         # this is handled by sequence_block_idx NaN values
-        trials_data = self.subject_df.dropna() #we are dropping the np.nan values added when applying the blocks
+        trials_data = self.subject_df.dropna(subset=['sequence_block_idx']) #we are dropping the np.nan values added when applying the blocks
         data_tensor = torch.tensor(trials_data[['forced_choice', 'outcome', 'choice']].values, dtype=torch.float32)
         num_rows = data_tensor.size(0)
         remainder = num_rows % (self.sequence_length+1) #add one here and below to account for time shifting
@@ -137,7 +137,7 @@ class AB_Dataset(Dataset):
         rest_folders = np.setdiff1d(folders, eval_folders)
         val_folders  = np.random.default_rng(seed_split).choice(rest_folders, size=math.ceil(len(rest_folders) * val_frac), replace=False)
         train_folders = np.setdiff1d(rest_folders, val_folders)
-
+        print(n,eval_folders)
         block_map = self.subject_df.dropna().groupby('session_folder_name')['sequence_block_idx'].unique()
         def blocks(fs): return sorted(int(x) for x in np.concatenate([block_map[f] for f in fs]).tolist())
 
@@ -154,7 +154,7 @@ class AB_Dataset(Dataset):
         labels   = np.full(n_trials, 'unused', dtype=object)
         for split_name, block_indices in splits.items():
             trial_indices = np.concatenate(
-                [np.arange(b * seq_len, (b + 1) * seq_len) for b in block_indices])
+                [np.arange(b * (seq_len+1), (b + 1) * (seq_len+1)) for b in block_indices])
             trial_indices = trial_indices[trial_indices < n_trials]
             labels[trial_indices] = split_name
         return labels

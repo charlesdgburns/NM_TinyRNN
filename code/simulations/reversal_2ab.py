@@ -146,7 +146,7 @@ class BayesAgent:
 
 # ── Simulation ────────────────────────────────────────────────────────────────
 
-def run_episode(task, agent, n_trials=200):
+def run_episode(task, agent, n_trials=500):
     """Run one episode; return list of trial dicts."""
     task.reset()
     agent.reset()
@@ -188,7 +188,7 @@ def run_episode(task, agent, n_trials=200):
 
 
 def simulate(agent_class=BayesAgent, agent_kwargs=None, n_episodes=10,
-             n_trials=200, seed=42, **task_kwargs):
+             n_trials=500, seed=42, **task_kwargs):
     np.random.seed(seed)
     agent_kwargs = agent_kwargs or {}
     p_switch     = task_kwargs.pop('p_switch', 0.05)

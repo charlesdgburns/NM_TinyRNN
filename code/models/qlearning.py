@@ -321,13 +321,20 @@ if __name__ == '__main__':
         print('loading existing Bayes agent data...')
         from pathlib import Path
         DATA_PATH = Path('/ceph/behrens/wsilver/reversal/code/NM_TinyRNN/data')
-        df = pd.read_csv(DATA_PATH / 'AB_behaviour/bayes_optimal/simulated/trials.htsv', sep='\t')
+        df = pd.read_csv(DATA_PATH / 'AB_behaviour/bayes_optimal/episode_9/trials.htsv', sep='\t')
+        all_episode_dfs = []
+        for each_episode in range(10):
+            savepath = DATA_PATH/'AB_behaviour/bayes_optimal'/f'episode_{each_episode}'
+            episode_df = pd.read_csv(savepath/'trials.htsv', sep='\t')
+            all_episode_dfs.append(episode_df)
+        df = pd.concat(all_episode_dfs, ignore_index=True)
     except:
         print('Simulating Bayes agent...')
-        df = simulate(n_episodes=10, n_trials=300)
-        save_path = Path('./NM_TinyRNN/data/AB_behaviour/bayes_optimal/simulated/')
-        save_path.mkdir(parents=True, exist_ok=True)
-        df.to_csv(save_path / 'trials.htsv', index=False, sep='\t')
+        df = simulate(n_episodes=10, n_trials=500)
+        for each_episode in df.groupby('episode'):
+            savepath = DATA_PATH/'AB_behaviour/bayes_optimal'/f'episode_{each_episode[0]}'
+            savepath.mkdir(exist_ok=True,parents=True)
+            each_episode[1].to_csv(savepath/'trials.htsv', index=False, sep='\t')
 
     print(f'Total trials: {len(df)}  |  Reward rate: {df["outcome"].mean():.3f}')
 
@@ -338,9 +345,10 @@ if __name__ == '__main__':
                                 model_kwargs={'n': d},
                                 alphas=None, betas=None,
                                 multi_start=True)
-        save_path = DATA_PATH/f'AB_behaviour/q_learning_{d}D/simulated/'
-        save_path.mkdir(parents=True, exist_ok=True)
-        pred_df.to_csv(save_path / 'trials.htsv', index=False, sep='\t')
+        for each_episode in pred_df.groupby('episode'):
+            savepath = DATA_PATH/f'AB_behaviour/q_learning_{d}D/episode_{each_episode[0]}'
+            savepath.mkdir(exist_ok=True,parents=True)
+            each_episode[1].to_csv(savepath/'trials.htsv', index=False, sep='\t')#
         print(f'Best fit params: alpha={best_fit["alpha"]:.3f}, '
             f'beta={best_fit["beta"]:.3f}, NLL={best_fit["nll"]:.1f}')
         sns.scatterplot(pred_df.query('forced_choice==0'), 
