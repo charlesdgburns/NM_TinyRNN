@@ -1,3 +1,5 @@
+import pickle
+
 import torch
 from torch.func import vmap, stack_module_state, functional_call
 import numpy as np
@@ -14,13 +16,14 @@ TRAIN_SEED = 42 #seed to use for ordering to ensure reproducibility
 class TrainerGPU:
     def __init__(
         self,
-        weight_seeds: list = list(range(1,11)),
-        sparsity_lambdas: list = [1e-1,1e-2,1e-3,1e-4, 1e-5],
-        energy_lambdas: list = [0.1, 1e-2, 1e-3],
+        weight_seeds: list = list(range(11)),
+        sparsity_lambdas: list = [1e-1,1e-2,1e-3,1e-4,1e-5],
+        energy_lambdas: list = [1e-1,1e-2,1e-3],
         hebbian_lambdas: list = [0.0], # Changed None to 0.0 for tensor compatibility
+        covariance_lambdas: list = [0.0], # Added covariance lambda list
         learning_rate: float = 1e-2,
         batch_size: int = 16,
-        max_epochs: int = 1000,
+        max_epochs: int = 10000,
         early_stop: int = 20,
         train_seed: int = 42,
     ):
@@ -33,10 +36,10 @@ class TrainerGPU:
         self.sparsity_lambdas = sparsity_lambdas
         self.energy_lambdas = energy_lambdas
         self.hebbian_lambdas = hebbian_lambdas
-        
+        self.covariance_lambdas = covariance_lambdas
         # 1. Flatten all hyperparameter combinations into a single list
         self.configs = list(itertools.product(
-            sparsity_lambdas, energy_lambdas, hebbian_lambdas, weight_seeds
+            sparsity_lambdas, energy_lambdas, hebbian_lambdas, covariance_lambdas, weight_seeds
         ))
         self.num_models = len(self.configs)
         
@@ -45,21 +48,23 @@ class TrainerGPU:
         self.sparsity_vec = config_tensor[:, 0]
         self.energy_vec   = config_tensor[:, 1]
         self.hebbian_vec  = config_tensor[:, 2]
+        self.covariance_vec = config_tensor[:, 3]
 
     def _initialize_parallel_models(self, base_model):
         """Creates N copies of the model and stacks their parameters."""
         models = []
-        for _, _, _, seed in self.configs:
+        for _, _, _, _, seed in self.configs:
             m = deepcopy(base_model)
             m.weight_seed = int(seed)
             m.init_weights()
             models.append(m)
-        
+    
         # Stack parameters into a single dict of tensors: [Num_Models, weight_dims...]
         params, buffers = stack_module_state(models)
         return params, buffers
 
     def fit(self, base_model, dataset):
+        base_model = pickle.loads(pickle.dumps(base_model)) # Ensure we have a fresh copy of the model for parallelization
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Parallelizing {self.num_models} models on {device}")
 
@@ -95,9 +100,9 @@ class TrainerGPU:
         s_vec = self.sparsity_vec.to(device)
         e_vec = self.energy_vec.to(device)
         h_vec = self.hebbian_vec.to(device)
-
+        c_vec = self.covariance_vec.to(device)
         # Define the Functional Forward/Loss Pass for one instance
-        def compute_single_model_loss(p, b, x, y, s_lam, e_lam, h_lam):
+        def compute_single_model_loss(p, b, x, y, s_lam, e_lam, h_lam, c_lam):
             """
             This function is executed for EACH model instance in parallel via vmap.
             p: parameters for 1 model
@@ -117,7 +122,8 @@ class TrainerGPU:
                 hidden_states=hidden_states,
                 sparsity_lambda=s_lam,
                 energy_lambda=e_lam,
-                hebbian_lambda=h_lam
+                hebbian_lambda=h_lam,
+                covariance_lambda=c_lam
             )
             # 5. Return the sum of all components
             # Inside vmap, this results in a single scalar per model.
@@ -125,9 +131,9 @@ class TrainerGPU:
             return loss_dict
         
         # Vectorize the loss function across the model dimension (dim 0)
-        # in_dims: (0, 0, None, None, 0, 0, 0) means params/lambdas are unique per model, 
+        # in_dims: (0, 0, None, None, 0, 0, 0, 0) means params/lambdas are unique per model, 
         # but data (x, y) is shared (None).
-        vectorized_loss_fn = vmap(compute_single_model_loss, in_dims=(0, 0, None, None, 0, 0, 0))
+        vectorized_loss_fn = vmap(compute_single_model_loss, in_dims=(0, 0, None, None, 0, 0, 0, 0))
 
         for epoch in tqdm(range(self.max_epochs)):
             if not active_mask.any(): break
@@ -138,7 +144,7 @@ class TrainerGPU:
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
                 
                 # Compute parallel losses
-                loss_dict = vectorized_loss_fn(params, buffers, batch_x, batch_y, s_vec, e_vec, h_vec)
+                loss_dict = vectorized_loss_fn(params, buffers, batch_x, batch_y, s_vec, e_vec, h_vec, c_vec)
                 
                 # We only want to backprop for models that haven't early-stopped
                 masked_loss = (sum(loss_dict.values()) * active_mask).sum()
@@ -150,7 +156,7 @@ class TrainerGPU:
                 current_val_losses = torch.zeros(self.num_models, device=device)
                 for v_x, v_y in val_loader:
                     v_x, v_y = v_x.to(device), v_y.to(device)
-                    loss_dict = vectorized_loss_fn(params, buffers, v_x, v_y, s_vec, e_vec, h_vec)
+                    loss_dict = vectorized_loss_fn(params, buffers, v_x, v_y, s_vec, e_vec, h_vec, c_vec)
                     current_val_losses += loss_dict['prediction']
                 current_val_losses /= len(val_loader)
 
@@ -172,4 +178,4 @@ class TrainerGPU:
         self._last_best_val_loss = best_val_losses[best_idx]
         # Extract the single best model's state dict
         final_state_dict = {k: v[best_idx].cpu() for k, v in best_params.items()}
-        return final_state_dict, self.configs[best_idx]
+        return final_state_dict, self.configs[best_idx], loss_dict

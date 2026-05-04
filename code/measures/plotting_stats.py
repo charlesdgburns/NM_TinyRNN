@@ -227,16 +227,26 @@ def plot_repeated_measures_anova(df,
     f_stat = anova_result[f_col].values[0]
     ng2    = anova_result[es_col].values[0]
 
-    sphericity_violated = not anova_result['sphericity'].values[0]
-    if sphericity_violated:
-        p_col_plot = [c for c in anova_result.columns if 'gg' in c.lower()][0]
-        p_anova = anova_result[p_col_plot].values[0]
-        sphericity_str = (f'Sphericity violated (W={anova_result["W_spher"].values[0]:.3f}, '
-                          f'p={anova_result["p_spher"].values[0]:.4f}), GG corrected')
+    sphericity_cols = [c for c in anova_result.columns if 'spher' in c.lower()]
+    if sphericity_cols:
+        sphericity_col = sphericity_cols[0]
+        sphericity_violated = not anova_result[sphericity_col].values[0]
     else:
-        p_col = [c for c in anova_result.columns if 'p_unc' in c.lower()][0]
+        sphericity_col = None
+        sphericity_violated = False
+
+    if sphericity_violated:
+        gg_cols = [c for c in anova_result.columns if 'gg' in c.lower()]
+        p_anova = anova_result[gg_cols[0]].values[0] if gg_cols else anova_result[[c for c in anova_result.columns if 'p_unc' in c.lower() or 'p-unc' in c.lower() or c.lower() == 'p']][0]
+        sphericity_str = (f'Sphericity violated ({sphericity_col}={anova_result[sphericity_col].values[0]:.3f}), '
+                          f'p={p_anova:.4f}, GG corrected')
+    else:
+        p_unc_cols = [c for c in anova_result.columns
+                      if 'p_unc' in c.lower() or 'p-unc' in c.lower() or c.lower() == 'p']
+        p_col = p_unc_cols[0]
         p_anova = anova_result[p_col].values[0]
-        sphericity_str = 'Sphericity assumption met'
+        sphericity_str = ('Sphericity assumption met'
+                          if sphericity_col else 'Sphericity not tested / not available')
 
     # --- Post-hoc paired t-tests with FDR correction ---
     pairs = list(combinations(x_levels, 2))

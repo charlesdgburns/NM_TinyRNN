@@ -264,7 +264,7 @@ def _run_inner_fold(
         **trainer_kwargs,
     )
   
-    best_state_dict, best_config = trainer.fit(base_model, patched_dataset)
+    best_state_dict, best_config, loss_dict = trainer.fit(base_model, patched_dataset)
     best_val_loss = trainer._last_best_val_loss   # see note *
 
     result = {
@@ -272,6 +272,7 @@ def _run_inner_fold(
         "state_dict": best_state_dict,
         "config":     best_config,
         "val_loss":   float(best_val_loss),
+        "loss_dict":  loss_dict
     }
 
     # ── Save artefacts ────────────────────────────────────────────────────────

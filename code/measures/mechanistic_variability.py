@@ -229,7 +229,7 @@ def parameter_contribution_df(best_models_df):
     """Computes the normalized contribution of inputs to gated components."""
     contributions_dict = {'model_id':[], 'outer_loop_n':[], 'weight_seed':[], 'performance':[], 'variable':[], 'value':[]}
     for each_model in best_models_df.itertuples():
-        params_dict = {k:v.numpy() for k,v in analysis.load_data(each_model.model_state_path).items()}
+        params_dict = {k:v.detach().numpy() for k,v in analysis.load_data(each_model.model_state_path).items()}
         for each_input in ['outcome','past_choice','past_hidden']:
             for each_output in ['update_gate','reset_gate','hidden_state']:
                 if each_output == 'hidden_state': param_keys = ['rnn.W_ih', 'rnn.W_hh']

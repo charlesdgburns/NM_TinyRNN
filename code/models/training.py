@@ -22,9 +22,10 @@ class Trainer:
         self,
         save_path: Path,
         weight_seeds: List[float] = [1, 2, 3, 4, 5],
-        sparsity_lambdas: List[float] = [1e-7],
-        energy_lambdas: List[float] = [1e-3],
+        sparsity_lambdas: List[float] = [1e-4,1e-5,],
+        energy_lambdas: List[float] = [0.1,1e-2,1e-3],
         hebbian_lambdas: List[float] = [0.0],
+        covariance_lambdas: List[float] = [0.0],
         learning_rate: float = 1e-2,
         batch_size: int = 32,
         max_epochs: int = 1000,
@@ -36,11 +37,13 @@ class Trainer:
         self.sparsity_lambdas = sparsity_lambdas
         self.energy_lambdas   = energy_lambdas
         self.hebbian_lambdas  = hebbian_lambdas
+        self.covariance_lambdas = covariance_lambdas
         self.learning_rate    = learning_rate
         self.batch_size       = batch_size
         self.max_epochs       = max_epochs
         self.early_stop       = early_stop
         self.train_seed       = train_seed
+        
         self.save_path.mkdir(parents=True, exist_ok=True)
 
     def fit(self, model, dataset) -> pd.DataFrame:
@@ -59,14 +62,16 @@ class Trainer:
         for sparsity_lambda in self.sparsity_lambdas:
             for energy_lambda in self.energy_lambdas:
                 for hebbian_lambda in self.hebbian_lambdas:
-                    for weight_seed in self.weight_seeds:
-                        print(f"\nweight_seed={weight_seed}, sparsity={sparsity_lambda:.0e}, "
-                              f"energy={energy_lambda}, hebbian={hebbian_lambda}")
-                        model.sparsity_lambda = sparsity_lambda
-                        model.energy_lambda   = energy_lambda
-                        model.hebbian_lambda  = hebbian_lambda
-                        model.weight_seed     = weight_seed
-                        model.init_weights()
+                    for covariance_lambda in self.covariance_lambdas:
+                        for weight_seed in self.weight_seeds:
+                            print(f"\nweight_seed={weight_seed}, sparsity={sparsity_lambda:.0e}, "
+                                  f"energy={energy_lambda}, hebbian={hebbian_lambda}, covariance={covariance_lambda}")
+                            model.sparsity_lambda = sparsity_lambda
+                            model.energy_lambda   = energy_lambda
+                            model.hebbian_lambda  = hebbian_lambda
+                            model.covariance_lambda = covariance_lambda
+                            model.weight_seed     = weight_seed
+                            model.init_weights()
 
                         losses_dict, best_model_dict = self._train_single_model(model, train_loader, val_loader)
 
@@ -75,6 +80,7 @@ class Trainer:
                             'sparsity_lambda': np.repeat(sparsity_lambda, n),
                             'energy_lambda':   np.repeat(energy_lambda, n),
                             'hebbian_lambda':  np.repeat(hebbian_lambda, n),
+                            'covariance_lambda': np.repeat(covariance_lambda, n),
                             'weight_seed':     np.repeat(weight_seed, n),
                             'epoch':           np.arange(1, n + 1),
                         })
@@ -86,12 +92,14 @@ class Trainer:
                                                'sparsity_lambda': sparsity_lambda,
                                                'energy_lambda':   energy_lambda,
                                                'hebbian_lambda':  hebbian_lambda,
+                                               'covariance_lambda': covariance_lambda,
                                                'weight_seed':     weight_seed}
                         if best_model_info is None:  # catch all-NaN runs
                             best_model_info = {**best_model_dict,
                                                'sparsity_lambda': sparsity_lambda,
                                                'energy_lambda':   energy_lambda,
                                                'hebbian_lambda':  hebbian_lambda,
+                                               'covariance_lambda': covariance_lambda,
                                                'weight_seed':     weight_seed}
 
         # ── Eval & saving ──────────────────────────────────────────────────────
@@ -104,6 +112,7 @@ class Trainer:
         model.sparsity_lambda = best_model_info['sparsity_lambda']
         model.energy_lambda   = best_model_info['energy_lambda']
         model.hebbian_lambda  = best_model_info['hebbian_lambda']
+        model.covariance_lambda = best_model_info['covariance_lambda']
         model.weight_seed     = best_model_info['weight_seed']
         model.eval()
 
@@ -151,7 +160,7 @@ class Trainer:
                                                 forced_choice_mask,
                                                 params_dict,
                                                 hidden_states, 
-                                                model.sparsity_lambda, model.energy_lambda, model.hebbian_lambda) #These are considered inputs to the loss function for fast parallelisation. 
+                                                model.sparsity_lambda, model.energy_lambda, model.hebbian_lambda, model.covariance_lambda) #These are considered inputs to the loss function for fast parallelisation. 
 
                 if training and optimizer is not None:
                     sum(losses.values()).backward()
@@ -190,7 +199,7 @@ class Trainer:
                 print(f"Early stopping at epoch {epoch + 1}")
                 break
 
-            if np.isnan(train_losses.get('hebbian', 0)) or np.isnan(val_losses['prediction']):
+            if np.isnan(train_losses.get('hebbian', 0)) or np.isnan(val_losses['prediction']) or np.isnan(val_losses.get('covariance', 0)):
                 print("NaN loss encountered, stopping early")
                 best_val_loss    = np.nan
                 epochs_no_improve = np.nan

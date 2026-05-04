@@ -41,6 +41,7 @@ class TinyRNN(nn.Module):
                sparsity_lambda:float = 1e-5,
                energy_lambda:float = 1e-2,
                hebbian_lambda:float = 0.0,
+               covariance_lambda:float = 0.0,
                input_encoding = 'unipolar',
                input_forced_choice = False,
                nonlinearity = 'tanh',
@@ -64,6 +65,7 @@ class TinyRNN(nn.Module):
     self.sparsity_lambda = sparsity_lambda
     self.energy_lambda = energy_lambda
     self.hebbian_lambda = hebbian_lambda
+    self.covariance_lambda = covariance_lambda
     self.nonlinearity = nonlinearity
     self.input_encoding = input_encoding
     self.init_decoder = init_decoder
@@ -152,7 +154,7 @@ class TinyRNN(nn.Module):
                      forced_choice_mask:torch.tensor, #(batch_size, seq_length) IMPORTANT: take this from the input or set to zeros everywhere if no forced choices.
                      params:dict,  
                      hidden_states:torch.tensor, #(batch_size, seq_length, n_hidden) 
-                     sparsity_lambda:float, energy_lambda:float, hebbian_lambda:float):
+                     sparsity_lambda:float, energy_lambda:float, hebbian_lambda:float, covariance_lambda:float):
     '''Parameters: 
        ----
        predictions: torch.tensor #(batch_size, seq_length, n_outputs) output by model.forward()
@@ -163,10 +165,11 @@ class TinyRNN(nn.Module):
        sparsity_lambda: float, value weightng the sparsity on weights
        energy_lambda: float, value weighting the constraint on energy of hidden activations
        hebbian_lambda: float, value weighting hebbian constraint
+       covariance_lambda: float, value weighting covariance constraint
        
        Returns
        ----
-       losses: dictionary with 'prediction','sparsity','energy','hebbian' losses.
+       losses: dictionary with 'prediction','sparsity','energy','hebbian', 'covariance' losses.
        '''
        
     assert len(predictions.shape) == 3 and len(targets.shape)==3, f"predictions and targets must be shaped as (batch_size, seq_length, n_actions), got shape {predictions.shape}"   
@@ -196,15 +199,26 @@ class TinyRNN(nn.Module):
     losses['sparsity'] = sparsity_val * sparsity_lambda
 
     # 3. Energy loss
+    
     losses['energy'] = torch.mean(hidden_states**2) * energy_lambda
 
-    # 4. Hebbian loss
+    # 4. Hebbian loss (prevent representational collapse)
     # The 1e-6 epsilon penalises dead units (with 0 variance), while also preventing crashing. 
-    var = torch.var(hidden_states, dim=0) + 1e-6
-    hebbian_term = (-torch.log(var)).max()
+    B,S,H = hidden_states.shape
+    hidden_states = hidden_states.view(B*S,H) #we want to compute covariance across the batch and sequence dimensions, so we reshape to (B*S,H)
+    var = torch.var(hidden_states, dim=0) + 1e-8
+    hebbian_term = (-torch.log(var)).mean() * hebbian_lambda
+    losses['hebbian'] = hebbian_term
+    # 5. Decorrelation loss (prevent dimensional collapse)
+    z = hidden_states - hidden_states.mean(dim=0, keepdim=True)  # centre
+    cov = (z.T @ z) / (B*S - 1)                                    # [H, H]
+    mask = ~torch.eye(H, dtype=torch.bool, device=hidden_states.device) # Off-diagonal squared terms only
+    losses['covariance'] = (cov[mask]**2).mean()*covariance_lambda #preventing correlated units.
     
-    losses['hebbian'] = hebbian_term * hebbian_lambda
-
+    # penalise a dead network state
+    population_activity = hidden_states.max(dim=1).values  # [T]
+    silence_penalty = -torch.log(population_activity).mean()
+    losses['hebbian'] += torch.nn.functional.relu(silence_penalty) 
     return losses
   
   def get_options_dict(self):
@@ -273,7 +287,8 @@ class MonoGated(nn.Module):
       self.z = nn.Parameter(torch.Tensor(1))
     self.bias_h = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
     self.bias_z = nn.Parameter(torch.Tensor(1))
-  
+    self.hidden_0 = nn.Parameter(torch.ones(hidden_size)) #learnable initial hidden state, which we will tile across the batch dimension in forward()
+    self.z_0 = nn.Parameter(torch.ones(1)) #learnable initial gate activation, which we will tile across the batch dimension in forward()
   
   def forward(self, inputs, init_states = None,
               return_gate_activations = False,
@@ -288,8 +303,8 @@ class MonoGated(nn.Module):
     if return_gate_activations:
       gate_activations = {'update':[]}
     if init_states is None:
-      h_past = torch.zeros(batch_size, self.hidden_size).to(inputs.device) #(n_hidden,batch_size)
-      z_past = torch.zeros(batch_size, self.hidden_size).to(inputs.device) #(n_hidden,batch_size)
+      h_past = self.hidden_0.unsqueeze(0).expand(batch_size, -1).to(inputs.device) #(n_hidden,batch_size)
+      z_past = self.z_0.unsqueeze(0).expand(batch_size, -1).to(inputs.device) #(n_hidden,batch_size)
     else:
       h_past, z_past = init_states
     

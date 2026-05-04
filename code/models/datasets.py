@@ -138,8 +138,8 @@ class AB_Dataset(Dataset):
         val_folders  = np.random.default_rng(seed_split).choice(rest_folders, size=math.ceil(len(rest_folders) * val_frac), replace=False)
         train_folders = np.setdiff1d(rest_folders, val_folders)
 
-        block_map = self.subject_df.groupby('session_folder_name')['sequence_block_idx'].unique()
-        def blocks(fs): return sorted(np.concatenate([block_map[f] for f in fs]).tolist())
+        block_map = self.subject_df.dropna().groupby('session_folder_name')['sequence_block_idx'].unique()
+        def blocks(fs): return sorted(int(x) for x in np.concatenate([block_map[f] for f in fs]).tolist())
 
         return {
             'train': blocks(train_folders),

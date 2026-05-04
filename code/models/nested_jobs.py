@@ -45,7 +45,7 @@ def run_training(overwrite=False, test = True):
         print("All files have been registered. No new videos to track.")
         return
     if test == True:
-       train_df = train_df.query('model_type == "constGate"')
+       train_df = get_test_info_df()
     #Computing outer loops sequentially:
     train_df = train_df.drop_duplicates(['subject_ID','model_id'])
     for session_info in train_df.itertuples():
@@ -98,6 +98,47 @@ def get_job_info_df(processed_data_path = PROCESSED_DATA_PATH,
                             
     return pd.DataFrame(df_dict)
 
+def get_test_info_df(processed_data_path = PROCESSED_DATA_PATH,
+                    save_path = SAVE_PATH):
+    '''Organise the architecture information in a large dataframe. 
+    Key arguments here are 'model_id', 'data_path','save_path' and 'outer_loop_n'
+    '''
+    #see each subject
+    df_dict = {'subject_ID':[],'outer_loop_n':[],'model_type':[],'hidden_size':[],
+               'nonlinearity':[],'input_encoding':[],'constraint':[],
+               'nm_size':[],'nm_dim':[],'nm_mode':[],
+               'model_id':[],'save_path':[],'data_path':[], 'completed':[]}
+   
+    for subdir in processed_data_path.iterdir():
+        subject_ID = subdir.stem
+        if "WS" in subject_ID or "MA" in subject_ID: ##OBS - ONLY SINGLE SUBJECT FOR TESTING
+            continue
+        data_path = PROCESSED_DATA_PATH/subject_ID
+        if not subdir.is_dir():
+            continue
+        
+        for outer_loop_n in range(1,N_OUTER_LOOPS+1): #10 loops is recommended
+            for model_type in ['GRU', 'monoGRU']:
+                nonlinearities = ['relu','tanh']
+                input_encodings = ['unipolar','onehot']
+                nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
+                for nonlinearity in nonlinearities:
+                    for input_encoding in input_encodings:
+                        constraint= 'energy' if nonlinearity == 'relu' else 'sparsity'
+                        for hidden_size in [1,2]:
+                            model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
+                            model_save_path = save_path/'test'/subject_ID/model_type/constraint
+                            completed = 1
+                            for inner_loop_n in range(0,N_OUTER_LOOPS-1):
+                                completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
+                            for k,v in zip(df_dict.keys(),
+                                [subject_ID,outer_loop_n,model_type,hidden_size,
+                                nonlinearity, input_encoding,constraint,
+                                nm_size,nm_dim,nm_mode,
+                                model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
+                                df_dict[k].append(v)
+                            
+    return pd.DataFrame(df_dict)
 
 # top level training function # 
 

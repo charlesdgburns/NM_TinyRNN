@@ -95,7 +95,7 @@ def compute_eval_loss(model, dataset, eval_block_indices: list) -> float:
         losses = model.compute_losses(predictions,targets, forced_choice_mask,
                                     params,
                                     hidden,
-                                    model.sparsity_lambda,model.energy_lambda,model.hebbian_lambda)
+                                    model.sparsity_lambda,model.energy_lambda,model.hebbian_lambda, model.covariance_lambda)
 
     return losses['prediction'].item()
 
@@ -198,7 +198,7 @@ def save_inner_fold_results(
         json.dump(info, fh, indent=2)
 
     # 5. training_losses.htsv (optional -- only written if TrainerGPU surfaces them)
-    if "training_losses" in result and result["training_losses"] is not None:
+    if "training_losses" in result and result["loss_dict"] is not None:
         tl = result["training_losses"]
         if isinstance(tl, pd.DataFrame):
             losses_df = tl
