@@ -1,35 +1,62 @@
 {
-  "save_path": "NM_TinyRNN/data/rnns/run_DA/WS14/random_seed_3/monoGRU/energy/weight_seed_3",
-  "sparsity_lambdas": [
-    1e-05
-  ],
-  "energy_lambdas": [
-    0.01
-  ],
-  "hebbian_lambdas": [
-    null
-  ],
-  "weight_seeds": [
-    3
-  ],
-  "learning_rate": 0.01,
-  "batch_size": 8,
-  "max_epochs": 100,
-  "early_stop": 20,
-  "train_seed": 3,
-  "model_id": "2_unit_monoGRU_relu_unipolar",
-  "best_val_pred_loss": 0.5677077770233154,
-  "epochs_trained": 100,
-  "eval_pred_loss": 0.5534480214118958,
-  "options_dict": {
+  "outer_loop_number": 6,
+  "inner_fold_idx": 5,
+  "winning_config": {
+    "sparsity_lambda": 0.0001,
+    "energy_lambda": 0.1,
+    "hebbian_lambda": 0.0,
+    "weight_seed": 10
+  },
+  "val_loss": 0.5829866528511047,
+  "eval_pred_loss": 0.5091199278831482,
+  "split_sizes": {
+    "train": 106,
+    "val": 16,
+    "eval": 16
+  },
+  "n_outer_eval_blocks": 16,
+  "hparam_ranges": {
+    "sparsity_lambdas": [
+      0.1,
+      0.01,
+      0.001,
+      0.0001,
+      1e-05
+    ],
+    "energy_lambdas": [
+      0.1,
+      0.01,
+      0.001
+    ],
+    "hebbian_lambdas": [
+      0.0
+    ],
+    "weight_seeds": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "learning_rate": 0.01,
+    "batch_size": 16,
+    "max_epochs": 1000,
+    "early_stop": 20
+  },
+  "model_options": {
     "rnn_type": "monoGRU",
     "input_size": 3,
     "hidden_size": 2,
     "out_size": 2,
-    "sparsity_lambda": 1e-05,
-    "energy_lambda": 0.01,
-    "hebbian_lamba": null,
-    "weight_seed": 3,
+    "sparsity_lambda": 0.0001,
+    "energy_lambda": 0.1,
+    "hebbian_lamba": 0.0,
+    "weight_seed": 10,
     "nonlinearity": "relu",
     "input_encoding": "unipolar",
     "input_forced_choice": false,

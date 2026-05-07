@@ -113,7 +113,7 @@ class BayesAgent:
     Update: Bayes likelihood (Ji-An eq. 5) then transition smear (Ji-An eq. 6).
     Policy: deterministic argmax.
     """
-    def __init__(self, good_prob=0.75, bad_prob=0.25, p_switch=0.05):
+    def __init__(self, good_prob=0.75, bad_prob=0.25, p_switch=1/19):
         self.p_good   = good_prob
         self.p_bad    = bad_prob
         self.p_switch = p_switch
@@ -191,7 +191,7 @@ def simulate(agent_class=BayesAgent, agent_kwargs=None, n_episodes=10,
              n_trials=500, seed=42, **task_kwargs):
     np.random.seed(seed)
     agent_kwargs = agent_kwargs or {}
-    p_switch     = task_kwargs.pop('p_switch', 0.05)
+    p_switch     = task_kwargs.pop('p_switch', 1/19)
 
     task  = ReversalTask(**task_kwargs)
     agent = agent_class(
@@ -215,84 +215,6 @@ def simulate(agent_class=BayesAgent, agent_kwargs=None, n_episodes=10,
             'good_poke', 'prob_A', 'prob_B',
             'logit_value', 'logit_past', 'logit_change', 'trial_type']
     return df[cols]
-
-
-# ── Q-learning fitting ────────────────────────────────────────────────────────
-
-def _softmax_probs(Q, beta):
-    logits = beta * Q - beta * Q.max()
-    e      = np.exp(logits)
-    return e / e.sum()
-
-
-def _nll_from_trials(alpha, beta, choices, rewards, forced_mask):
-    """Negative log-likelihood of choices under Q-learning model."""
-    Q, nll = np.zeros(2), 0.0
-    for choice, reward, forced in zip(choices, rewards, forced_mask):
-        if not forced:
-            nll -= np.log(_softmax_probs(Q, beta)[choice] + 1e-12)
-        Q[choice] += alpha * (reward - Q[choice])    # update on all trials
-    return nll
-
-
-def _predict_probs_from_trials(alpha, beta, choices, rewards, forced_mask):
-    """Return (p_left, p_right) at each trial given fitted params."""
-    Q, probs = np.zeros(2), []
-    for choice, reward, forced in zip(choices, rewards, forced_mask):
-        p = _softmax_probs(Q, beta)
-        probs.append(p)
-        Q[choice] += alpha * (reward - Q[choice])
-    return np.array(probs)
-
-
-
-def grid_search_behaviour(df, alphas=None, betas=None, multi_start=True):
-    """
-    Fit (alpha, beta) to observed choices via MLE, then return df with
-    predicted probabilities appended.
-
-    Parameters
-    ----------
-    df     : DataFrame with columns [episode, choice, outcome, forced_choice]
-    alphas : initial alpha values for grid search / multi-start
-    betas  : initial beta  values for grid search / multi-start
-
-    Returns
-    -------
-    best   : dict with alpha, beta, nll
-    pred_df: input df with columns [p_left, p_right] appended
-    """
-    alphas = alphas if alphas is not None else np.linspace(0.05, 0.6,  8)
-    betas  = betas  if betas  is not None else np.linspace(1.,  15.,   8)
-
-    choices = df['choice'].values.astype(int)
-    rewards = df['outcome'].values.astype(int)
-    forced  = df['forced_choice'].values.astype(bool)
-
-    def neg_ll(params):
-        a, b = params
-        return 1e10 if not (0 < a < 1 and b > 0) else \
-               _nll_from_trials(a, b, choices, rewards, forced)
-
-    starts = [(a, b) for a, b in product(alphas, betas)] if multi_start \
-             else [(alphas[len(alphas)//2], betas[len(betas)//2])]
-
-    best_res = None
-    for a0, b0 in starts:
-        res = minimize(neg_ll, [a0, b0], method='Nelder-Mead',
-                       options={'xatol': 1e-4, 'fatol': 1e-4})
-        if best_res is None or res.fun < best_res.fun:
-            best_res = res
-
-    alpha_hat, beta_hat = best_res.x
-    best = {'alpha': alpha_hat, 'beta': beta_hat, 'nll': best_res.fun}
-
-    probs   = _predict_probs_from_trials(alpha_hat, beta_hat, choices, rewards, forced)
-    pred_df = df.copy()
-    pred_df['p_left']  = probs[:, 0]
-    pred_df['p_right'] = probs[:, 1]
-
-    return best, pred_df
 
 
 # ── Plotting ──────────────────────────────────────────────────────────────────

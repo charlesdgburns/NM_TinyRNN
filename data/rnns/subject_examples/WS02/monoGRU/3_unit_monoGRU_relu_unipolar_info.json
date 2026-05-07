@@ -1,0 +1,66 @@
+{
+  "outer_loop_number": 5,
+  "inner_fold_idx": 0,
+  "winning_config": {
+    "sparsity_lambda": 1e-05,
+    "energy_lambda": 0.001,
+    "hebbian_lambda": 0.0,
+    "weight_seed": 1
+  },
+  "val_loss": 0.6423193216323853,
+  "eval_pred_loss": 0.6248019337654114,
+  "split_sizes": {
+    "train": 78,
+    "val": 6,
+    "eval": 8
+  },
+  "n_outer_eval_blocks": 8,
+  "hparam_ranges": {
+    "sparsity_lambdas": [
+      0.1,
+      0.01,
+      0.001,
+      0.0001,
+      1e-05
+    ],
+    "energy_lambdas": [
+      0.1,
+      0.01,
+      0.001
+    ],
+    "hebbian_lambdas": [
+      0.0
+    ],
+    "weight_seeds": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "learning_rate": 0.01,
+    "batch_size": 16,
+    "max_epochs": 1000,
+    "early_stop": 20
+  },
+  "model_options": {
+    "rnn_type": "monoGRU",
+    "input_size": 3,
+    "hidden_size": 3,
+    "out_size": 2,
+    "sparsity_lambda": 1e-05,
+    "energy_lambda": 0.001,
+    "hebbian_lamba": 0.0,
+    "weight_seed": 1,
+    "nonlinearity": "relu",
+    "input_encoding": "unipolar",
+    "input_forced_choice": false,
+    "batch_norm": false,
+    "init_decoder": false
+  }
+}
