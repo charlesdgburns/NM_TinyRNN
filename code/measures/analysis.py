@@ -3,6 +3,7 @@
 from importlib.resources import path
 from joblib import Parallel, delayed
 import json
+import pickle
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -17,7 +18,7 @@ from scipy.stats import ttest_rel, ttest_ind
 from statsmodels.stats.multitest import multipletests
 
 from NM_TinyRNN.code.models import training
-from NM_TinyRNN.code.models import parallelised_training as pat
+from NM_TinyRNN.code.models import submit_jobs as pat
 
 # Global variables # 
 
@@ -76,6 +77,7 @@ def get_model_data(each_model, mode='all'):
                 "inner_loop_idx": inner_idx,
                 "info_path": str(info_path),
                 "model_state_path": str(inner_folder / f'{each_model.model_id}_model_state.pth'),
+                "model_pickle_path": str(inner_folder / f'{each_model.model_id}_model.pickle'),
                 "training_losses_path": str(inner_folder / f'{each_model.model_id}_training_losses.htsv'),
                 "trials_data_path": str(inner_folder / f'{each_model.model_id}_trials_data.htsv'),
                 "eval_CE": info_dict.get('eval_pred_loss'),
@@ -115,6 +117,9 @@ def load_data(filepath):
         data = pd.read_csv(filepath, sep="\t")
     elif filepath.endswith(".pth"):
         data = torch.load(filepath, weights_only = True)
+    elif filepath.endswith(".pickle"):
+        with open(filepath, "rb") as f:
+            data = pickle.load(f)
     else:
         raise ValueError(f"Unsupported file type: {filepath}")
     return data

@@ -1,15 +1,15 @@
 """
-nested_cv_io.py  --  Saving utilities for nested cross-validation results
+save_data.py  --  Saving utilities for nested cross-validation results
 
 Directory layout
 ----------------
 save_path/
   outer_fold_N/
     inner_fold_M/
-      info.json               hyperparams, trainer settings, split sizes, val loss
-      model_state.pth         winning model weights
-      training_losses.htsv    epoch-by-epoch losses (from TrainerGPU if available)
-      trials_data.htsv        trial-by-trial activations / predictions
+      <model_id>_info.json               hyperparams, trainer settings, split sizes, val loss
+      <model_id>_model.pickle            winning model pytorch class (with weights)
+      <model_id>_training_losses.htsv    epoch-by-epoch losses (from Trainer class if available)
+      <model_id>_trials_data.htsv        trial-by-trial activations / predictions
 
 Usage
 -----
@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+import pickle
 from pathlib import Path
 from typing import Any
 
@@ -69,35 +70,6 @@ def _json_safe(v: Any) -> Any:
         return [_json_safe(x) for x in v]
     return v
 
-
-# ---------------------------------------------------------------------------
-# Main save function
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Eval loss on held-out (outer eval) data
-# ---------------------------------------------------------------------------
-
-def compute_eval_loss(model, dataset, eval_block_indices: list) -> float:
-    """
-   
-    """
-    if not eval_block_indices:
-        return float("nan")
-
-    model.eval()
-    with torch.no_grad():
-        inputs = dataset.inputs[eval_block_indices,:,:]
-        targets = dataset.targets[eval_block_indices,:,:]
-        forced_choice_mask = inputs[:,:,0]
-        predictions, hidden = model(inputs)
-        params = {k:v for k,v in model.named_parameters()}
-        losses = model.compute_losses(predictions,targets, forced_choice_mask,
-                                    params,
-                                    hidden,
-                                    model.sparsity_lambda,model.energy_lambda,model.hebbian_lambda, model.covariance_lambda)
-
-    return losses['prediction'].item()
 
 
 # ---------------------------------------------------------------------------
@@ -145,13 +117,9 @@ def save_inner_fold_results(
     model_id = base_model.get_model_id()
     save_path = Path(save_path)
     fold_dir  = _fold_dir(save_path, outer_loop_number, inner_fold_idx)
-
-    # 1. model_state.pth -- saved first so a later crash never loses the weights
-    torch.save(result["state_dict"], fold_dir / f"{model_id}_model_state.pth")
-
-    # 2. Build eval model once -- reused for both eval loss and trial extraction
+    # 1. Build eval model once -- reused for pickle, eval loss, and trial extraction
     winning_config = result["config"]   # tuple: (sparsity, energy, hebbian, seed)
-    config_keys    = ["sparsity_lambda", "energy_lambda", "hebbian_lambda", "weight_seed"]
+    config_keys    = ["sparsity_lambda", "energy_lambda", "hebbian_lambda", "covariance_lambda", "weight_seed"]
     config_dict    = dict(zip(config_keys, winning_config))
 
     eval_model = deepcopy(base_model)
@@ -162,6 +130,9 @@ def save_inner_fold_results(
     eval_model.weight_seed     = config_dict["weight_seed"]
     eval_model.eval()
 
+    # 2. model.pickle -- saved first so a later crash never loses the model
+    with open(fold_dir / f"{model_id}_model.pickle", "wb") as fh:
+        pickle.dump(eval_model, fh)
     # 3. Eval loss on outer held-out data (free-choice trials only)
     eval_pred_loss = (
         compute_eval_loss(eval_model, dataset, outer_eval_blocks)
@@ -221,6 +192,31 @@ def save_inner_fold_results(
         + ")"
     )
     return fold_dir
+
+# ---------------------------------------------------------------------------
+# Eval loss on held-out (outer eval) data
+# ---------------------------------------------------------------------------
+
+def compute_eval_loss(model, dataset, eval_block_indices: list) -> float:
+    """
+   
+    """
+    if not eval_block_indices:
+        return float("nan")
+
+    model.eval()
+    with torch.no_grad():
+        inputs = dataset.inputs[eval_block_indices,:,:]
+        targets = dataset.targets[eval_block_indices,:,:]
+        forced_choice_mask = inputs[:,:,0]
+        predictions, hidden = model(inputs)
+        params = {k:v for k,v in model.named_parameters()}
+        losses = model.compute_losses(predictions,targets, forced_choice_mask,
+                                    params,
+                                    hidden,
+                                    model.sparsity_lambda,model.energy_lambda,model.hebbian_lambda, model.covariance_lambda)
+
+    return losses['prediction'].item()
 
 # ---------------------------------------------------------------------------
 # Standalone trial-by-trial extractor
@@ -298,12 +294,6 @@ def get_model_trial_by_trial_df(model, dataset, splits: dict) -> pd.DataFrame:
     log_probs = predictions.log_softmax(dim=2)   # (1, T, 2)
     logits    = (log_probs[0, :, 0] - log_probs[0, :, 1]).cpu().numpy()
  
-    data["logit_value"]  = logits
-    data["logit_past"]   = np.concatenate([[np.nan], logits[:-1]])
-    data["logit_change"] = np.concatenate([[np.nan], np.diff(logits)])
-    data["prob_A"]       = log_probs[0, :, 0].exp().cpu().numpy()
-    data["prob_B"]       = log_probs[0, :, 1].exp().cpu().numpy()
- 
     for col in dataset.subject_df.columns:
         data[col] = dataset.subject_df[col].values
  
@@ -312,6 +302,12 @@ def get_model_trial_by_trial_df(model, dataset, splits: dict) -> pd.DataFrame:
         labels_key[int(c * 2 + o)]
         for c, o in zip(data["choice"], data["outcome"])
     ]
+    
+    data["logit_value"]  = logits
+    data["logit_past"]   = np.concatenate([[np.nan], logits[:-1]])
+    data["logit_change"] = np.concatenate([[np.nan], np.diff(logits)])
+    data["prob_A"]       = log_probs[0, :, 0].exp().cpu().numpy()
+    data["prob_B"]       = log_probs[0, :, 1].exp().cpu().numpy()
  
     # Use our own block-index-aware labeller rather than AB_Dataset.get_split_labels,
     # which assumes block indices are contiguous from zero.

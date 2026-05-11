@@ -230,6 +230,7 @@ class TinyRNN(nn.Module):
                     'sparsity_lambda':self.sparsity_lambda,
                     'energy_lambda': self.energy_lambda,
                     'hebbian_lamba': self.hebbian_lambda,
+                    'covariance_lambda': self.covariance_lambda,
                     'weight_seed':self.weight_seed,
                     'nonlinearity':self.nonlinearity,
                     'input_encoding':self.input_encoding,

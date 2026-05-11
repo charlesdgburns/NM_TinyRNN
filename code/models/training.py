@@ -1,271 +1,183 @@
+"""Code to train models in parallel across hyperparameters."""
+
+import pickle
+
 import torch
+from torch.func import vmap, stack_module_state, functional_call
 import numpy as np
 import pandas as pd
-import os
-import json
 from tqdm import tqdm
-from copy import deepcopy
 from pathlib import Path
-from typing import List, Optional
+from copy import deepcopy
+import itertools
+from NM_TinyRNN.code.models.datasets import get_dataloader
 
-from NM_TinyRNN.code.models.datasets import AB_SessionDataset, get_dataloader
-
-TRAIN_SEED = 42
-torch.manual_seed(TRAIN_SEED)
-np.random.seed(TRAIN_SEED)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed(TRAIN_SEED)
-
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+TRAIN_SEED = 42 #seed to use for ordering to ensure reproducibility
 
 class Trainer:
     def __init__(
         self,
-        save_path: Path,
-        weight_seeds: List[float] = [1, 2, 3, 4, 5],
-        sparsity_lambdas: List[float] = [1e-4,1e-5,],
-        energy_lambdas: List[float] = [0.1,1e-2,1e-3],
-        hebbian_lambdas: List[float] = [0.0],
-        covariance_lambdas: List[float] = [0.0],
+        weight_seeds: list = list(range(11)),
+        sparsity_lambdas: list = [1e-1,1e-2,1e-3,1e-4,1e-5],
+        energy_lambdas: list = [1e-1,1e-2,1e-3],
+        hebbian_lambdas: list = [0.0], # Changed None to 0.0 for tensor compatibility
+        covariance_lambdas: list = [0.0], # Added covariance lambda list
         learning_rate: float = 1e-2,
-        batch_size: int = 32,
-        max_epochs: int = 1000,
+        batch_size: int = 16,
+        max_epochs: int = 10000,
         early_stop: int = 20,
-        train_seed: int = TRAIN_SEED,
+        train_seed: int = 42,
     ):
-        self.save_path        = Path(save_path)
-        self.weight_seeds     = weight_seeds
+        self.learning_rate = learning_rate
+        self.batch_size = batch_size
+        self.max_epochs = max_epochs
+        self.early_stop = early_stop
+        self.train_seed = train_seed
+        self.weight_seeds = weight_seeds
         self.sparsity_lambdas = sparsity_lambdas
-        self.energy_lambdas   = energy_lambdas
-        self.hebbian_lambdas  = hebbian_lambdas
+        self.energy_lambdas = energy_lambdas
+        self.hebbian_lambdas = hebbian_lambdas
         self.covariance_lambdas = covariance_lambdas
-        self.learning_rate    = learning_rate
-        self.batch_size       = batch_size
-        self.max_epochs       = max_epochs
-        self.early_stop       = early_stop
-        self.train_seed       = train_seed
+        # 1. Flatten all hyperparameter combinations into a single list
+        self.configs = list(itertools.product(
+            sparsity_lambdas, energy_lambdas, hebbian_lambdas, covariance_lambdas, weight_seeds
+        ))
+        self.num_models = len(self.configs)
         
-        self.save_path.mkdir(parents=True, exist_ok=True)
+        # Convert configs to tensors for GPU-side vectorized loss calculation
+        config_tensor = torch.tensor(self.configs, dtype=torch.float32)
+        self.sparsity_vec = config_tensor[:, 0]
+        self.energy_vec   = config_tensor[:, 1]
+        self.hebbian_vec  = config_tensor[:, 2]
+        self.covariance_vec = config_tensor[:, 3]
 
-    def fit(self, model, dataset) -> pd.DataFrame:
-        print(f"Starting training | dataset size: {len(dataset)}")
+    def _initialize_parallel_models(self, base_model):
+        """Creates N copies of the model and stacks their parameters."""
+        models = []
+        for _, _, _, _, seed in self.configs:
+            m = deepcopy(base_model)
+            m.weight_seed = int(seed)
+            m.init_weights()
+            models.append(m)
+    
+        # Stack parameters into a single dict of tensors: [Num_Models, weight_dims...]
+        params, buffers = stack_module_state(models)
+        return params, buffers
 
-        splits = dataset._session_split(seed_split=self.train_seed, eval_frac=0.1, val_frac=0.1)
-        train_loader = get_dataloader(dataset, 'train', splits, batch_size=self.batch_size, seed=self.train_seed)
+    def fit(self, base_model, dataset):
+        base_model = pickle.loads(pickle.dumps(base_model)) # Ensure we have a fresh copy of the model for parallelization
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Parallelizing {self.num_models} models on {device}")
+
+        # Prepare Data
+        splits = dataset._session_split(seed_split=self.train_seed)
+        train_loader = get_dataloader(dataset, 'train', splits, batch_size=self.batch_size)
         val_loader   = get_dataloader(dataset, 'val',   splits, batch_size=self.batch_size)
-        eval_loader  = get_dataloader(dataset, 'eval',  splits, batch_size=self.batch_size)
-        print(f"Split sizes — Train: {len(splits['train'])}, Val: {len(splits['val'])}, Eval: {len(splits['eval'])}")
+        
+        # Initialize Parallel State
+        params, buffers = self._initialize_parallel_models(base_model)
+        # Move params to device and enable gradients
+        params = {k: v.to(device).detach().requires_grad_(True) for k, v in params.items()}
+        buffers = {k: v.to(device) for k, v in buffers.items()}
+        
+        # set random seed AFTER initialising weights. 
+        # This ensures reproducibility in training loop  
+        torch.manual_seed(TRAIN_SEED)
+        np.random.seed(TRAIN_SEED)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(TRAIN_SEED)
+            
+        optimizer = torch.optim.AdamW(params.values(), 
+                                      lr=self.learning_rate,
+                                      weight_decay = 0.0) #important detail here, otherwise sparsity_lambda is misleading
 
-        all_results = []
-        best_overall_val_loss = float('inf')
-        best_model_info = None
+        # Trackers for each model
+        best_val_losses = torch.full((self.num_models,), float('inf'), device=device)
+        epochs_no_improve = torch.zeros(self.num_models, device=device)
+        active_mask = torch.ones(self.num_models, device=device, dtype=torch.bool)
+        best_params = {k: v.clone() for k, v in params.items()}
 
-        for sparsity_lambda in self.sparsity_lambdas:
-            for energy_lambda in self.energy_lambdas:
-                for hebbian_lambda in self.hebbian_lambdas:
-                    for covariance_lambda in self.covariance_lambdas:
-                        for weight_seed in self.weight_seeds:
-                            print(f"\nweight_seed={weight_seed}, sparsity={sparsity_lambda:.0e}, "
-                                  f"energy={energy_lambda}, hebbian={hebbian_lambda}, covariance={covariance_lambda}")
-                            model.sparsity_lambda = sparsity_lambda
-                            model.energy_lambda   = energy_lambda
-                            model.hebbian_lambda  = hebbian_lambda
-                            model.covariance_lambda = covariance_lambda
-                            model.weight_seed     = weight_seed
-                            model.init_weights()
+        # Move lambda vectors to device
+        s_vec = self.sparsity_vec.to(device)
+        e_vec = self.energy_vec.to(device)
+        h_vec = self.hebbian_vec.to(device)
+        c_vec = self.covariance_vec.to(device)
+        # For vmap parallelisation we define the Functional Forward/Loss Pass for one instance
+        def compute_single_model_loss(p, b, x, y, s_lam, e_lam, h_lam, c_lam):
+            """
+            This function is executed for EACH model instance in parallel via vmap.
+            p: parameters for 1 model
+            b: buffers for 1 model
+            x: input batch [Batch, Seq, Features]
+            y: target batch [Batch, Seq, Outputs]
+            """
+            # 1. Functional forward pass
+            # We use (p, b) to ensure we use the specific weights for this hyperparameter set
+            predictions, hidden_states = functional_call(base_model, (p, b), x)
+            forced_choice_mask = x[:,:,0]
+            loss_dict = base_model.compute_losses(
+                params=p,
+                predictions=predictions,
+                targets=y,
+                forced_choice_mask = forced_choice_mask,
+                hidden_states=hidden_states,
+                sparsity_lambda=s_lam,
+                energy_lambda=e_lam,
+                hebbian_lambda=h_lam,
+                covariance_lambda=c_lam
+            )
+            # 5. Return the sum of all components
+            # Inside vmap, this results in a single scalar per model.
+            # vmap then stacks these into a tensor of shape [num_models].
+            return loss_dict
+        
+        # Vectorize the loss function across the model dimension (dim 0)
+        # in_dims: (0, 0, None, None, 0, 0, 0, 0) means params/lambdas are unique per model, 
+        # but data (x, y) is shared (None).
+        vectorized_loss_fn = vmap(compute_single_model_loss, in_dims=(0, 0, None, None, 0, 0, 0, 0))
 
-                        losses_dict, best_model_dict = self._train_single_model(model, train_loader, val_loader)
+        for epoch in tqdm(range(self.max_epochs)):
+            if not active_mask.any(): break
 
-                        n = len(losses_dict['train_prediction'])
-                        losses_dict.update({
-                            'sparsity_lambda': np.repeat(sparsity_lambda, n),
-                            'energy_lambda':   np.repeat(energy_lambda, n),
-                            'hebbian_lambda':  np.repeat(hebbian_lambda, n),
-                            'covariance_lambda': np.repeat(covariance_lambda, n),
-                            'weight_seed':     np.repeat(weight_seed, n),
-                            'epoch':           np.arange(1, n + 1),
-                        })
-                        all_results.append(losses_dict)
+            # --- Training Step ---
+            for batch_x, batch_y in train_loader:
+                optimizer.zero_grad()
+                batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+                
+                # Compute parallel losses
+                loss_dict = vectorized_loss_fn(params, buffers, batch_x, batch_y, s_vec, e_vec, h_vec, c_vec)
+                
+                # We only want to backprop for models that haven't early-stopped
+                masked_loss = (sum(loss_dict.values()) * active_mask).sum()
+                masked_loss.backward()
+                optimizer.step()
 
-                        if best_model_dict['val_pred_loss'] < best_overall_val_loss:
-                            best_overall_val_loss = best_model_dict['val_pred_loss']
-                            best_model_info = {**best_model_dict,
-                                               'sparsity_lambda': sparsity_lambda,
-                                               'energy_lambda':   energy_lambda,
-                                               'hebbian_lambda':  hebbian_lambda,
-                                               'covariance_lambda': covariance_lambda,
-                                               'weight_seed':     weight_seed}
-                        if best_model_info is None:  # catch all-NaN runs
-                            best_model_info = {**best_model_dict,
-                                               'sparsity_lambda': sparsity_lambda,
-                                               'energy_lambda':   energy_lambda,
-                                               'hebbian_lambda':  hebbian_lambda,
-                                               'covariance_lambda': covariance_lambda,
-                                               'weight_seed':     weight_seed}
+            # --- Validation Step ---
+            with torch.no_grad():
+                current_val_losses = torch.zeros(self.num_models, device=device)
+                for v_x, v_y in val_loader:
+                    v_x, v_y = v_x.to(device), v_y.to(device)
+                    loss_dict = vectorized_loss_fn(params, buffers, v_x, v_y, s_vec, e_vec, h_vec, c_vec)
+                    current_val_losses += loss_dict['prediction']
+                current_val_losses /= len(val_loader)
 
-        # ── Eval & saving ──────────────────────────────────────────────────────
-        model_id = model.get_model_id()
-        torch.save(best_model_info['model_state'], self.save_path / f'{model_id}_model_state.pth')
+                # Update best states and early stopping counters
+                improved = current_val_losses < best_val_losses
+                for k in params:
+                    best_params[k][improved] = params[k][improved].clone()
+                
+                best_val_losses[improved] = current_val_losses[improved]
+                epochs_no_improve[improved] = 0
+                epochs_no_improve[~improved] += 1
+                
+                # Early stopping mask
+                active_mask = epochs_no_improve < self.early_stop
 
-        print(f"\nEvaluating best model (sparsity={best_model_info['sparsity_lambda']:.0e}, "
-              f"weight_seed={best_model_info['weight_seed']}) on eval set...")
-        model.load_state_dict(best_model_info['model_state'])
-        model.sparsity_lambda = best_model_info['sparsity_lambda']
-        model.energy_lambda   = best_model_info['energy_lambda']
-        model.hebbian_lambda  = best_model_info['hebbian_lambda']
-        model.covariance_lambda = best_model_info['covariance_lambda']
-        model.weight_seed     = best_model_info['weight_seed']
-        model.eval()
-
-        eval_losses = self._run_epoch(model, eval_loader, training=False)
-        best_model_info['eval_pred_loss'] = eval_losses['prediction']
-        print(f"Eval loss: {eval_losses['prediction']:.6f}")
-
-        model_info = {**{k: (str(v) if isinstance(v, Path) else v)
-                         for k, v in self.__dict__.items()},
-                      'model_id':          model_id,
-                      'best_val_pred_loss': best_model_info['val_pred_loss'],
-                      'epochs_trained':     best_model_info['epochs_trained'],
-                      'eval_pred_loss':     best_model_info['eval_pred_loss'],
-                      'options_dict':       model.get_options_dict()}
-        with open(self.save_path / f'{model_id}_info.json', 'w') as f:
-            json.dump(model_info, f, indent=2)
-
-        training_losses_df = pd.concat([pd.DataFrame(x) for x in all_results if isinstance(x, dict)])
-        training_losses_df.to_csv(self.save_path / f'{model_id}_training_losses.htsv', sep='\t', index=False)
-
-        print(f"\nTraining complete! Best val loss: {best_model_info['val_pred_loss']:.6f} | "
-              f"Eval loss: {best_model_info['eval_pred_loss']:.6f}")
-
-        print("Extracting trial-by-trial activations...")
-        trial_df = self.get_model_trial_by_trial_df(model, dataset, splits)
-        trial_df.to_csv(self.save_path / f'{model_id}_trials_data.htsv', sep='\t', index=False)
-
-        return training_losses_df
-
-    def _run_epoch(self, model, dataloader, optimizer=None, training=True):
-        model.train() if training else model.eval()
-        epoch_losses = {}
-
-        with (torch.enable_grad() if training else torch.no_grad()):
-            for batch_inputs, batch_targets in dataloader:
-                B, S, _ = batch_inputs.shape
-                if training and optimizer is not None:
-                    optimizer.zero_grad()
-
-                predictions, hidden_states = model(batch_inputs)
-                forced_choice_mask = batch_inputs[:,:,0]
-                params_dict = {k:v for k,v in model.rnn.named_parameters()}
-                losses = model.compute_losses(predictions,
-                                                batch_targets,
-                                                forced_choice_mask,
-                                                params_dict,
-                                                hidden_states, 
-                                                model.sparsity_lambda, model.energy_lambda, model.hebbian_lambda, model.covariance_lambda) #These are considered inputs to the loss function for fast parallelisation. 
-
-                if training and optimizer is not None:
-                    sum(losses.values()).backward()
-                    optimizer.step()
-
-                for k, v in losses.items():
-                    epoch_losses[k] = epoch_losses.get(k, 0) + v.item() / len(dataloader)
-
-        return epoch_losses
-
-    def _train_single_model(self, model, train_loader, val_loader):
-        model_copy = deepcopy(model)
-        optimizer  = torch.optim.AdamW(model_copy.parameters(), lr=self.learning_rate, weight_decay=0.0)
-
-        losses_dict, best_model_dict = {}, {}
-        best_val_loss = float('inf')
-        epochs_no_improve = 0
-
-        for epoch in tqdm(range(self.max_epochs), desc=f"λ={model.sparsity_lambda:.0e}"):
-            train_losses = self._run_epoch(model_copy, train_loader, optimizer, training=True)
-            val_losses   = self._run_epoch(model_copy, val_loader, training=False)
-
-            for k, v in train_losses.items():
-                losses_dict.setdefault(f'train_{k}', []).append(v)
-            losses_dict.setdefault('val_pred_losses', []).append(val_losses['prediction'])
-
-            if val_losses['prediction'] < best_val_loss:
-                best_val_loss      = val_losses['prediction']
-                epochs_no_improve  = 0
-                best_model_state   = deepcopy(model_copy.cpu().state_dict())
-                model_copy.to(model_copy.device if hasattr(model_copy, 'device') else 'cpu')
-            else:
-                epochs_no_improve += 1
-
-            if epochs_no_improve >= self.early_stop:
-                print(f"Early stopping at epoch {epoch + 1}")
-                break
-
-            if np.isnan(train_losses.get('hebbian', 0)) or np.isnan(val_losses['prediction']) or np.isnan(val_losses.get('covariance', 0)):
-                print("NaN loss encountered, stopping early")
-                best_val_loss    = np.nan
-                epochs_no_improve = np.nan
-                best_model_state  = deepcopy(model_copy.cpu().state_dict())
-                break
-
-        best_model_dict['epochs_trained'] = epoch + 1
-        best_model_dict['val_pred_loss']  = best_val_loss
-        best_model_dict['model_state']    = best_model_state
-        return losses_dict, best_model_dict
-
-    def get_model_trial_by_trial_df(self, model, dataset, splits):
-        """Run model over the full dataset and return a trial-by-trial DataFrame."""
-        model.eval()
-        data = {}
-
-        # Full-dataset forward pass (always use flat/concatenated representation)
-        if isinstance(dataset, AB_SessionDataset):
-            inputs_tensor = dataset.flat_inputs.unsqueeze(0)   # (1, total_trials, 3)
-        else:
-            inputs_tensor = torch.tensor(
-                dataset.subject_df[['forced_choice', 'outcome', 'choice']].values,
-                dtype=torch.float32).unsqueeze(0)
-
-        with torch.no_grad():
-            predictions, hidden_states = model(inputs_tensor)
-            # hidden states are always extracted — shape (1, total_trials, H)
-            for u in range(model.H):
-                data[f'hidden_{u+1}'] = hidden_states[:, :, u].flatten().cpu().numpy()
-            # gate activations only available for non-vanilla RNNs
-            if model.rnn_type != 'vanilla':
-                inp = inputs_tensor if model.input_forced_choice else inputs_tensor[:, :, 1:]
-                if model.input_encoding == 'bipolar':
-                    inp = inp * 2 - 1
-                _, gate_activations = model.rnn(inp, return_gate_activations=True)
-                for gate, acts in gate_activations.items():
-                    for u in range(acts.shape[-1]):
-                        data[f'gate_{gate}_{u+1}'] = acts[:, :, u].flatten().cpu().numpy()
-
-        log_probs = predictions.log_softmax(dim=2)
-        logits    = (log_probs[:, :, 0] - log_probs[:, :, 1]).flatten()
-        data['logit_value']  = logits.cpu().numpy()
-        data['logit_past']   = np.concatenate([[np.nan], data['logit_value'][:-1]])
-        data['logit_change'] = np.concatenate([[np.nan], np.diff(data['logit_value'])])
-        data['prob_A']       = log_probs[:, :, 0].exp().flatten().cpu().numpy()
-        data['prob_B']       = log_probs[:, :, 1].exp().flatten().cpu().numpy()
-
-        # Trial-level metadata from subject_df (AB_Dataset) or reconstructed (AB_SessionDataset)
-        if isinstance(dataset, AB_SessionDataset):
-            # Rebuild a minimal subject_df from the flat tensors for consistent downstream code
-            flat = dataset.flat_inputs.cpu().numpy()
-            subject_df = pd.DataFrame(flat, columns=['forced_choice', 'outcome', 'choice'])
-            subject_df['session_folder_name'] = np.concatenate(
-                [np.repeat(name, dataset.session_index[i, 1] - dataset.session_index[i, 0])
-                 for i, name in enumerate(dataset.session_names)])
-        else:
-            subject_df = dataset.subject_df
-
-        for col in subject_df.columns:
-            data[col] = subject_df[col].values
-
-        labels = ['A1,R=0', 'A1,R=1', 'A2,R=0', 'A2,R=1']
-        data['trial_type'] = [labels[int(c * 2 + o)] for c, o in
-                              zip(data['choice'], data['outcome'])]
-
-        # Add split membership label per trial
-        data['split'] = dataset.get_split_labels(splits)
-
-        return pd.DataFrame(data)
+        # Final Separation: Find the best index overall
+        best_idx = torch.argmin(best_val_losses)
+        print(f"Search complete. Best model index: {best_idx}. Val. loss: {best_val_losses[best_idx]}")
+        self._last_best_val_loss = best_val_losses[best_idx]
+        # Extract the single best model's state dict
+        final_state_dict = {k: v[best_idx].cpu() for k, v in best_params.items()}
+        return final_state_dict, self.configs[best_idx], loss_dict

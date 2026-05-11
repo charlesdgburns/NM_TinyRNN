@@ -1,5 +1,5 @@
 """
-nested_cv.py  —  Nested cross-validation for AB_Dataset
+nested_cv.py  —  Code to perform Nested cross-validation as in Ji-An et al., 2025
 
 Outer loop
 ----------
@@ -18,17 +18,13 @@ position.  Each rotation is one "inner fold" (K-1 folds total).
 Parallelism
 -----------
 CPU path  : joblib dispatches each inner fold to a separate subprocess.
-            Inside every subprocess, TrainerGPU stacks all hyperparameter /
+            Inside every subprocess, Trainer stacks all hyperparameter /
             seed combos and runs them together via torch.func.vmap.
-GPU path  : joblib is skipped (single process); vmap still parallelises
-            across configs within each inner fold.
 
-Determinism
+Determinism/Reproducibility
 -----------
-A global train_seed is combined with the inner-fold index to produce a
-unique, reproducible seed for every subprocess:
-
-    effective_seed = train_seed * 1000 + inner_fold_idx
+A global train_seed controls the randomisation of the data splitting.
+A local (per model within the hyperparameter stack) weight_seed controls initial weights.
 
 This means two identical calls with the same train_seed always produce the
 same result, even when joblib reorders subprocesses.
@@ -41,7 +37,7 @@ Pass save_path to run_outer_fold and results are written automatically:
       outer_fold_N/
         inner_fold_M/
           info.json
-          model_state.pth
+          model.pickle
           trials_data.htsv
           training_losses.htsv   (if available)
 
@@ -68,7 +64,7 @@ from joblib import Parallel, delayed
 
 # ── relative imports (adjust if your package layout differs) ──────────────────
 from NM_TinyRNN.code.models.datasets import AB_Dataset
-from NM_TinyRNN.code.models.nested_cv_io import save_inner_fold_results
+from NM_TinyRNN.code.models.save_data import save_inner_fold_results
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -258,8 +254,8 @@ def _run_inner_fold(
 
     # TrainerGPU gets its own temp save path so it doesn't write into the
     # nested CV directory structure.  The canonical save is handled below.
-    from NM_TinyRNN.code.models.training_fast import TrainerGPU   # adjust path
-    trainer = TrainerGPU(
+    from NM_TinyRNN.code.models.training import Trainer   # adjust path
+    trainer = Trainer(
         train_seed = seed,
         **trainer_kwargs,
     )

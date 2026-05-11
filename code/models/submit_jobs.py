@@ -19,7 +19,6 @@ from NM_TinyRNN.code.models import datasets
 from NM_TinyRNN.code.models import rnns
 
 from NM_TinyRNN.code.models import nested_cv
-from NM_TinyRNN.code.models import training_fast
 
 # global variables
 N_OUTER_LOOPS = 10
@@ -54,6 +53,8 @@ def run_training(overwrite=False, test = True):
         os.system(f"sbatch {script_path}")
     print("All NM_TinyRNN jobs submitted to HPC. Check progress with 'squeue -u <username>'")
     
+
+# info dictionaries for training # 
 
 def get_job_info_df(processed_data_path = PROCESSED_DATA_PATH,
                     save_path = SAVE_PATH):
@@ -111,14 +112,14 @@ def get_test_info_df(processed_data_path = PROCESSED_DATA_PATH,
    
     for subdir in processed_data_path.iterdir():
         subject_ID = subdir.stem
-        if "WS" in subject_ID or "MA" in subject_ID: ##OBS - ONLY SINGLE SUBJECT FOR TESTING
+        if "WS" in subject_ID or "MA" in subject_ID: ##OBS - ONLY SIMULATED DATA FOR TESTING
             continue
         data_path = PROCESSED_DATA_PATH/subject_ID
         if not subdir.is_dir():
             continue
         
-        for outer_loop_n in range(1,N_OUTER_LOOPS+1): #10 loops is recommended
-            for model_type in ['GRU', 'monoGRU']:
+        for outer_loop_n in range(1,11): #10 loops is recommended. Minimum is 3.
+            for model_type in ['GRU', 'monoGRU','vanilla','constGate']:
                 nonlinearities = ['relu','tanh']
                 input_encodings = ['unipolar','onehot']
                 nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
@@ -139,8 +140,6 @@ def get_test_info_df(processed_data_path = PROCESSED_DATA_PATH,
                                 df_dict[k].append(v)
                             
     return pd.DataFrame(df_dict)
-
-# top level training function # 
 
 
 # SLURM functions to call the server # 
@@ -213,8 +212,8 @@ conda deactivate
 conda activate /nfs/nhome/live/cburns/miniconda3/envs/NM_TinyRNN
 
 echo "Running training"
-python -c "from NM_TinyRNN.code.models import nested_jobs as nj; \
-nj.train_outers('{train_info.data_path}','{train_info.save_path}','{train_info.model_type}',{int(train_info.hidden_size)},{int(train_info.nm_size)},{int(train_info.nm_dim)},'{train_info.nm_mode}', '{train_info.input_encoding}', '{train_info.nonlinearity}','{train_info.constraint}')"
+python -c "from NM_TinyRNN.code.models import submit_jobs as sj; \
+sj.train_outers('{train_info.data_path}','{train_info.save_path}','{train_info.model_type}',{int(train_info.hidden_size)},{int(train_info.nm_size)},{int(train_info.nm_dim)},'{train_info.nm_mode}', '{train_info.input_encoding}', '{train_info.nonlinearity}','{train_info.constraint}')"
 """
     script_path = JOBS_PATH/'slurm'/f'{session_ID}.sh'  
     with open(script_path, "w") as f:
