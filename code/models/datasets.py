@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-DATA_PATH = './NM_TinyRNN/data/AB_behaviour/WS16'
+DATA_PATH = Path('./NM_TinyRNN/data/')
 SEQUENCE_LENGTH = 64
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -51,12 +51,24 @@ def get_dataloader(dataset, split, splits=None, shuffle=None, batch_size=8, seed
 # ── AB_Dataset (sequence/batch based) ─────────────────────────────────────────
 
 class AB_Dataset(Dataset):
-    """Splits sessions into fixed-length sequences. Supports batch_size > 1."""
+    """
+    Loading sessions assumes folder structure of
+    .../data/<subject_id>/<session_folder>/trials.htsv
+    
+    Splits sessions into fixed-length sequences. Supports batch_size > 1.
+    """
 
-    def __init__(self, subject_data_path, sequence_length=SEQUENCE_LENGTH, device=DEVICE):
+    def __init__(self, subject_data_path, subject_ids=None, sequence_length=SEQUENCE_LENGTH, device=DEVICE):
+
         self.device = device
         self.sequence_length = sequence_length
-        self.subject_data_path = Path(subject_data_path)
+        self.subject_data_path = subject_data_path
+        #handling an option for multiple subjects
+        if subject_ids is None:
+            self.subject_ids = [Path(subject_data_path).stem]
+        else:
+            self.subject_ids = subject_ids
+        #load data and create input,target sequences
         self.subject_df = self._load_and_concat_data( )
         self.inputs, self.targets = self._create_sequences()
 
@@ -64,14 +76,31 @@ class AB_Dataset(Dataset):
         subject_data = []
         session_folder_name = []
         n_blocks = 0
-        subdirs = [x for x in self.subject_data_path.iterdir() if x.is_dir()]
-        subdirs.sort()
-        for session_dir in subdirs:
+
+        parent_dir = DATA_PATH/'AB_behaviour'
+        subject_dirs = [x for x in parent_dir.iterdir()
+                        if x.is_dir() and any(subject_id in x.name for subject_id in self.subject_ids)]
+        if not subject_dirs: #if this subdirectory is empty
+            raise ValueError(f"No subject directories found under {parent_dir} matching {self.subject_ids}")
+    
+        session_dirs = []
+        for subject_dir in subject_dirs:
+            session_dirs.extend([x for x in subject_dir.iterdir() if x.is_dir()])
+
+        session_dirs.sort()
+        if not session_dirs:
+            raise ValueError(f"No session directories found for path={self.subject_data_path} "
+                             f"subject_ids={self.subject_ids}")
+
+        print(self.subject_ids, subject_dirs, session_dirs)
+
+        for session_dir in session_dirs:
             trials_df = pd.read_csv(session_dir/'trials.htsv', sep = '\t')
             assert np.all([x in trials_df.columns for x in ['forced_choice', 'outcome', 'choice', 'good_poke']]), "DataFrame missing required columns"
             T, S = len(trials_df), (self.sequence_length)
             remainder = T%(S+1) # the +1 here is to account for the shift in trials between inputs and targets when creating sequences.
-            trials_df['session_folder_name'] = np.repeat(session_dir.stem, len(trials_df))
+            this_session_folder_name = f'{session_dir.parent.stem}/{session_dir.stem}'
+            trials_df['session_folder_name'] = np.repeat(this_session_folder_name, len(trials_df))
             trials_df['session_trial_idx'] = range(len(trials_df))
             trials_df['sequence_block_idx'] = np.concatenate([np.arange(T-remainder)//(S+1),
                                                               np.repeat(np.nan,remainder)]) + n_blocks
@@ -79,7 +108,7 @@ class AB_Dataset(Dataset):
                                                            np.repeat(np.nan,remainder)])
             n_blocks+=(T-remainder)//(S+1)
             subject_data.append(trials_df)
-            session_folder_name.extend(np.repeat(session_dir.stem, len(subject_data[-1]))) 
+            session_folder_name.extend(np.repeat(this_session_folder_name, len(subject_data[-1]))) 
         self.session_folder_name = session_folder_name
         df =  pd.concat(subject_data)
         # Convert boolean and categorical columns to numerical
@@ -125,7 +154,11 @@ class AB_Dataset(Dataset):
 
     def _session_split(self, eval_frac=0.1, val_frac=0.1, seed_eval=-1, seed_split=0):
         """80/10/10 split on sessions; returns index lists over sequence blocks."""
-        folders = np.array(sorted(self.subject_df['session_folder_name'].unique()))
+        block_map = self.subject_df.dropna().groupby('session_folder_name')['sequence_block_idx'].unique()
+        folders = np.array(sorted(block_map.index.astype(str)))
+        if len(folders) == 0:
+            raise ValueError("No valid session blocks found for splitting; check sequence_length and session lengths.")
+
         n = len(folders)
         n_eval_folders = math.ceil(n*eval_frac)
 
@@ -137,8 +170,7 @@ class AB_Dataset(Dataset):
         rest_folders = np.setdiff1d(folders, eval_folders)
         val_folders  = np.random.default_rng(seed_split).choice(rest_folders, size=math.ceil(len(rest_folders) * val_frac), replace=False)
         train_folders = np.setdiff1d(rest_folders, val_folders)
-        print(n,eval_folders)
-        block_map = self.subject_df.dropna().groupby('session_folder_name')['sequence_block_idx'].unique()
+        print(f'Data split (session-level): {len(train_folders)} train, {len(val_folders)} validation, and {len(eval_folders)} evaluation')
         def blocks(fs): return sorted(int(x) for x in np.concatenate([block_map[f] for f in fs]).tolist())
 
         return {

@@ -38,17 +38,14 @@ PROCESSED_DATA_PATH = Path('./NM_TinyRNN/data/AB_behaviour/') #subfolders here a
 def run_training(overwrite=False, test = True):
     '''Submit jobs to HPC cluster via slurm to run training'''
     train_df = get_job_info_df()
+    if test == True:
+       train_df = get_ws_all_info_df()
     if not overwrite:
         train_df = train_df[train_df.completed==False]
-    if train_df.empty:
-        print("All files have been registered. No new videos to track.")
-        return
-    if test == True:
-       train_df = get_test_info_df()
     #Computing outer loops sequentially:
-    train_df = train_df.drop_duplicates(['subject_ID','model_id'])
+    train_df = train_df.drop_duplicates(['subject_id','model_id'])
     for session_info in train_df.itertuples():
-        print(f"Submitting model training for {session_info.subject_ID} to HPC")
+        print(f"Submitting model training for {session_info.subject_id} to HPC")
         script_path = get_NM_TinyRNN_SLURM_script(session_info)
         os.system(f"sbatch {script_path}")
     print("All NM_TinyRNN jobs submitted to HPC. Check progress with 'squeue -u <username>'")
@@ -62,7 +59,7 @@ def get_job_info_df(processed_data_path = PROCESSED_DATA_PATH,
     Key arguments here are 'model_id', 'data_path','save_path' and 'outer_loop_n'
     '''
     #see each subject
-    df_dict = {'subject_ID':[],'outer_loop_n':[],'model_type':[],'hidden_size':[],
+    df_dict = {'subject_id':[],'outer_loop_n':[],'model_type':[],'hidden_size':[],
                'nonlinearity':[],'input_encoding':[],'constraint':[],
                'nm_size':[],'nm_dim':[],'nm_mode':[],
                'model_id':[],'save_path':[],'data_path':[], 'completed':[]}
@@ -105,7 +102,7 @@ def get_test_info_df(processed_data_path = PROCESSED_DATA_PATH,
     Key arguments here are 'model_id', 'data_path','save_path' and 'outer_loop_n'
     '''
     #see each subject
-    df_dict = {'subject_ID':[],'outer_loop_n':[],'model_type':[],'hidden_size':[],
+    df_dict = {'subject_id':[],'outer_loop_n':[],'model_type':[],'hidden_size':[],
                'nonlinearity':[],'input_encoding':[],'constraint':[],
                'nm_size':[],'nm_dim':[],'nm_mode':[],
                'model_id':[],'save_path':[],'data_path':[], 'completed':[]}
@@ -119,7 +116,7 @@ def get_test_info_df(processed_data_path = PROCESSED_DATA_PATH,
             continue
         
         for outer_loop_n in range(1,11): #10 loops is recommended. Minimum is 3.
-            for model_type in ['GRU', 'monoGRU','vanilla','constGate']:
+            for model_type in ['GRU','monoGRU']: #,'constGate','vanilla'
                 nonlinearities = ['relu','tanh']
                 input_encodings = ['unipolar','onehot']
                 nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
@@ -142,18 +139,56 @@ def get_test_info_df(processed_data_path = PROCESSED_DATA_PATH,
     return pd.DataFrame(df_dict)
 
 
+def get_ws_all_info_df(processed_data_path = PROCESSED_DATA_PATH,
+                    save_path = SAVE_PATH):
+    '''Organise the architecture information in a large dataframe. 
+    Key arguments here are 'model_id', 'data_path','save_path' and 'outer_loop_n'
+    '''
+    #see each subject
+    df_dict = {'subject_id':[],'outer_loop_n':[],'model_type':[],'hidden_size':[],
+               'nonlinearity':[],'input_encoding':[],'constraint':[],
+               'nm_size':[],'nm_dim':[],'nm_mode':[],
+               'model_id':[],'save_path':[],'data_path':[], 'completed':[]}
+    #generate a list of subjects to group together
+    subject_ids = ['WS_all'] 
+    for subject_id in subject_ids:
+        data_path = processed_data_path/'WS'
+        for outer_loop_n in range(1,11): #10 loops is recommended. Minimum is 3.
+            for model_type in ['GRU','monoGRU']: #,'constGate','vanilla'
+                nonlinearities = ['relu','tanh']
+                input_encodings = ['unipolar','onehot']
+                nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
+                for nonlinearity in nonlinearities:
+                    for input_encoding in input_encodings:
+                        constraint= 'energy' if nonlinearity == 'relu' else 'sparsity'
+                        for hidden_size in [1,2]:
+                            model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
+                            model_save_path = save_path/'test'/subject_id/model_type/constraint
+                            completed = 1
+                            for inner_loop_n in range(0,N_OUTER_LOOPS-1):
+                                completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
+                            for k,v in zip(df_dict.keys(),
+                                [subject_id,outer_loop_n,model_type,hidden_size,
+                                nonlinearity, input_encoding,constraint,
+                                nm_size,nm_dim,nm_mode,
+                                model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
+                                df_dict[k].append(v)
+                            
+    return pd.DataFrame(df_dict)
+
+
 # SLURM functions to call the server # 
 
 def train_outers(data_path, 
-                   save_path,
-                   model_type:str, 
-                   hidden_size:int=2, 
-                   nm_size:str=1, 
-                   nm_dim:str=1, 
-                   nm_mode:str=1,
-                   input_encoding:str='unipolar',
-                   nonlinearity:str='relu',
-                   constraint:str='energy',):
+                save_path,
+                model_type:str, 
+                hidden_size:int=2, 
+                nm_size:str=1, 
+                nm_dim:str=1, 
+                nm_mode:str=1,
+                input_encoding:str='unipolar',
+                nonlinearity:str='relu',
+                constraint:str='energy',):
     '''Minimal inputs required to test fit all model types.'''
     options = rnns.OPTIONS_DICT
     options['rnn_type'] = model_type
@@ -213,7 +248,16 @@ conda activate /nfs/nhome/live/cburns/miniconda3/envs/NM_TinyRNN
 
 echo "Running training"
 python -c "from NM_TinyRNN.code.models import submit_jobs as sj; \
-sj.train_outers('{train_info.data_path}','{train_info.save_path}','{train_info.model_type}',{int(train_info.hidden_size)},{int(train_info.nm_size)},{int(train_info.nm_dim)},'{train_info.nm_mode}', '{train_info.input_encoding}', '{train_info.nonlinearity}','{train_info.constraint}')"
+sj.train_outers('{train_info.data_path}',\
+                '{train_info.save_path}',\
+                '{train_info.model_type}',\
+                {int(train_info.hidden_size)},\
+                {int(train_info.nm_size)},\
+                {int(train_info.nm_dim)},\
+                '{train_info.nm_mode}', \
+                '{train_info.input_encoding}', \
+                '{train_info.nonlinearity}',\
+                '{train_info.constraint}')"
 """
     script_path = JOBS_PATH/'slurm'/f'{session_ID}.sh'  
     with open(script_path, "w") as f:
