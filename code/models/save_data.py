@@ -41,6 +41,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+from NM_TinyRNN.code.models import datasets as ds
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -207,13 +208,12 @@ def compute_eval_loss(model, dataset, eval_block_indices: list) -> float:
     model.eval()
     with torch.no_grad():
         inputs = dataset.inputs[eval_block_indices,:,:]
-        targets = dataset.targets[eval_block_indices,:,:]
-        forced_choice_mask = inputs[:,:,0]
+        targets = dataset.targets[eval_block_indices,:]
+        forced_choice_mask = dataset.forced_choice_mask[eval_block_indices,:]
         predictions, hidden = model(inputs)
         params = {k:v for k,v in model.named_parameters()}
         losses = model.compute_losses(predictions,targets, forced_choice_mask,
-                                    params,
-                                    hidden,
+                                    params,hidden,
                                     model.sparsity_lambda,model.energy_lambda,model.hebbian_lambda, model.covariance_lambda)
 
     return losses['prediction'].item()
@@ -265,28 +265,19 @@ def get_model_trial_by_trial_df(model, dataset, splits: dict) -> pd.DataFrame:
     # Build a single (1, T, 3) input tensor from the raw subject_df so that
     # every trial appears in temporal order regardless of sequence chunking.
     raw = torch.tensor(
-        dataset.subject_df[["forced_choice", "outcome", "choice"]].values,
+        dataset.subject_df[["forced_choice", "choice","outcome"]].values,
         dtype=torch.float32,
     ).unsqueeze(0)   # (1, T, 3)
- 
+    inputs = ds.input_encoder(raw, model.input_encoding, model.input_forced_choice)
     with torch.no_grad():
-        predictions, hidden_states = model(raw)
+        predictions, hidden_states = model(inputs)
         # hidden_states: (1, T, H)
         for u in range(model.H):
             data[f"hidden_{u+1}"] = hidden_states[0, :, u].cpu().numpy()
  
         rnn_type = getattr(model, "rnn_type", "vanilla")
         if rnn_type != "vanilla":
-            use_fc = getattr(model, "input_forced_choice", True)
-            inp    = raw if use_fc else raw[:, :, 1:]
-            if getattr(model, "input_encoding", None) == "bipolar":
-                inp = inp * 2 - 1
-            if getattr(model, "input_encoding", None) == "onehot":
-                dims = inp.shape[-1]
-                weights = 2 ** torch.arange(dims - 1, -1, -1, device=inp.device)
-                indices = (inp * weights).sum(dim=-1).long()
-                inp = torch.nn.functional.one_hot(indices, num_classes=2**dims).to(torch.float32)
-            _, gate_activations = model.rnn(inp, return_gate_activations=True)
+            _, gate_activations = model.rnn(inputs, return_gate_activations=True)
             for gate_name, acts in gate_activations.items():
                 for u in range(acts.shape[-1]):
                     data[f"gate_{gate_name}_{u+1}"] = acts[0, :, u].cpu().numpy()

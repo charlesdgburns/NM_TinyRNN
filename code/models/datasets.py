@@ -10,6 +10,8 @@ DATA_PATH = Path('./NM_TinyRNN/data/')
 SEQUENCE_LENGTH = 64
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+REQUIRED = ['forced_choice', 'outcome', 'choice', 'good_poke']
+
 
 # ── Shared helpers ─────────────────────────────────────────────────────────────
 
@@ -20,9 +22,27 @@ def _encode_df(df):
     df['good_poke']     = df['good_poke'].astype('category').cat.codes.astype(int)
     return df
 
-REQUIRED = ['forced_choice', 'outcome', 'choice', 'good_poke']
-
-
+def input_encoder(inputs, input_encoding:str, input_forced_choice:bool):
+    #assume inputs are given with shape #(n_batches, n_seq, n_features)
+    #features ordered as forced_choice, choice, and outcome
+    if not input_forced_choice:
+        inputs = inputs[:,:,1:]
+    if input_encoding == 'bipolar': #instead of 0,1 inputs are -1,1.
+        inputs = inputs*2-1
+    if input_encoding == 'actonehot': #onehot only the action inputs
+        #separate outcome from action-related inputs
+        outcome = inputs[:,:,-1]
+        inputs = inputs[:,:,:-1] #may include forced choice context or not
+    if 'onehot' in input_encoding: #we onehot encode the inputs.
+        dims = inputs.shape[-1]
+        # we use torch.functional after transforming the vector into 1D categories
+        weights = 2 ** torch.arange(dims - 1, -1, -1, device=inputs.device)  
+        # Dot product to get indices
+        indices = (inputs * weights).sum(dim=-1).long()
+        inputs = torch.nn.functional.one_hot(indices, num_classes=2**dims).to(torch.float32)   
+    if input_encoding == 'actonehot': #now we combine with outcome again
+        inputs = torch.concat([inputs,outcome.unsqueeze(-1)],dim=-1)
+    return inputs
 # ── DataLoader factory ─────────────────────────────────────────────────────────
 
 def get_dataloader(dataset, split, splits=None, shuffle=None, batch_size=8, seed=0):
@@ -58,11 +78,14 @@ class AB_Dataset(Dataset):
     Splits sessions into fixed-length sequences. Supports batch_size > 1.
     """
 
-    def __init__(self, subject_data_path, subject_ids=None, sequence_length=SEQUENCE_LENGTH, device=DEVICE):
-
+    def __init__(self, subject_data_path, subject_ids=None, sequence_length=SEQUENCE_LENGTH, 
+                 input_encoding = 'unipolar', input_forced_choice = False, device=DEVICE):
+        assert input_encoding in ['unipolar','bipolar','onehot','actonehot'], "input_encoding must be one of 'unipolar','bipolar','onehot','actonehot'"
         self.device = device
         self.sequence_length = sequence_length
         self.subject_data_path = subject_data_path
+        self.input_encoding = input_encoding
+        self.input_forced_choice = input_forced_choice
         #handling an option for multiple subjects
         if subject_ids is None:
             self.subject_ids = [Path(subject_data_path).stem]
@@ -70,7 +93,7 @@ class AB_Dataset(Dataset):
             self.subject_ids = subject_ids
         #load data and create input,target sequences
         self.subject_df = self._load_and_concat_data( )
-        self.inputs, self.targets = self._create_sequences()
+        self.inputs, self.targets, self.forced_choice_mask = self._create_sequences()
 
     def _load_and_concat_data(self):
         subject_data = []
@@ -92,8 +115,6 @@ class AB_Dataset(Dataset):
             raise ValueError(f"No session directories found for path={self.subject_data_path} "
                              f"subject_ids={self.subject_ids}")
 
-        print(self.subject_ids, subject_dirs, session_dirs)
-
         for session_dir in session_dirs:
             trials_df = pd.read_csv(session_dir/'trials.htsv', sep = '\t')
             assert np.all([x in trials_df.columns for x in ['forced_choice', 'outcome', 'choice', 'good_poke']]), "DataFrame missing required columns"
@@ -113,8 +134,8 @@ class AB_Dataset(Dataset):
         df =  pd.concat(subject_data)
         # Convert boolean and categorical columns to numerical
         df['forced_choice'] = df['forced_choice'].astype(int)
-        df['outcome'] = df['outcome'].astype(int)
         df['choice'] = df['choice'].astype('category').cat.codes.astype(int) #this is consistent with below
+        df['outcome'] = df['outcome'].astype(int)
         df['good_poke'] = df['good_poke'].astype('category').cat.codes.astype(int) #consistent with above
         percent_excluded = df.block_trial_idx.isna().mean()
         print(f'Sequence length {self.sequence_length} excludes {percent_excluded:.1%} of trials')
@@ -125,7 +146,7 @@ class AB_Dataset(Dataset):
         # We want to respect sessions (no blocks across sessions), which is handled when loading the data.
         # this is handled by sequence_block_idx NaN values
         trials_data = self.subject_df.dropna(subset=['sequence_block_idx']) #we are dropping the np.nan values added when applying the blocks
-        data_tensor = torch.tensor(trials_data[['forced_choice', 'outcome', 'choice']].values, dtype=torch.float32)
+        data_tensor = torch.tensor(trials_data[['forced_choice', 'choice','outcome']].values, dtype=torch.float32)
         num_rows = data_tensor.size(0)
         remainder = num_rows % (self.sequence_length+1) #add one here and below to account for time shifting
         if remainder != 0:
@@ -136,13 +157,17 @@ class AB_Dataset(Dataset):
         sequences = data_tensor.view(num_sequences, self.sequence_length+1, data_tensor.size(1))
 
         # Create inputs and targets
-        # Inputs are 'forced_choice', 'outcome', and 'choice' at time t
+        # Inputs are initially 'forced_choice', 'choice', and 'outcome' at time t
         inputs = sequences[:, :-1, :]
+        inputs = input_encoder(inputs, self.input_encoding,self.input_forced_choice)
         # Targets are 'choice' at time t+1, one-hot encoded
-        targets_codes = sequences[:, 1:, 2].long() # Get the categorical codes as long tensor
-        targets = torch.nn.functional.one_hot(targets_codes, num_classes=2).float() # One-hot encode
-        return inputs, targets
-
+        targets_codes = sequences[:, 1:, 1].long() # Get the categorical codes as long tensor
+        #targets = torch.nn.functional.one_hot(targets_codes, num_classes=2).float() # One-hot encode
+        targets = targets_codes
+        #lastly we want to mask the targets that result from forced choices
+        forced_choice_mask = sequences[:, 1:, 0]   # shape (num_seqs, seq_length), aligned with target (!) not current action.
+        return inputs, targets, forced_choice_mask
+    
     def __len__(self):
         return self.inputs.size(0)
 
@@ -150,7 +175,7 @@ class AB_Dataset(Dataset):
         return len(self.inputs)
 
     def __getitem__(self, idx):
-        return self.inputs[idx], self.targets[idx]
+        return self.inputs[idx], self.targets[idx], self.forced_choice_mask[idx]
 
     def _session_split(self, eval_frac=0.1, val_frac=0.1, seed_eval=-1, seed_split=0):
         """80/10/10 split on sessions; returns index lists over sequence blocks."""

@@ -21,7 +21,6 @@ from NM_TinyRNN.code.models import rnns
 from NM_TinyRNN.code.models import nested_cv
 
 # global variables
-N_OUTER_LOOPS = 10
 
 JOBS_PATH  = Path("./Jobs/NM_TinyRNN")
 for jobs_folder in ["slurm", "out", "err"]:
@@ -43,7 +42,7 @@ def run_training(overwrite=False, test = True):
     if not overwrite:
         train_df = train_df[train_df.completed==False]
     #Computing outer loops sequentially:
-    train_df = train_df.drop_duplicates(['subject_id','model_id'])
+    train_df = train_df.query('outer_loop_n==1') 
     for session_info in train_df.itertuples():
         print(f"Submitting model training for {session_info.subject_id} to HPC")
         script_path = get_NM_TinyRNN_SLURM_script(session_info)
@@ -60,7 +59,8 @@ def get_job_info_df(processed_data_path = PROCESSED_DATA_PATH,
     '''
     #see each subject
     df_dict = {'subject_id':[],'outer_loop_n':[],'model_type':[],'hidden_size':[],
-               'nonlinearity':[],'input_encoding':[],'constraint':[],
+               'nonlinearity':[],'constraint':[],
+               'input_encoding':[],'input_forced_choice':[],
                'nm_size':[],'nm_dim':[],'nm_mode':[],
                'model_id':[],'save_path':[],'data_path':[], 'completed':[]}
    
@@ -72,11 +72,12 @@ def get_job_info_df(processed_data_path = PROCESSED_DATA_PATH,
         if not subdir.is_dir():
             continue
         
-        for outer_loop_n in range(1,N_OUTER_LOOPS+1): #10 loops is recommended
+        for outer_loop_n in range(1,nested_cv.N_OUTER_LOOPS+1): #10 loops is recommended
             for model_type in ['vanilla','monoGRU','GRU', 'constGate']:#['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
                 nonlinearities = ['relu','tanh']
                 #nonlinearity = 'relu' if constraint =='energy' else 'tanh'
                 input_encodings = ['unipolar','onehot']
+                input_forced_choice = False
                 nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
                 for nonlinearity in nonlinearities:
                     for input_encoding in input_encodings:
@@ -85,11 +86,12 @@ def get_job_info_df(processed_data_path = PROCESSED_DATA_PATH,
                             model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
                             model_save_path = save_path/'nested_DA'/subject_ID/model_type/constraint
                             completed = 1
-                            for inner_loop_n in range(0,N_OUTER_LOOPS-1):
+                            for inner_loop_n in range(0,nested_cv.N_OUTER_LOOPS-1):
                                 completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
                             for k,v in zip(df_dict.keys(),
                                 [subject_ID,outer_loop_n,model_type,hidden_size,
-                                nonlinearity, input_encoding,constraint,
+                                nonlinearity,constraint,
+                                input_encoding, input_forced_choice,
                                 nm_size,nm_dim,nm_mode,
                                 model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
                                 df_dict[k].append(v)
@@ -146,7 +148,8 @@ def get_ws_all_info_df(processed_data_path = PROCESSED_DATA_PATH,
     '''
     #see each subject
     df_dict = {'subject_id':[],'outer_loop_n':[],'model_type':[],'hidden_size':[],
-               'nonlinearity':[],'input_encoding':[],'constraint':[],
+               'nonlinearity':[],'constraint':[],
+               'input_encoding':[],'input_forced_choice':[],
                'nm_size':[],'nm_dim':[],'nm_mode':[],
                'model_id':[],'save_path':[],'data_path':[], 'completed':[]}
     #generate a list of subjects to group together
@@ -156,61 +159,32 @@ def get_ws_all_info_df(processed_data_path = PROCESSED_DATA_PATH,
         for outer_loop_n in range(1,11): #10 loops is recommended. Minimum is 3.
             for model_type in ['GRU','monoGRU']: #,'constGate','vanilla'
                 nonlinearities = ['relu','tanh']
-                input_encodings = ['unipolar','onehot']
+                input_encodings = ['unipolar','onehot','actonehot']
                 nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
                 for nonlinearity in nonlinearities:
                     for input_encoding in input_encodings:
-                        constraint= 'energy' if nonlinearity == 'relu' else 'sparsity'
-                        for hidden_size in [1,2]:
-                            model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
-                            model_save_path = save_path/'test'/subject_id/model_type/constraint
-                            completed = 1
-                            for inner_loop_n in range(0,N_OUTER_LOOPS-1):
-                                completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
-                            for k,v in zip(df_dict.keys(),
-                                [subject_id,outer_loop_n,model_type,hidden_size,
-                                nonlinearity, input_encoding,constraint,
-                                nm_size,nm_dim,nm_mode,
-                                model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
-                                df_dict[k].append(v)
+                        for input_forced_choice in [True, False]:
+                            constraint= 'energy' if nonlinearity == 'relu' else 'sparsity'
+                            for hidden_size in [1,2]:
+                                model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
+                                if input_forced_choice:
+                                    model_id+='_forced'
+                                model_save_path = save_path/'test_input_encodings'/subject_id/model_type/constraint
+                                completed = 1
+                                for inner_loop_n in range(0,nested_cv.N_OUTER_LOOPS-1):
+                                    completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
+                                for k,v in zip(df_dict.keys(),
+                                    [subject_id,outer_loop_n,model_type,hidden_size,
+                                    nonlinearity, constraint,
+                                    input_encoding, input_forced_choice,
+                                    nm_size,nm_dim,nm_mode,
+                                    model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
+                                    df_dict[k].append(v)
                             
     return pd.DataFrame(df_dict)
 
 
 # SLURM functions to call the server # 
-
-def train_outers(data_path, 
-                save_path,
-                model_type:str, 
-                hidden_size:int=2, 
-                nm_size:str=1, 
-                nm_dim:str=1, 
-                nm_mode:str=1,
-                input_encoding:str='unipolar',
-                nonlinearity:str='relu',
-                constraint:str='energy',):
-    '''Minimal inputs required to test fit all model types.'''
-    options = rnns.OPTIONS_DICT
-    options['rnn_type'] = model_type
-    options['hidden_size'] = hidden_size
-    options['nm_size'] = nm_size
-    options['nm_dim'] = nm_dim
-    options['nm_mode'] = nm_mode
-    options['input_encoding'] = input_encoding
-    options['nonlinearity'] = nonlinearity
-    
-    dataset = datasets.AB_Dataset(data_path)
-    model = rnns.TinyRNN(**options)
-    if constraint == 'sparsity':
-        trainer_kwargs ={'energy_lambdas':[0]}
-    else: 
-        trainer_kwargs = {}
-    for outer_loop_n in range(1, N_OUTER_LOOPS+1):
-        nested_cv.run_outer_fold(model, dataset, outer_loop_n,
-                                n_outer_loops = N_OUTER_LOOPS,
-                                save_path = save_path, trainer_kwargs = trainer_kwargs)
-    
-    return None
 
 
 def get_NM_TinyRNN_SLURM_script(train_info, RAM="64GB", time_limit="23:59:00"):
@@ -222,7 +196,7 @@ def get_NM_TinyRNN_SLURM_script(train_info, RAM="64GB", time_limit="23:59:00"):
     session_ID = f"{train_info.model_id}"
     script = f"""#!/bin/bash
 #SBATCH --job-name=NM_TinyRNN
-#SBATCH --output={JOBS_PATH}/out/{session_ID}.out
+#SBATCH --output={JOBS_PATH}/out/{train_info.subject_id}_{session_ID}.out
 #SBATCH --error={JOBS_PATH}/err/{session_ID}.err
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
@@ -247,8 +221,8 @@ conda deactivate
 conda activate /nfs/nhome/live/cburns/miniconda3/envs/NM_TinyRNN
 
 echo "Running training"
-python -c "from NM_TinyRNN.code.models import submit_jobs as sj; \
-sj.train_outers('{train_info.data_path}',\
+python -c "from NM_TinyRNN.code.models import nested_cv as nc; \
+nc.train_outers('{train_info.data_path}',\
                 '{train_info.save_path}',\
                 '{train_info.model_type}',\
                 {int(train_info.hidden_size)},\
@@ -256,6 +230,7 @@ sj.train_outers('{train_info.data_path}',\
                 {int(train_info.nm_dim)},\
                 '{train_info.nm_mode}', \
                 '{train_info.input_encoding}', \
+                {train_info.input_forced_choice}, \
                 '{train_info.nonlinearity}',\
                 '{train_info.constraint}')"
 """

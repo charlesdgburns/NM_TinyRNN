@@ -1,4 +1,6 @@
 """ 
+OUTDATED AFTER TRAINING REFACTOR.
+
 The following script contains code to perform an analysis of mechanistic variability.
 This is written for the 2-armed bandit reversal task modelled trial-by-trial.
 
@@ -18,7 +20,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from joblib import Parallel, delayed
 ## local imports
-from NM_TinyRNN.code.models import parallelised_training as pat
+from NM_TinyRNN.code.models import submit_jobs
 from NM_TinyRNN.code.measures import analysis
 
 # GLOBAL VARIABLES 
@@ -38,7 +40,7 @@ def train_models(train_seeds=list(range(1, 3)),
                 save_path = SAVE_PATH / f"{each_subject}/train_seed_{each_train_seed}"
                 
                 # Train with 'biological constraints'
-                pat.train_parallel(
+                submit_jobs.train_outers(
                     data_path=data_path,
                     save_path=save_path,
                     train_seed=each_train_seed,
@@ -98,7 +100,7 @@ COMPONENTS = ['hidden', 'gate_update', 'gate_reset', 'logit_value']
 
 def compute_similarities(analysis_df, n_jobs=-1):
     """Compute similarity of activations within each (model_id, subject_id) group, in parallel."""
-    groups = list(analysis_df.groupby(['model_id', 'subject_ID']))
+    groups = list(analysis_df.groupby(['model_id', 'subject_id']))
  
     results = Parallel(n_jobs=n_jobs)(
         delayed(_process_group)(group_rows.reset_index(drop=True), model_id, subject_id)
@@ -229,7 +231,8 @@ def parameter_contribution_df(best_models_df):
     """Computes the normalized contribution of inputs to gated components."""
     contributions_dict = {'model_id':[], 'outer_loop_n':[], 'weight_seed':[], 'performance':[], 'variable':[], 'value':[]}
     for each_model in best_models_df.itertuples():
-        params_dict = {k:v.detach().numpy() for k,v in analysis.load_data(each_model.model_state_path).items()}
+        model =  analysis.load_data(each_model.model_pickle_path)
+        params_dict = {k:v.detach().numpy() for k,v in model.named_parameters()}
         for each_input in ['outcome','past_choice','past_hidden']:
             for each_output in ['update_gate','reset_gate','hidden_state']:
                 if each_output == 'hidden_state': param_keys = ['rnn.W_ih', 'rnn.W_hh']

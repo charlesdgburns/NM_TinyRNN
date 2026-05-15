@@ -24,8 +24,8 @@ OPTIONS_DICT = {'rnn_type':'GRU',
                 'weight_seed':42,
                 'sparsity_lambda':1e-6, #constrain weights (not biases)
                 'energy_lambda':1e-2, #constrain hidden activations
-                'input_forced_choice':False,
                 'input_encoding': 'unipolar', #'unipolar' {0,1} or 'bipolar' {-1,1}
+                'input_forced_choice':False,
                 'nonlinearity' :'tanh', # 'tanh' or 'relu'
                 }
 
@@ -55,9 +55,7 @@ class TinyRNN(nn.Module):
     
     # add attributes
     self.input_forced_choice = input_forced_choice
-    self.input_size = input_size
-    self.I = input_size if input_forced_choice else input_size-1
-    self.I = 2**self.I if input_encoding == 'onehot' else self.I
+    self.I = input_size
     self.H = hidden_size
     self.O = out_size
     self.rnn_type = rnn_type
@@ -125,25 +123,13 @@ class TinyRNN(nn.Module):
     elif self.rnn_type == "constGate":
       self.rnn.z.data = torch.tensor(1.0)
       
-    if self.init_decoder: #option to rotate decoder to read out along y=-x
+    if self.init_decoder and self.H == 2: #option to rotate decoder to read out along y=-x
       self.decoder.weight.data = torch.tensor([[2.0,-2.0],
                                                [-2.0,2.0]])
      
   def forward(self, inputs):
     '''Expects inputs shaped (n_batch, n_seq, n_features)
-    For AB dataset, n_features are ordered as:
-    'forced_choice','outcome','choice' coded as 0 or 1.'''
-    if not self.input_forced_choice:
-      inputs = inputs[:,:,1:]
-    if self.input_encoding == 'bipolar':
-      inputs = inputs*2-1 #maps 0 to -1 and 1 to 1.
-    if self.input_encoding == 'onehot':
-      dims = inputs.shape[-1]
-      # we use torch.functional after transforming the vector into 1D categories
-      weights = 2 ** torch.arange(dims - 1, -1, -1, device=inputs.device)  
-      # Dot product to get indices
-      indices = (inputs * weights).sum(dim=-1).long()
-      inputs = torch.nn.functional.one_hot(indices, num_classes=2**dims).to(torch.float32)
+    See AB dataset for input encoding'''
     hidden, _ = self.rnn(inputs)
     predictions = self.decoder(hidden)
     return predictions, hidden
@@ -172,8 +158,8 @@ class TinyRNN(nn.Module):
        losses: dictionary with 'prediction','sparsity','energy','hebbian', 'covariance' losses.
        '''
        
-    assert len(predictions.shape) == 3 and len(targets.shape)==3, f"predictions and targets must be shaped as (batch_size, seq_length, n_actions), got shape {predictions.shape}"   
-    assert len(targets.shape)==3, f"targets must be shaped as (batch_size, seq_length, n_actions), got shape {targets.shape}"   
+    assert len(predictions.shape) == 3, f"predictions and targets must be shaped as (batch_size, seq_length, n_actions), got shape {predictions.shape}"   
+    assert len(targets.shape)==2, f"targets must be shaped as (batch_size, seq_length), got shape {targets.shape}"   
     assert len(forced_choice_mask.shape) == 2, f"forced_choice mask must be input as (batch_size, seq_length), got shape {forced_choice_mask.shape}" 
     
     losses = {} #We initialise a dictionary to store all the losses as we go computing them
@@ -182,12 +168,9 @@ class TinyRNN(nn.Module):
     # We need to refactor the predictions and targets, 
     # and account for forced choices (which we don't want to be predicting)
     B,S,O = predictions.shape #extract batch size and sequence length, and action/output size
-    free_choice = (forced_choice_mask==0)
-    mask = torch.ones_like(free_choice)
-    mask[:,:-1] = free_choice[:,1:].clone() #shifted one trial to the left to align inputs with targets/predictions
-    #now we flatten it all and compute the loss!
-    predictions = predictions.reshape(B*S,O)[mask.flatten()]
-    targets = targets.reshape(B*S,O)[mask.flatten()]
+    free_choice = (forced_choice_mask==0)#now we flatten it all and compute the loss!
+    predictions = predictions.reshape(B*S,O)[free_choice.flatten()]
+    targets = targets.reshape(B*S)[free_choice.flatten()]
     losses['prediction'] = torch.nn.functional.cross_entropy(predictions, targets)
 
     # 2. Sparsity loss
@@ -215,16 +198,16 @@ class TinyRNN(nn.Module):
     mask = ~torch.eye(H, dtype=torch.bool, device=hidden_states.device) # Off-diagonal squared terms only
     losses['covariance'] = (cov[mask]**2).mean()*covariance_lambda #preventing correlated units.
     
-    # penalise a dead network state
-    population_activity = hidden_states.max(dim=1).values  # [T]
-    silence_penalty = -torch.log(population_activity).mean()
-    losses['hebbian'] += torch.nn.functional.relu(silence_penalty) 
+    # penalise a dead network state?
+    #population_activity = hidden_states.max(dim=1).values  # [T]
+    #silence_penalty = -torch.log(population_activity).mean()
+    #losses['hebbian'] += torch.nn.functional.relu(silence_penalty) 
     return losses
   
   def get_options_dict(self):
     '''Helper function to later save and reinstate model'''
     options_dict = {'rnn_type':self.rnn_type,
-                    'input_size':self.input_size,
+                    'input_size':self.I,
                     'hidden_size':self.H,
                     'out_size':self.O,
                     'sparsity_lambda':self.sparsity_lambda,
@@ -246,8 +229,12 @@ class TinyRNN(nn.Module):
   def get_model_id(self):
     '''Helper function to save and reinstate model'''
     model_id = f'{self.H}_unit_{self.rnn_type}_{self.nonlinearity}_{self.input_encoding}'
+    
     if self.rnn_type == 'NMRNN':
         model_id=f'{self.H}_unit_{self.rnn_type}_{self.nm_size}_subunits_{self.nm_dim}_{self.nm_mode}_{self.nonlinearity}_{self.input_encoding}'
+    if self.input_forced_choice:
+       print('this is still happening')
+       model_id+='_forced'
     return model_id
 
 

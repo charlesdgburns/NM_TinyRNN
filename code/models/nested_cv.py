@@ -65,6 +65,54 @@ from joblib import Parallel, delayed
 # ── relative imports (adjust if your package layout differs) ──────────────────
 from NM_TinyRNN.code.models.datasets import AB_Dataset
 from NM_TinyRNN.code.models.save_data import save_inner_fold_results
+from NM_TinyRNN.code.models import rnns
+
+#Global variables
+N_OUTER_LOOPS = 10
+
+
+# TOP LEVEL FUNCTION CALLED BY SUBMIT_JOBS
+
+
+def train_outers(data_path, 
+                save_path,
+                model_type:str, 
+                hidden_size:int=2, 
+                nm_size:str=1, 
+                nm_dim:str=1, 
+                nm_mode:str=1,
+                input_encoding:str='unipolar',
+                input_forced_choice:bool =False,
+                nonlinearity:str='relu',
+                constraint:str='energy',):
+    '''Minimal inputs required to test fit all model types.'''
+    options = rnns.OPTIONS_DICT
+    options['rnn_type'] = model_type
+    options['hidden_size'] = hidden_size
+    options['nm_size'] = nm_size
+    options['nm_dim'] = nm_dim
+    options['nm_mode'] = nm_mode
+    options['input_encoding'] = input_encoding
+    options['input_forced_choice'] = input_forced_choice
+    options['nonlinearity'] = nonlinearity
+    
+    dataset = AB_Dataset(data_path, 
+                         input_encoding=input_encoding,
+                         input_forced_choice=input_forced_choice)
+    options['input_size'] = dataset.inputs.shape[-1]
+
+    model = rnns.TinyRNN(**options)
+    if constraint == 'sparsity':
+        trainer_kwargs ={'energy_lambdas':[0]}
+    else: 
+        trainer_kwargs = {}
+    for outer_loop_n in range(1, N_OUTER_LOOPS+1):
+        run_outer_fold(model, dataset, outer_loop_n,
+                                n_outer_loops = N_OUTER_LOOPS,
+                                save_path = save_path, trainer_kwargs = trainer_kwargs)
+    
+    return None
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────

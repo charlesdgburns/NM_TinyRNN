@@ -24,7 +24,7 @@ class Trainer:
         hebbian_lambdas: list = [0.0], # Changed None to 0.0 for tensor compatibility
         covariance_lambdas: list = [0.0], # Added covariance lambda list
         learning_rate: float = 1e-2,
-        batch_size: int = 16,
+        batch_size: int = 128,
         max_epochs: int = 10000,
         early_stop: int = 20,
         train_seed: int = 42,
@@ -104,7 +104,7 @@ class Trainer:
         h_vec = self.hebbian_vec.to(device)
         c_vec = self.covariance_vec.to(device)
         # For vmap parallelisation we define the Functional Forward/Loss Pass for one instance
-        def compute_single_model_loss(p, b, x, y, s_lam, e_lam, h_lam, c_lam):
+        def compute_single_model_loss(p, b, x, y, mask, s_lam, e_lam, h_lam, c_lam):
             """
             This function is executed for EACH model instance in parallel via vmap.
             p: parameters for 1 model
@@ -115,12 +115,11 @@ class Trainer:
             # 1. Functional forward pass
             # We use (p, b) to ensure we use the specific weights for this hyperparameter set
             predictions, hidden_states = functional_call(base_model, (p, b), x)
-            forced_choice_mask = x[:,:,0]
             loss_dict = base_model.compute_losses(
                 params=p,
                 predictions=predictions,
                 targets=y,
-                forced_choice_mask = forced_choice_mask,
+                forced_choice_mask = mask,
                 hidden_states=hidden_states,
                 sparsity_lambda=s_lam,
                 energy_lambda=e_lam,
@@ -133,20 +132,19 @@ class Trainer:
             return loss_dict
         
         # Vectorize the loss function across the model dimension (dim 0)
-        # in_dims: (0, 0, None, None, 0, 0, 0, 0) means params/lambdas are unique per model, 
+        # in_dims: (0, 0, , None, None, 0, 0, 0, 0) means params/lambdas are unique per model, 
         # but data (x, y) is shared (None).
-        vectorized_loss_fn = vmap(compute_single_model_loss, in_dims=(0, 0, None, None, 0, 0, 0, 0))
+        vectorized_loss_fn = vmap(compute_single_model_loss, in_dims=(0, 0, None, None, None, 0, 0, 0, 0))
 
         for epoch in tqdm(range(self.max_epochs)):
             if not active_mask.any(): break
 
             # --- Training Step ---
-            for batch_x, batch_y in train_loader:
+            for batch_x, batch_y, batch_mask in train_loader:
                 optimizer.zero_grad()
-                batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                
+                batch_x, batch_y, batch_mask = batch_x.to(device), batch_y.to(device), batch_mask.to(device)
                 # Compute parallel losses
-                loss_dict = vectorized_loss_fn(params, buffers, batch_x, batch_y, s_vec, e_vec, h_vec, c_vec)
+                loss_dict = vectorized_loss_fn(params, buffers, batch_x, batch_y,batch_mask, s_vec, e_vec, h_vec, c_vec)
                 
                 # We only want to backprop for models that haven't early-stopped
                 masked_loss = (sum(loss_dict.values()) * active_mask).sum()
@@ -156,9 +154,9 @@ class Trainer:
             # --- Validation Step ---
             with torch.no_grad():
                 current_val_losses = torch.zeros(self.num_models, device=device)
-                for v_x, v_y in val_loader:
-                    v_x, v_y = v_x.to(device), v_y.to(device)
-                    loss_dict = vectorized_loss_fn(params, buffers, v_x, v_y, s_vec, e_vec, h_vec, c_vec)
+                for v_x, v_y, v_mask in val_loader:
+                    v_x, v_y, v_mask = v_x.to(device), v_y.to(device), v_mask.to(device)
+                    loss_dict = vectorized_loss_fn(params, buffers, v_x, v_y, v_mask, s_vec, e_vec, h_vec, c_vec)
                     current_val_losses += loss_dict['prediction']
                 current_val_losses /= len(val_loader)
 
