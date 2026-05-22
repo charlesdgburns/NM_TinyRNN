@@ -89,7 +89,10 @@ class TinyRNN(nn.Module):
       self.rnn = StereoGated(self.I,self.H, self.nonlinearity)
     elif rnn_type == 'stereoGRU2':
       self.rnn = StereoGated(self.I,self.H, self.nonlinearity,
-                             subnetwork = True)
+                             mode = 'input_gate')
+    elif rnn_type == 'stereoGRUx':
+      self.rnn = StereoGated(self.I,self.H, self.nonlinearity,
+                             mode = 'x_gate')
     elif rnn_type == 'constGate':
        self.rnn = MonoGated(self.I,self.H, self.nonlinearity, 
                             constant_gate=True)
@@ -349,10 +352,11 @@ class StereoGated(nn.Module):
     """ Model with two 1D gates. 
     mode is 'reset_gate' as default, mirroring GRU definition.
     options include 'input_gate', which moves the gating in candidate state.
-    and 'interaction_gate' which lets the model be most expressive. """
+    and 'x_gate' which lets the gates interact multiplicatively (this is most expressive). """
     super().__init__() #init nn.Module
     self.input_size = input_size
     self.hidden_size = hidden_size
+    self.mode = mode
     
     self.sigmoid = nn.Sigmoid() #maybe consider setting this to something else
     if nonlinearity == 'relu':
@@ -404,9 +408,16 @@ class StereoGated(nn.Module):
         gate_activations['reset'].append(r_t.unsqueeze(0)) 
         gate_activations['update'].append(z_t.unsqueeze(0))
       ## continued computation of hidden state:
-      n_t = self.activation(x_past@self.W_ih + (r_t*h_past)@self.W_hh+self.bias_h)
-      h_past = z_t*h_past+(1-z_t)*n_t # (B,H) ##techincally h_t, but what was once past is now future
-      
+      if self.mode =='reset_gate':
+        n_t = self.activation(x_past@self.W_ih + r_t*h_past@self.W_hh+self.bias_h)
+        h_past = z_t*h_past+(1-z_t)*n_t # (B,H) ##techincally h_t, but what was once past is now future
+      elif self.mode =='input_gate':
+        n_t = self.activation(r_t*x_past@self.W_ih + h_past@self.W_hh+self.bias_h)
+        h_past = z_t*h_past+(1-z_t)*n_t # (B,H) 
+      elif self.mode == 'x_gate':
+        n_t = self.activation((1-r_t)*x_past@self.W_ih + (1-z_t)*h_past@self.W_hh + self.bias_h)
+        h_past = r_t*z_t*h_past + n_t
+        
       hidden_sequence.append(h_past.unsqueeze(0)) #appending (1,n_batch,n_hidden) to a big list.
     hidden_sequence = torch.cat(hidden_sequence, dim=0) #(n_sequence, n_batch, n_hidden) gather all inputs along the first dimenstion
     hidden_sequence = hidden_sequence.transpose(0, 1).contiguous() #reshape to batch first (n_batch,n_seq,n_hidden)
