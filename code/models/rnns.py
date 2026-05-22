@@ -79,9 +79,12 @@ class TinyRNN(nn.Module):
       self.rnn = ManualLSTM(self.I,self.H, self.nonlinearity)
     elif rnn_type == 'monoGRU':
       self.rnn = MonoGated(self.I,self.H, self.nonlinearity)
-    elif rnn_type == 'monoGRU2':
+    elif rnn_type == 'monoGRU_sub':
       self.rnn = MonoGated(self.I,self.H, self.nonlinearity, 
-                           subnetwork = True)
+                           mode ='subnetwork')
+    elif rnn_type == 'monoGRU_abs':
+        self.rnn = MonoGated(self.I,self.H, self.nonlinearity,
+                             mode= 'abs_hidden_gate')
     elif rnn_type == 'stereoGRU':
       self.rnn = StereoGated(self.I,self.H, self.nonlinearity)
     elif rnn_type == 'stereoGRU2':
@@ -186,22 +189,23 @@ class TinyRNN(nn.Module):
     losses['energy'] = torch.mean(hidden_states**2) * energy_lambda
 
     # 4. Hebbian loss (prevent representational collapse)
+    # Hebbian: penalise std < 1, ignore std > 1 (no reward for growing)
     # The 1e-6 epsilon penalises dead units (with 0 variance), while also preventing crashing. 
     B,S,H = hidden_states.shape
     hidden_states = hidden_states.view(B*S,H) #we want to compute covariance across the batch and sequence dimensions, so we reshape to (B*S,H)
     var = torch.var(hidden_states, dim=0) + 1e-8
-    hebbian_term = (-torch.log(var)).mean() * hebbian_lambda
-    losses['hebbian'] = hebbian_term
+    std = var.sqrt()
+    losses['hebbian'] = torch.relu(1.0 - std).mean() * hebbian_lambda
     # 5. Decorrelation loss (prevent dimensional collapse)
     z = hidden_states - hidden_states.mean(dim=0, keepdim=True)  # centre
     cov = (z.T @ z) / (B*S - 1)                                    # [H, H]
     mask = ~torch.eye(H, dtype=torch.bool, device=hidden_states.device) # Off-diagonal squared terms only
     losses['covariance'] = (cov[mask]**2).mean()*covariance_lambda #preventing correlated units.
-    
-    # penalise a dead network state?
-    #population_activity = hidden_states.max(dim=1).values  # [T]
-    #silence_penalty = -torch.log(population_activity).mean()
-    #losses['hebbian'] += torch.nn.functional.relu(silence_penalty) 
+   
+    # Silence: penalise norm below a minimum threshold, not reward large norms
+    min_norm = 0.1
+    norms = hidden_states.norm(dim=0)  # [B*S]
+    losses['hebbian'] += torch.relu(min_norm - norms).mean() * hebbian_lambda
     return losses
   
   def get_options_dict(self):
@@ -242,14 +246,16 @@ class TinyRNN(nn.Module):
 
 class MonoGated(nn.Module):
   '''A minimal gated RNN with a 1D gating signal.'''
-  def __init__(self, input_size,hidden_size, nonlinearity = 'relu',
-               subnetwork: bool = False, constant_gate: bool = False):
+  def __init__(self, input_size,hidden_size, nonlinearity = 'relu', 
+               mode = 'default'):
+    '''Mode option: 'default' is a standard 1D update gate.
+    Options include 'subnetwork', 'constant_gate', and 'abs_hidden_gate'
+    '''
     super().__init__() #init nn.Module
     #options
     self.input_size = input_size
     self.hidden_size = hidden_size
-    self.subnetwork = subnetwork
-    self.constant_gate = constant_gate
+    self.mode = mode
 
     #activation functions
     self.sigmoid = nn.Sigmoid() #maybe consider setting this to something else
@@ -264,15 +270,16 @@ class MonoGated(nn.Module):
     # Parameters
     self.W_ih = nn.Parameter(torch.Tensor(input_size, hidden_size))      # (I,H)
     self.W_hh = nn.Parameter(torch.Tensor(hidden_size, hidden_size))     # (H,H)
-    if self.subnetwork:
+    if self.mode in ['default','abs_hidden_gate']:
+      self.W_iz = nn.Parameter(torch.Tensor(input_size, 1))                # (I,Z)
+      self.W_hz = nn.Parameter(torch.Tensor(hidden_size, 1))                # (I,Z)
+    elif self.mode == 'subnetwork':
       self.W_z = nn.Parameter(torch.Tensor(hidden_size, 1))                # (I,Z)
       self.W_iz = nn.Parameter(torch.Tensor(input_size, hidden_size))                # (I,Z)
       self.W_hz = nn.Parameter(torch.Tensor(hidden_size, hidden_size))                # (I,Z)
-    elif not self.subnetwork and not constant_gate:
-      self.W_iz = nn.Parameter(torch.Tensor(input_size, 1))                # (I,Z)
-      self.W_hz = nn.Parameter(torch.Tensor(hidden_size, 1))                # (I,Z)
-    elif constant_gate:
+    elif self.mode =='constant_gate':
       self.z = nn.Parameter(torch.Tensor(1))
+      
     self.bias_h = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
     self.bias_z = nn.Parameter(torch.Tensor(1))
     self.hidden_0 = nn.Parameter(torch.ones(hidden_size)) #learnable initial hidden state, which we will tile across the batch dimension in forward()
@@ -300,15 +307,17 @@ class MonoGated(nn.Module):
       x_past = inputs[:,t,:] #(n_batch,input_size)
       #for computational efficiency we do two matrix multiplications and then do indexing further down:
       #computing the gate: (maybe we want an option to compute gate only on reward? #reward_t = x_past[:,0].unsqueeze(1))
-      if not self.subnetwork and not self.constant_gate and self.nonlinearity!='linear':
+      if self.mode=='default' and self.nonlinearity!='linear':
         # the standard gating mechanism
         z_t = self.sigmoid(x_past@self.W_iz + h_past@self.W_hz + self.bias_z)
-      elif self.subnetwork and self.nonlinearity!='linear':
+      elif self.mode =='abs_hidden_gate':
+        z_t = self.sigmoid(x_past@self.W_iz + torch.abs(h_past)@self.W_hz + self.bias_z)
+      elif self.mode =='subnetwork' and self.nonlinearity!='linear':
         z_past = self.activation(x_past@self.W_iz + z_past@self.W_hz) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
         z_t = self.sigmoid(z_past@self.W_z+self.bias_z) #compress onto 1D
-      elif self.nonlinearity == 'linear' and not self.constant_gate:
+      elif self.nonlinearity == 'linear' and not self.mode=='constant_gate':
         z_t = x_past@self.W_iz + h_past@self.W_hz + self.bias_z
-      elif self.constant_gate:
+      elif self.mode =='constant_gate':
         z_t = self.sigmoid(self.z).expand([batch_size,1])
 
       ## options to override gates and/or save them:
@@ -335,7 +344,12 @@ class MonoGated(nn.Module):
 
 class StereoGated(nn.Module):
   '''A minimal gated RNN with two 1D gating signals.'''
-  def __init__(self, input_size,hidden_size, nonlinearity = 'tanh'):
+  def __init__(self, input_size,hidden_size, nonlinearity = 'tanh',
+               mode = 'reset_gate'):
+    """ Model with two 1D gates. 
+    mode is 'reset_gate' as default, mirroring GRU definition.
+    options include 'input_gate', which moves the gating in candidate state.
+    and 'interaction_gate' which lets the model be most expressive. """
     super().__init__() #init nn.Module
     self.input_size = input_size
     self.hidden_size = hidden_size

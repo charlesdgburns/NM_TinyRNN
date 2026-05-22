@@ -73,16 +73,20 @@ def get_job_info_df(processed_data_path = PROCESSED_DATA_PATH,
             continue
         
         for outer_loop_n in range(1,nested_cv.N_OUTER_LOOPS+1): #10 loops is recommended
-            for model_type in ['vanilla','monoGRU','GRU', 'constGate']:#['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
+            for model_type in ['vanilla','monoGRU','GRU', 'constGate', 'monoGRU_abs']:#['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
+                hidden_sizes = [1,2,3]
                 nonlinearities = ['relu','tanh']
                 #nonlinearity = 'relu' if constraint =='energy' else 'tanh'
                 input_encodings = ['unipolar','onehot']
                 input_forced_choice = False
                 nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
+                if model_type == 'monoGRU_abs':
+                    nonlinearities = ['tanh']
+                    hidden_sizes = [1]
                 for nonlinearity in nonlinearities:
                     for input_encoding in input_encodings:
                         constraint= 'energy' if nonlinearity == 'relu' else 'sparsity'
-                        for hidden_size in [1,2,3]:
+                        for hidden_size in hidden_sizes:
                             model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
                             model_save_path = save_path/'nested_DA'/subject_ID/model_type/constraint
                             completed = 1
@@ -157,15 +161,20 @@ def get_ws_all_info_df(processed_data_path = PROCESSED_DATA_PATH,
     for subject_id in subject_ids:
         data_path = processed_data_path/'WS'
         for outer_loop_n in range(1,11): #10 loops is recommended. Minimum is 3.
-            for model_type in ['GRU','monoGRU']: #,'constGate','vanilla'
+           for model_type in ['monoGRU','GRU', 'monoGRU_abs']:#['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
+                hidden_sizes = [1,2]
                 nonlinearities = ['relu','tanh']
-                input_encodings = ['unipolar','onehot','actonehot']
+                #nonlinearity = 'relu' if constraint =='energy' else 'tanh'
+                input_encodings = ['unipolar','onehot']
+                input_forced_choice = False
                 nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
+                if model_type == 'monoGRU_abs':
+                    nonlinearities = ['tanh']
                 for nonlinearity in nonlinearities:
                     for input_encoding in input_encodings:
                         for input_forced_choice in [True, False]:
                             constraint= 'energy' if nonlinearity == 'relu' else 'sparsity'
-                            for hidden_size in [1,2]:
+                            for hidden_size in hidden_sizes:
                                 model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
                                 if input_forced_choice:
                                     model_id+='_forced'
