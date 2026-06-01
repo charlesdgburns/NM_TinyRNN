@@ -97,7 +97,7 @@ def plot_paired_comparison(df,
             print(f"Warning: insufficient pairs for {within_variable}={group}, skipping.")
             raw_pvals.append(np.nan)
         else:
-            _, p_val = ttest_rel(paired[x_levels[0]].values, paired[x_levels[1]].values)
+            ttest, p_val = ttest_rel(paired[x_levels[0]].values, paired[x_levels[1]].values)
             raw_pvals.append(p_val)
 
     # --- Correct for multiple comparisons (excluding NaNs) ---
@@ -154,7 +154,7 @@ def plot_paired_comparison(df,
     if created_fig:
         plt.tight_layout()
         plt.show()
-    return ax
+    return ax, ttest
 
 
 ## anova ##

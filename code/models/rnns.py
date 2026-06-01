@@ -39,7 +39,7 @@ class TinyRNN(nn.Module):
                nm_dim: int = 1, #specific to NM_RNNs
                nm_mode: str = 'low_rank',
                sparsity_lambda:float = 1e-5,
-               energy_lambda:float = 1e-2,
+               energy_lambda:float = 1e-3,
                hebbian_lambda:float = 0.0,
                covariance_lambda:float = 0.0,
                input_encoding = 'unipolar',
@@ -48,6 +48,7 @@ class TinyRNN(nn.Module):
                init_decoder = False,
                weight_seed = 42,
                batch_norm = False,
+               decoder_bias = False
                ):
     '''Note, input_size should correspond to the number of binary input variables (stacked).
        Then set input_encoding to 'onehot' to transform the encoding. '''
@@ -68,6 +69,7 @@ class TinyRNN(nn.Module):
     self.input_encoding = input_encoding
     self.init_decoder = init_decoder
     self.batch_norm = batch_norm
+    self.decoder_bias = decoder_bias
     
     # We then need an RNN and a decoder:
     if rnn_type == 'vanilla':
@@ -100,9 +102,9 @@ class TinyRNN(nn.Module):
       self.nm_size = nm_size
       self.nm_dim = nm_dim
       self.nm_mode = nm_mode
-      self.rnn = ManualNMRNN(self.I,self.nm_size,self.nm_dim,self.H, self.nm_mode)
+      self.rnn = ManualNMRNN(l.I,self.nm_size,self.nm_dim,self.H, self.nm_mode)
     
-    self.decoder = nn.Linear(self.H, self.O)
+    self.decoder = nn.Linear(self.H, self.O, bias=decoder_bias)
     if batch_norm:
       self.batch_norm = nn.BatchNorm1d(self.I)
     # do a seeded  weight initialisation:
@@ -240,8 +242,9 @@ class TinyRNN(nn.Module):
     if self.rnn_type == 'NMRNN':
         model_id=f'{self.H}_unit_{self.rnn_type}_{self.nm_size}_subunits_{self.nm_dim}_{self.nm_mode}_{self.nonlinearity}_{self.input_encoding}'
     if self.input_forced_choice:
-       print('this is still happening')
        model_id+='_forced'
+    if self.decoder_bias == False:
+      model_id+='_ndb'
     return model_id
 
 
@@ -269,6 +272,8 @@ class MonoGated(nn.Module):
       self.activation = nn.Tanh()
     elif nonlinearity == 'linear':
        self.activation = nn.Identity()
+    elif nonlinearity == 'softplus':
+        self.activation = nn.Softplus()
        
     # Parameters
     self.W_ih = nn.Parameter(torch.Tensor(input_size, hidden_size))      # (I,H)
@@ -365,6 +370,8 @@ class StereoGated(nn.Module):
       self.activation = nn.Tanh()
     elif nonlinearity == 'linear':
        self.activation = nn.Identity()
+    elif nonlinearity == 'softplus':
+        self.activation = nn.Softplus()
 
     # Parameters
     self.W_ih = nn.Parameter(torch.Tensor(input_size, hidden_size))      # (I,H)
@@ -446,6 +453,9 @@ class ManualGRU(nn.Module):
       self.activation = nn.ReLU()
     elif nonlinearity == 'linear':
        self.activation = nn.Identity()
+    elif nonlinearity == 'softplus':
+        self.activation = nn.Softplus()
+        
     self.W_ih = nn.Parameter(torch.Tensor(input_size, hidden_size))       # (I,H)
     self.W_hh = nn.Parameter(torch.Tensor(hidden_size, hidden_size))      # (H,H)
     self.W_iz = nn.Parameter(torch.Tensor(input_size, hidden_size))       # (I,Z)
@@ -514,6 +524,10 @@ class ManualLSTM(nn.Module):
           self.activation = nn.Tanh()
         elif nonlinearity == 'relu':
           self.activation = nn.ReLU()
+        elif nonlinearity == 'linear':
+          self.activation = nn.Identity()
+        elif nonlinearity == 'softplus':
+            self.activation = nn.Softplus()
           
     def forward(self, x, init_states=None,
                 return_gate_activations = False,
@@ -582,6 +596,9 @@ class ManualNMRNN(nn.Module):
           self.activation = nn.ReLU()
         elif nonlinearity == 'linear':
           self.activation = nn.Identity()
+            
+        elif nonlinearity == 'softplus':
+            self.activation = nn.Softplus()
        # assert nm_dim <= nm_size, "there must be at least as many subnetwork units as nm_dim size"
         self.nm_size = nm_size
         self.nm_dim = nm_dim
@@ -736,6 +753,9 @@ class ManualVanilla(nn.Module):
       self.activation = nn.ReLU()
     elif nonlinearity == 'linear':
        self.activation = nn.Identity()
+    elif nonlinearity == 'softplus':
+        self.activation = nn.Softplus()
+            
     self.W_ih = nn.Parameter(torch.Tensor(input_size, hidden_size))       # (I,H)
     self.W_hh = nn.Parameter(torch.Tensor(hidden_size, hidden_size))      # (H,H)
     self.bias_h = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
