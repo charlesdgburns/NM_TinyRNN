@@ -6,6 +6,7 @@
 **data/rnns/mech_var
 **data/rnns/gpu_test
 **data/rnns/nested**
+**data/rnns/no_decoder_bias**
 
 
 **data/WS16

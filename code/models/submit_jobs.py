@@ -34,10 +34,13 @@ PROCESSED_DATA_PATH = Path('./NM_TinyRNN/data/AB_behaviour/') #subfolders here a
 ### top level ###
 
 
-def run_training(overwrite=False, test = True):
+def run_training(overwrite=False, test = True, ws_all = False):
     '''Submit jobs to HPC cluster via slurm to run training'''
-    train_df = get_job_info_df()
+    train_df = get_DA_info_df()
     if test == True:
+       train_df = get_test_info_df()
+       train_df = train_df.iloc[0:2] #only run 2 jobs for testing
+    if ws_all == True:
        train_df = get_ws_all_info_df()
     if not overwrite:
         train_df = train_df[train_df.completed==False]
@@ -51,6 +54,75 @@ def run_training(overwrite=False, test = True):
     
 
 # info dictionaries for training # 
+
+
+def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
+                    save_path = SAVE_PATH):
+    '''Organise the architecture information in a large dataframe. 
+    Key arguments here are 'model_id', 'data_path','save_path' and 'outer_loop_n'
+    '''
+    #see each subject
+    df_dict = {'subject_id':[],'outer_loop_n':[],'model_type':[],'hidden_size':[],
+               'nonlinearity':[],'constraint':[],'decoder_bias':[],
+               'input_encoding':[],'input_forced_choice':[],
+               'nm_size':[],'nm_dim':[],'nm_mode':[],
+               'model_id':[],'save_path':[],'data_path':[], 'completed':[]}
+   
+    for subdir in processed_data_path.iterdir():
+        subject_ID = subdir.stem
+        if not "WS" in subject_ID:
+            continue
+        data_path = PROCESSED_DATA_PATH/subject_ID
+        if not subdir.is_dir():
+            continue
+        
+        for outer_loop_n in range(1,nested_cv.N_OUTER_LOOPS+1): #10 loops is recommended
+            for model_type in ['vanilla','GRU','lightGRU', 'monoGRU', 'monoGRU_abs','monoGRU_no_hidden','monoGRU_hidden_only']:# 'vanilla', 'constGate', 'monoGRU_abs'  ['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
+                #Default parameters
+                hidden_sizes = [1,2]
+                input_encodings = ['unipolar']
+                nonlinearities = ['relu']
+                input_forced_choices = [True]
+                decoder_biases = [True]
+                nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
+
+                if model_type == 'GRU':
+                    nonlinearities = ['relu','tanh']
+                if model_type == 'vanilla':
+                    nonlinearities = ['tanh']
+                if  model_type == 'monoGRU_abs':
+                    nonlinearities = ['tanh']
+                    hidden_sizes = [1]
+                if model_type in ['monoGRU_no_hidden','monoGRU_hidden_only']:
+                    hidden_sizes = [2]
+                    decoder_biases = [False]
+                if model_type == 'monoGRU':
+                    decoder_biases = [True,False]
+                    
+                for nonlinearity in nonlinearities:
+                    for input_forced_choice in input_forced_choices:
+                        for input_encoding in input_encodings:
+                            constraint= 'energy' if nonlinearity == 'relu' else 'sparsity'
+                            for hidden_size in hidden_sizes:
+                                for decoder_bias in decoder_biases:
+                                    model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
+                                    if input_forced_choice:
+                                        model_id+= '_forced'
+                                    if decoder_bias == False:
+                                        model_id+= '_ndb'
+                                    model_save_path = save_path/'nested_DA_16'/subject_ID/model_type/constraint
+                                    completed = 1
+                                    for inner_loop_n in range(0,nested_cv.N_OUTER_LOOPS-1):
+                                        completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
+                                    for k,v in zip(df_dict.keys(),
+                                        [subject_ID,outer_loop_n,model_type,hidden_size,
+                                        nonlinearity,constraint,decoder_bias,
+                                        input_encoding, input_forced_choice,
+                                        nm_size,nm_dim,nm_mode,
+                                        model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
+                                        df_dict[k].append(v)
+                                    
+    return pd.DataFrame(df_dict)
 
 def get_job_info_df(processed_data_path = PROCESSED_DATA_PATH,
                     save_path = SAVE_PATH):
@@ -73,39 +145,48 @@ def get_job_info_df(processed_data_path = PROCESSED_DATA_PATH,
             continue
         
         for outer_loop_n in range(1,nested_cv.N_OUTER_LOOPS+1): #10 loops is recommended
-            for model_type in ['monoGRU','GRU',]:# 'vanilla', 'constGate', 'monoGRU_abs'  ['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
+            for model_type in ['monoGRU','GRU','vanilla']:# 'vanilla', 'constGate', 'monoGRU_abs'  ['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
                 decoder_biases = [True,False]
                 hidden_sizes = [1,2]
                 nonlinearities = ['relu','tanh']
                 #nonlinearity = 'relu' if constraint =='energy' else 'tanh'
                 input_encodings = ['unipolar','onehot']
-                input_forced_choice = True
+                input_forced_choices = [True,False]
                 nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
+                #if model_type in ['GRU','monoGRU']:
+                #    input_forced_choices = [True, False]
+                #    decoder_biases = [True,False]
                 if model_type == 'monoGRU_abs':
                     nonlinearities = ['tanh']
                     hidden_sizes = [1]
+                if model_type in ['constGate','lightGRU']:
+                    input_encodings = ['unipolar']
+                    nonlinearities = ['relu']
+                    input_forced_choices = [True]
+                    decoder_biases = [False]
                 for nonlinearity in nonlinearities:
-                    for input_encoding in input_encodings:
-                        constraint= 'energy' if nonlinearity == 'relu' else 'sparsity'
-                        for hidden_size in hidden_sizes:
-                            for decoder_bias in decoder_biases:
-                                model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
-                                if input_forced_choice:
-                                    model_id+= '_forced'
-                                if decoder_bias == False:
-                                    model_id+= '_ndb'
-                                model_save_path = save_path/'nested_DA'/subject_ID/model_type/constraint
-                                completed = 1
-                                for inner_loop_n in range(0,nested_cv.N_OUTER_LOOPS-1):
-                                    completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
-                                for k,v in zip(df_dict.keys(),
-                                    [subject_ID,outer_loop_n,model_type,hidden_size,
-                                    nonlinearity,constraint,decoder_bias,
-                                    input_encoding, input_forced_choice,
-                                    nm_size,nm_dim,nm_mode,
-                                    model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
-                                    df_dict[k].append(v)
-                                
+                    for input_forced_choice in input_forced_choices:
+                        for input_encoding in input_encodings:
+                            constraint= 'energy' if nonlinearity == 'relu' else 'sparsity'
+                            for hidden_size in hidden_sizes:
+                                for decoder_bias in decoder_biases:
+                                    model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
+                                    if input_forced_choice:
+                                        model_id+= '_forced'
+                                    if decoder_bias == False:
+                                        model_id+= '_ndb'
+                                    model_save_path = save_path/'nested_DA'/subject_ID/model_type/constraint
+                                    completed = 1
+                                    for inner_loop_n in range(0,nested_cv.N_OUTER_LOOPS-1):
+                                        completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
+                                    for k,v in zip(df_dict.keys(),
+                                        [subject_ID,outer_loop_n,model_type,hidden_size,
+                                        nonlinearity,constraint,decoder_bias,
+                                        input_encoding, input_forced_choice,
+                                        nm_size,nm_dim,nm_mode,
+                                        model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
+                                        df_dict[k].append(v)
+                                    
     return pd.DataFrame(df_dict)
 
 def get_test_info_df(processed_data_path = PROCESSED_DATA_PATH,
@@ -115,7 +196,8 @@ def get_test_info_df(processed_data_path = PROCESSED_DATA_PATH,
     '''
     #see each subject
     df_dict = {'subject_id':[],'outer_loop_n':[],'model_type':[],'hidden_size':[],
-               'nonlinearity':[],'input_encoding':[],'constraint':[],
+               'nonlinearity':[],'constraint':[],'decoder_bias':[],
+               'input_encoding':[],'input_forced_choice':[],
                'nm_size':[],'nm_dim':[],'nm_mode':[],
                'model_id':[],'save_path':[],'data_path':[], 'completed':[]}
    
@@ -131,23 +213,33 @@ def get_test_info_df(processed_data_path = PROCESSED_DATA_PATH,
             for model_type in ['GRU','monoGRU']: #,'constGate','vanilla'
                 nonlinearities = ['relu','tanh']
                 input_encodings = ['unipolar','onehot']
+                decoder_biases = [True, False]
+                input_forced_choices = [True, False]
+                hidden_sizes = [1,2]
                 nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
-                for nonlinearity in nonlinearities:
-                    for input_encoding in input_encodings:
-                        constraint= 'energy' if nonlinearity == 'relu' else 'sparsity'
-                        for hidden_size in [1,2]:
-                            model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
-                            model_save_path = save_path/'test'/subject_ID/model_type/constraint
-                            completed = 1
-                            for inner_loop_n in range(0,N_OUTER_LOOPS-1):
-                                completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
-                            for k,v in zip(df_dict.keys(),
-                                [subject_ID,outer_loop_n,model_type,hidden_size,
-                                nonlinearity, input_encoding,constraint,
-                                nm_size,nm_dim,nm_mode,
-                                model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
-                                df_dict[k].append(v)
-                            
+                for input_forced_choice in input_forced_choices:
+                    for nonlinearity in nonlinearities:
+                        for input_encoding in input_encodings:
+                            for decoder_bias in decoder_biases:
+                                constraint= 'energy' if nonlinearity == 'relu' else 'sparsity'
+                                for hidden_size in hidden_sizes:
+                                    model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
+                                    if input_forced_choice:
+                                        model_id+= '_forced'
+                                    if decoder_bias == False:
+                                        model_id+= '_ndb'
+                                    model_save_path = save_path/'nested_DA'/subject_ID/model_type/constraint
+                                    completed = 1
+                                    for inner_loop_n in range(0,nested_cv.N_OUTER_LOOPS-1):
+                                        completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
+                                    for k,v in zip(df_dict.keys(),
+                                        [subject_ID,outer_loop_n,model_type,hidden_size,
+                                        nonlinearity,constraint,decoder_bias,
+                                        input_encoding, input_forced_choice,
+                                        nm_size,nm_dim,nm_mode,
+                                        model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
+                                        df_dict[k].append(v)
+                                
     return pd.DataFrame(df_dict)
 
 
@@ -158,7 +250,7 @@ def get_ws_all_info_df(processed_data_path = PROCESSED_DATA_PATH,
     '''
     #see each subject
     df_dict = {'subject_id':[],'outer_loop_n':[],'model_type':[],'hidden_size':[],
-               'nonlinearity':[],'constraint':[],
+               'nonlinearity':[],'constraint':[], 'decoder_bias':[],
                'input_encoding':[],'input_forced_choice':[],
                'nm_size':[],'nm_dim':[],'nm_mode':[],
                'model_id':[],'save_path':[],'data_path':[], 'completed':[]}
@@ -168,6 +260,7 @@ def get_ws_all_info_df(processed_data_path = PROCESSED_DATA_PATH,
         data_path = processed_data_path/'WS'
         for outer_loop_n in range(1,11): #10 loops is recommended. Minimum is 3.
            for model_type in ['monoGRU','GRU', 'monoGRU_abs','stereoGRU','stereoGRU2','stereoGRUx']:#['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
+                decoder_bias = True
                 hidden_sizes = [1,2]
                 nonlinearities = ['relu','tanh', 'softplus']
                 #nonlinearity = 'relu' if constraint =='energy' else 'tanh'
@@ -184,13 +277,13 @@ def get_ws_all_info_df(processed_data_path = PROCESSED_DATA_PATH,
                                 model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
                                 if input_forced_choice:
                                     model_id+='_forced'
-                                model_save_path = save_path/'no_decoder_bias'/subject_id/model_type/constraint
+                                model_save_path = save_path/'test_input_encodings'/subject_id/model_type/constraint
                                 completed = 1
                                 for inner_loop_n in range(0,nested_cv.N_OUTER_LOOPS-1):
                                     completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
                                 for k,v in zip(df_dict.keys(),
                                     [subject_id,outer_loop_n,model_type,hidden_size,
-                                    nonlinearity, constraint,
+                                    nonlinearity, constraint, decoder_bias,
                                     input_encoding, input_forced_choice,
                                     nm_size,nm_dim,nm_mode,
                                     model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
@@ -247,7 +340,8 @@ nc.train_outers('{train_info.data_path}',\
                 '{train_info.input_encoding}', \
                 {train_info.input_forced_choice}, \
                 '{train_info.nonlinearity}',\
-                '{train_info.constraint}')"
+                '{train_info.constraint}',\
+                {train_info.decoder_bias},)" \
 """
     script_path = JOBS_PATH/'slurm'/f'{session_ID}.sh'  
     with open(script_path, "w") as f:

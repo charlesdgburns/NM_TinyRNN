@@ -24,7 +24,7 @@ class Trainer:
         hebbian_lambdas: list = [0.0], # Changed None to 0.0 for tensor compatibility
         covariance_lambdas: list = [0.0], # Added covariance lambda list
         learning_rate: float = 1e-2,
-        batch_size: int = 128,
+        batch_size: int = 16,
         max_epochs: int = 10000,
         early_stop: int = 20,
         train_seed: int = 42,

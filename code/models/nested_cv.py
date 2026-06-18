@@ -84,7 +84,8 @@ def train_outers(data_path,
                 input_encoding:str='unipolar',
                 input_forced_choice:bool =False,
                 nonlinearity:str='relu',
-                constraint:str='energy',):
+                constraint:str='energy',
+                decoder_bias:bool=False):
     '''Minimal inputs required to test fit all model types.'''
     options = rnns.OPTIONS_DICT
     options['rnn_type'] = model_type
@@ -95,6 +96,7 @@ def train_outers(data_path,
     options['input_encoding'] = input_encoding
     options['input_forced_choice'] = input_forced_choice
     options['nonlinearity'] = nonlinearity
+    options['decoder_bias'] = decoder_bias
     
     dataset = AB_Dataset(data_path, 
                          input_encoding=input_encoding,

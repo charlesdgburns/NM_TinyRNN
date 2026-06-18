@@ -21,31 +21,21 @@ def plot_paired_comparison(df,
                            paired_across,
                            mean_across=None,
                            filter_by=None,
-                           dodge_offset=0.15,
+                           dodge_offset=0.0,
                            colors=None,
+                           hue_order=None,
                            correction_method='fdr_bh',
                            ax=None):
     """
-    Plots a paired comparison of y across levels of x, grouped by within_variable.
-    Performs a paired t-test across levels of x, paired by paired_across.
-    Corrects for multiple comparisons across within_variable groups.
+    Plots a highly-stylized publication-ready paired comparison plot.
+    Colors match the within_variable groups instead of the x-levels.
+    The x-axis features a multi-indexed layout safely placed beneath the data.
 
-    Parameters
-    ----------
-    df                : pd.DataFrame
-    y                 : str, outcome variable (e.g. 'eval_CE')
-    x                 : str, variable with (exactly 2) levels to compare (e.g. 'hidden_size')
-    within_variable   : str, grouping variable shown on x-axis (e.g. 'model_type')
-    paired_across     : str, variable used to pair observations (e.g. 'subject_ID')
-    mean_across       : str or list, optional column(s) to average over before plotting
-    filter_by         : dict, optional filters e.g. {'nonlinearity': 'relu'}
-    dodge_offset      : float, horizontal spacing between paired points
-    colors            : list of 2 colours for the two x levels, optional
-    correction_method : str, multiple comparison correction method (default: 'fdr_bh')
-                        any method accepted by statsmodels.stats.multitest.multipletests
-    ax                : matplotlib axis, optional. If None, creates a new figure and axis.
+    Returns
+    -------
+    ax    : matplotlib axis object
+    ttest : TtestResult object from the last evaluated group in within_levels
     """
-
     df = df.copy()
 
     # --- Filter ---
@@ -64,58 +54,68 @@ def plot_paired_comparison(df,
         x_vals = sorted(df[x].unique())
         raise ValueError(f"'{x}' must have exactly 2 levels for a paired t-test, found: {x_vals}")
 
-    within_levels = sorted(df[within_variable].unique())
+    # --- Handle Group Order ---
+    if hue_order is not None:
+        within_levels = hue_order
+        missing = [g for g in within_levels if g not in df[within_variable].unique()]
+        if missing:
+            raise ValueError(f"The following groups in 'hue_order' were not found in the data: {missing}")
+    else:
+        within_levels = sorted(df[within_variable].unique())
+        
     n_groups = len(within_levels)
 
+    # Assign colors
     if colors is None:
-        colors = ['salmon', 'navy']
+        colors = ['#E66101', '#5E3C99', '#FDB863'] if n_groups <= 3 else plt.cm.tab10.colors
 
-    # --- First pass: collect paired data and raw p-values ---
+    # --- Collect paired data and raw p-values ---
     all_paired = []
     raw_pvals = []
     x_levels = None
+    ttest = None  # To hold the ttest return object
+    
     for group in within_levels:
         group_df = df[df[within_variable] == group]
-
-        # Check for duplicates
-        dupe_check = group_df.groupby([paired_across, x]).size()
-        if (dupe_check > 1).any():
-            print(f"WARNING: duplicate rows for {within_variable}={group}:")
-            print(dupe_check[dupe_check > 1])
-
         paired = group_df.pivot(index=paired_across, columns=x, values=y).dropna()
 
-        # Extract x_levels from actual pivot columns to ensure type consistency
-        if x_levels is None:
+        if x_levels is None and not paired.empty:
             x_levels = sorted(paired.columns.tolist())
-            if len(x_levels) != 2:
-                raise ValueError(f"'{x}' must have exactly 2 levels in pivot, found: {x_levels}")
-
+        
         all_paired.append(paired)
 
         if paired.empty or len(paired) < 2:
-            print(f"Warning: insufficient pairs for {within_variable}={group}, skipping.")
             raw_pvals.append(np.nan)
         else:
-            ttest, p_val = ttest_rel(paired[x_levels[0]].values, paired[x_levels[1]].values)
-            raw_pvals.append(p_val)
+            # Explicitly computing paired t-test using ttest_rel
+            ttest_res = ttest_rel(paired[x_levels[0]].values, paired[x_levels[1]].values)
+            raw_pvals.append(ttest_res.pvalue)
+            ttest = ttest_res  # Storing result to return at the end
 
-    # --- Correct for multiple comparisons (excluding NaNs) ---
+    # --- Correct for multiple comparisons ---
     valid_mask = ~np.isnan(raw_pvals)
     corrected_pvals = np.full(len(raw_pvals), np.nan)
     if valid_mask.sum() > 1:
         _, corrected_pvals[valid_mask], _, _ = multipletests(
             np.array(raw_pvals)[valid_mask], method=correction_method)
     else:
-        corrected_pvals[valid_mask] = np.array(raw_pvals)[valid_mask]  # no correction if only 1 valid test
+        corrected_pvals[valid_mask] = np.array(raw_pvals)[valid_mask]
 
-    # --- Plot ---
+    # --- Plot Setup ---
     y_range = df[y].max() - df[y].min()
     if ax is None:
-        fig, ax = plt.subplots(figsize=(3 * n_groups, 6))
+        fig, ax = plt.subplots(figsize=(2.5 * n_groups, 5.5))
         created_fig = True
     else:
         created_fig = False
+
+    # Clean styling baseline
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.grid(axis='y', linestyle='--', alpha=0.3, zorder=0)
+
+    xticks_positions = []
+    xticks_labels = []
 
     for i, (group, paired, p_val_corr) in enumerate(zip(within_levels, all_paired, corrected_pvals)):
         if paired.empty:
@@ -124,39 +124,59 @@ def plot_paired_comparison(df,
         vals0 = paired[x_levels[0]].values
         vals1 = paired[x_levels[1]].values
         x0, x1 = i - dodge_offset, i + dodge_offset
+        
+        xticks_positions.extend([x0, x1])
+        xticks_labels.extend([str(x_levels[0]), str(x_levels[1])])
+
+        group_color = colors[i % len(colors)]
 
         # Connecting lines
         for v0, v1 in zip(vals0, vals1):
-            ax.plot([x0, x1], [v0, v1], color='grey', alpha=0.5, linewidth=0.8, zorder=1)
+            ax.plot([x0, x1], [v0, v1], color='#B0B0B0', alpha=0.4, linewidth=1.0, zorder=1)
 
-        # Dots
-        ax.scatter([x0] * len(vals0), vals0, color=colors[0], zorder=2, s=50, alpha=0.9,
-                   label=f'{x}={x_levels[0]}' if i == 0 else '')
-        ax.scatter([x1] * len(vals1), vals1, color=colors[1], zorder=2, s=50, alpha=0.9,
-                   label=f'{x}={x_levels[1]}' if i == 0 else '')
+        # Plot points
+        ax.scatter([x0] * len(vals0), vals0, color=group_color, edgecolor='none', zorder=2, s=60, alpha=0.85)
+        ax.scatter([x1] * len(vals1), vals1, color=group_color, edgecolor='none', zorder=2, s=60, alpha=0.85)
 
-        # Significance annotation with corrected p-value
-        sig = 'n.s.' if p_val_corr > 0.05 else ('*' if p_val_corr > 0.01 else ('**' if p_val_corr > 0.001 else '***'))
-        y_max = max(vals0.max(), vals1.max())
-        y_ann = y_max + 0.01 * y_range
-        ax.plot([x0, x1], [y_ann, y_ann], color='black', linewidth=1)
-        ax.text((x0 + x1) / 2, y_ann + 0.005 * y_range,
-                f'{sig}\np={p_val_corr:.3f}', ha='center', va='bottom', fontsize=8)
+        # Significance annotation (Safely inside plot bounds)
+        if not np.isnan(p_val_corr):
+            sig = 'n.s.' if p_val_corr > 0.05 else ('*' if p_val_corr > 0.01 else ('**' if p_val_corr > 0.001 else '***'))
+            y_max = max(vals0.max(), vals1.max())
+            y_ann = y_max + 0.02 * y_range
+            
+            ax.plot([x0, x1], [y_ann, y_ann], color='#333333', linewidth=1.2, zorder=3)
+            ax.text((x0 + x1) / 2, y_ann + 0.008 * y_range,
+                    f'{sig}\np = {p_val_corr:.3f}', ha='center', va='bottom', fontsize=9, color='#333333')
 
-    ax.set_xticks(range(n_groups))
-    ax.set_xticklabels(within_levels)
-    ax.set_xlabel(within_variable)
-    ax.set_ylabel(y)
-    ax.set_title(f'Paired comparison: {y} by {x}\n'
-                 f'grouped by {within_variable}, paired across {paired_across}\n'
-                 f'(multiple comparison correction: {correction_method})')
-    ax.legend(title=x)
+        # --- Fixed Sub-Axis Bracket Layout ---
+        ax_xmin = (x0 - (-0.5)) / (n_groups)
+        ax_xmax = (x1 - (-0.5)) / (n_groups)
+        ax_mid  = (i - (-0.5)) / (n_groups)
+        
+        bracket_y = -0.12
+        bracket_tick = 0.02
+        
+        ax.plot([ax_xmin, ax_xmin, ax_xmax, ax_xmax], 
+                [bracket_y + bracket_tick, bracket_y, bracket_y, bracket_y + bracket_tick], 
+                color='#555555', linewidth=1.2, transform=ax.transAxes, clip_on=False)
+        
+        ax.text(ax_mid, bracket_y - 0.02, group, 
+                ha='center', va='top', fontsize=11, fontweight='bold', transform=ax.transAxes, clip_on=False)
+
+    # Final axis tuning
+    ax.set_xlim(-0.5, n_groups - 0.5)
+    ax.set_xticks(xticks_positions)
+    ax.set_xticklabels(xticks_labels, fontsize=10)
+    
+    ax.set_xlabel(x, fontsize=11, labelpad=40)  
+    ax.set_ylabel(y, fontsize=11, fontweight='bold')
+    ax.set_title(f'Paired Analysis of {y} by {x}', fontsize=12, pad=15, fontweight='bold', loc='left')
+
     if created_fig:
         plt.tight_layout()
         plt.show()
+        
     return ax, ttest
-
-
 ## anova ##
 
 def plot_repeated_measures_anova(df,
@@ -299,7 +319,7 @@ def plot_repeated_measures_anova(df,
     # --- Bracket annotations for significant pairs only ---
     y_range      = wide.values.max() - wide.values.min()
     y_max        = wide.values.max()
-    bracket_step = 0.06 * y_range
+    bracket_step = 0.2 * y_range
 
     sig_pairs = [(pair, res) for pair, res in pair_results.items() if res['p_corr'] <= 0.05]
     sig_pairs_sorted = sorted(sig_pairs,

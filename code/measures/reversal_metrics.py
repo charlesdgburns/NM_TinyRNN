@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from NM_TinyRNN.code.models import parallelised_training as pat
+from NM_TinyRNN.code.models import submit_jobs as pat
 from NM_TinyRNN.code.measures import analysis
 
 ## The reversal trial (x=0) is the first trial pre reversal

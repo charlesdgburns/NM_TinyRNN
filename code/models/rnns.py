@@ -22,11 +22,12 @@ OPTIONS_DICT = {'rnn_type':'GRU',
                 'nm_dim':1,
                 'nm_mode':'low_rank',
                 'weight_seed':42,
-                'sparsity_lambda':1e-6, #constrain weights (not biases)
+                'sparsity_lambda':1e-5, #constrain weights (not biases)
                 'energy_lambda':1e-2, #constrain hidden activations
                 'input_encoding': 'unipolar', #'unipolar' {0,1} or 'bipolar' {-1,1}
                 'input_forced_choice':False,
                 'nonlinearity' :'tanh', # 'tanh' or 'relu'
+                'decoder_bias': False, # include bias in decoder or not?
                 }
 
 class TinyRNN(nn.Module):
@@ -87,6 +88,12 @@ class TinyRNN(nn.Module):
     elif rnn_type == 'monoGRU_abs':
         self.rnn = MonoGated(self.I,self.H, self.nonlinearity,
                              mode= 'abs_hidden_gate')
+    elif rnn_type == 'monoGRU_no_hidden':
+        self.rnn = MonoGated(self.I,self.H, self.nonlinearity,
+                             mode= 'no_hidden_gate')
+    elif rnn_type == 'monoGRU_hidden_only':
+        self.rnn = MonoGated(self.I,self.H, self.nonlinearity,
+                             mode= 'hidden_only_gate')
     elif rnn_type == 'stereoGRU':
       self.rnn = StereoGated(self.I,self.H, self.nonlinearity)
     elif rnn_type == 'stereoGRU2':
@@ -95,6 +102,8 @@ class TinyRNN(nn.Module):
     elif rnn_type == 'stereoGRUx':
       self.rnn = StereoGated(self.I,self.H, self.nonlinearity,
                              mode = 'x_gate')
+    elif rnn_type == 'lightGRU':
+        self.rnn = LightGRU(self.I, self.H, self.nonlinearity)
     elif rnn_type == 'constGate':
        self.rnn = MonoGated(self.I,self.H, self.nonlinearity, 
                             constant_gate=True)
@@ -125,6 +134,8 @@ class TinyRNN(nn.Module):
     #we initialise gate biases to be open at the start of training, similar to initialising LSTM forget_gates with a bias of 1.
     if 'monoGRU' in self.rnn_type:
        self.rnn.bias_z.data = torch.tensor(1.0) 
+    elif self.rnn_type == 'lightGRU':
+        self.rnn.bias_z.data = torch.ones_like(self.rnn.bias_z.data)
     elif self.rnn_type == "GRU":
       self.rnn.bias_z.data = torch.ones_like(self.rnn.bias_z.data) #update gate bias
       self.rnn.bias_r.data = torch.ones_like(self.rnn.bias_r.data) #reset gate bias
@@ -190,7 +201,6 @@ class TinyRNN(nn.Module):
     losses['sparsity'] = sparsity_val * sparsity_lambda
 
     # 3. Energy loss
-    
     losses['energy'] = torch.mean(hidden_states**2) * energy_lambda
 
     # 4. Hebbian loss (prevent representational collapse)
@@ -228,7 +238,8 @@ class TinyRNN(nn.Module):
                     'input_encoding':self.input_encoding,
                     'input_forced_choice':self.input_forced_choice,
                     'batch_norm': self.batch_norm,
-                    'init_decoder':self.init_decoder}
+                    'init_decoder':self.init_decoder, 
+                    'decoder_bias':self.decoder_bias}
     if self.rnn_type == 'NMRNN':
       options_dict['nm_size']=self.nm_size
       options_dict['nm_dim']=self.nm_dim
@@ -255,7 +266,7 @@ class MonoGated(nn.Module):
   def __init__(self, input_size,hidden_size, nonlinearity = 'relu', 
                mode = 'default'):
     '''Mode option: 'default' is a standard 1D update gate.
-    Options include 'subnetwork', 'constant_gate', and 'abs_hidden_gate'
+    Options include 'subnetwork', 'constant_gate', and 'abs_hidden_gate', 'no_hidden_gate', and 'hidden_only_gate'.
     '''
     super().__init__() #init nn.Module
     #options
@@ -278,7 +289,7 @@ class MonoGated(nn.Module):
     # Parameters
     self.W_ih = nn.Parameter(torch.Tensor(input_size, hidden_size))      # (I,H)
     self.W_hh = nn.Parameter(torch.Tensor(hidden_size, hidden_size))     # (H,H)
-    if self.mode in ['default','abs_hidden_gate']:
+    if self.mode not in ['subnetwork','constant_gate']:
       self.W_iz = nn.Parameter(torch.Tensor(input_size, 1))                # (I,Z)
       self.W_hz = nn.Parameter(torch.Tensor(hidden_size, 1))                # (I,Z)
     elif self.mode == 'subnetwork':
@@ -287,6 +298,10 @@ class MonoGated(nn.Module):
       self.W_hz = nn.Parameter(torch.Tensor(hidden_size, hidden_size))                # (I,Z)
     elif self.mode =='constant_gate':
       self.z = nn.Parameter(torch.Tensor(1))
+    elif self.mode == 'no_hidden_gate':
+      self.W_hz = torch.zeros(hidden_size, 1)          # (H,Z)
+    elif self.mode == 'hidden_only_gate':
+      self.W_iz = torch.zeros(input_size, 1)                # (I,Z)
       
     self.bias_h = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
     self.bias_z = nn.Parameter(torch.Tensor(1))
@@ -315,11 +330,15 @@ class MonoGated(nn.Module):
       x_past = inputs[:,t,:] #(n_batch,input_size)
       #for computational efficiency we do two matrix multiplications and then do indexing further down:
       #computing the gate: (maybe we want an option to compute gate only on reward? #reward_t = x_past[:,0].unsqueeze(1))
-      if self.mode=='default' and self.nonlinearity!='linear':
+      if self.mode == 'default' and self.nonlinearity!='linear':
         # the standard gating mechanism
         z_t = self.sigmoid(x_past@self.W_iz + h_past@self.W_hz + self.bias_z)
       elif self.mode =='abs_hidden_gate':
         z_t = self.sigmoid(x_past@self.W_iz + torch.abs(h_past)@self.W_hz + self.bias_z)
+      elif self.mode == 'no_hidden_gate':
+        z_t = self.sigmoid(x_past@self.W_iz + self.bias_z)
+      elif self.mode == 'hidden_only_gate':
+        z_t = self.sigmoid(h_past@self.W_hz + self.bias_z)
       elif self.mode =='subnetwork' and self.nonlinearity!='linear':
         z_past = self.activation(x_past@self.W_iz + z_past@self.W_hz) #(n_batch,n_hidden), ranging from 0 to 1; must have n_hidden because it is multiplied with hidden_state later.
         z_t = self.sigmoid(z_past@self.W_z+self.bias_z) #compress onto 1D
@@ -794,3 +813,75 @@ class ManualVanilla(nn.Module):
     else:
       return hidden_sequence, h_past #this is standard in Pytorch, to output sequence of hidden states alongside most recent hidden state.
 
+class LightGRU(nn.Module):
+    '''Light GRU (Ravanelli et al., 2018) - no reset gate, candidate state has
+    a recurrent connection but no reset gating of it. Without batch normalisation.
+    Equations:
+        z_t = sigmoid(W_iz @ x_t + U_hz @ h_{t-1} + bias_z)
+        n_t = relu(W_ih @ x_t + U_hh @ h_{t-1} + bias_h)
+        h_t = z_t * h_{t-1} + (1 - z_t) * n_t
+    Returns: (hidden_sequence, h_past) if return_gate_activations=False,
+             (hidden_sequence, gate_activations) if -||- = True'''
+    def __init__(self, input_size, hidden_size, nonlinearity='relu'):
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.sigmoid = nn.Sigmoid()
+        if nonlinearity == 'tanh':
+            self.activation = nn.Tanh()
+        elif nonlinearity == 'relu':
+            self.activation = nn.ReLU()
+        elif nonlinearity == 'linear':
+            self.activation = nn.Identity()
+        elif nonlinearity == 'softplus':
+            self.activation = nn.Softplus()
+
+        self.W_ih  = nn.Parameter(torch.Tensor(input_size, hidden_size))   # (I,H) candidate input
+        self.W_hh  = nn.Parameter(torch.Tensor(hidden_size, hidden_size))  # (H,H) candidate recurrent
+        self.W_iz  = nn.Parameter(torch.Tensor(input_size, hidden_size))   # (I,H) gate input
+        self.W_hz  = nn.Parameter(torch.Tensor(hidden_size, hidden_size))  # (H,H) gate recurrent
+        self.bias_h = nn.Parameter(torch.Tensor(hidden_size))              # (H,)
+        self.bias_z = nn.Parameter(torch.Tensor(hidden_size))              # (H,)
+
+    def forward(self, inputs, init_states=None,
+                return_gate_activations=False,
+                fixed_gates={}):
+        '''inputs:  (batch_size, sequence_size, input_size)
+           outputs: (batch_size, sequence_size, hidden_size)
+           -----
+           option to add fixed_gates dict with 'z_t' key,
+           which must be a tensor of shape (n_batch, n_hidden).'''
+
+        batch_size, sequence_size, _ = inputs.shape
+        hidden_sequence = []
+        if return_gate_activations:
+            gate_activations = {'update': []}
+        if init_states is None:
+            h_past = torch.zeros(batch_size, self.hidden_size).to(inputs.device)
+        else:
+            h_past = init_states
+
+        for t in range(sequence_size):
+            x_t = inputs[:, t, :]                                                        # (B, I)
+
+            z_t = self.sigmoid(x_t @ self.W_iz + h_past @ self.W_hz + self.bias_z)      # (B, H)
+            n_t = self.activation(x_t @ self.W_ih + h_past @ self.W_hh + self.bias_h)   # (B, H)
+
+            if 'z_t' in fixed_gates:
+                z_t = fixed_gates['z_t']
+
+            if return_gate_activations:
+                gate_activations['update'].append(z_t.unsqueeze(0))
+
+            h_past = z_t * h_past + (1 - z_t) * n_t                                     # (B, H)
+            hidden_sequence.append(h_past.unsqueeze(0))
+
+        hidden_sequence = torch.cat(hidden_sequence, dim=0)             # (S, B, H)
+        hidden_sequence = hidden_sequence.transpose(0, 1).contiguous()  # (B, S, H)
+
+        if return_gate_activations:
+            for gate_label, activations in gate_activations.items():
+                gate_activations[gate_label] = torch.cat(activations, dim=0).transpose(0, 1).contiguous()
+            return hidden_sequence, gate_activations
+        else:
+            return hidden_sequence, h_past
