@@ -88,8 +88,10 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
 
                 if model_type == 'GRU':
                     nonlinearities = ['relu','tanh']
+                    input_encodings = ['unipolar','encoder','onehot']
                 if model_type == 'vanilla':
                     nonlinearities = ['tanh']
+                    input_encodings = ['unipolar','encoder','onehot']
                 if  model_type == 'monoGRU_abs':
                     nonlinearities = ['tanh']
                     hidden_sizes = [1]

@@ -25,6 +25,8 @@ def _encode_df(df):
 def input_encoder(inputs, input_encoding:str, input_forced_choice:bool):
     #assume inputs are given with shape #(n_batches, n_seq, n_features)
     #features ordered as forced_choice, choice, and outcome
+    assert input_encoding in ['unipolar','encoder','bipolar','onehot','actonehot'], "input_encoding must be one of 'unipolar','bipolar','onehot','actonehot'"
+
     if not input_forced_choice:
         inputs = inputs[:,:,1:]
     if input_encoding == 'bipolar': #instead of 0,1 inputs are -1,1.
@@ -80,7 +82,6 @@ class AB_Dataset(Dataset):
 
     def __init__(self, subject_data_path, subject_ids=None, sequence_length=SEQUENCE_LENGTH, 
                  input_encoding = 'unipolar', input_forced_choice = False, device=DEVICE):
-        assert input_encoding in ['unipolar','bipolar','onehot','actonehot'], "input_encoding must be one of 'unipolar','bipolar','onehot','actonehot'"
         self.device = device
         self.sequence_length = sequence_length
         self.subject_data_path = subject_data_path

@@ -72,6 +72,11 @@ class TinyRNN(nn.Module):
     self.batch_norm = batch_norm
     self.decoder_bias = decoder_bias
     
+    if input_encoding == 'encoder':
+      self.encoder = nn.Sequential(nn.Linear(self.I,self.I),
+                                   nn.Tanh())
+
+    
     # We then need an RNN and a decoder:
     if rnn_type == 'vanilla':
       self.rnn = ManualVanilla(self.I,self.H, 
@@ -111,8 +116,7 @@ class TinyRNN(nn.Module):
       self.nm_size = nm_size
       self.nm_dim = nm_dim
       self.nm_mode = nm_mode
-      self.rnn = ManualNMRNN(l.I,self.nm_size,self.nm_dim,self.H, self.nm_mode)
-    
+      self.rnn = ManualNMRNN(self.I,self.nm_size,self.nm_dim,self.H, self.nm_mode)
     self.decoder = nn.Linear(self.H, self.O, bias=decoder_bias)
     if batch_norm:
       self.batch_norm = nn.BatchNorm1d(self.I)
@@ -149,6 +153,8 @@ class TinyRNN(nn.Module):
   def forward(self, inputs):
     '''Expects inputs shaped (n_batch, n_seq, n_features)
     See AB dataset for input encoding'''
+    if self.input_encoding=='encoder':
+      inputs = self.encoder(inputs)
     hidden, _ = self.rnn(inputs)
     predictions = self.decoder(hidden)
     return predictions, hidden
