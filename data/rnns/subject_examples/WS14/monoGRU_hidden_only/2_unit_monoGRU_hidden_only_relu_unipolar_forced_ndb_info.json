@@ -8,8 +8,8 @@
     "covariance_lambda": 0.0,
     "weight_seed": 5
   },
-  "val_loss": 0.4680423438549042,
-  "eval_pred_loss": 0.43875056505203247,
+  "val_loss": 0.468752920627594,
+  "eval_pred_loss": 0.4406687021255493,
   "split_sizes": {
     "train": 117,
     "val": 16,
@@ -46,7 +46,7 @@
       10
     ],
     "learning_rate": 0.01,
-    "batch_size": 16,
+    "batch_size": 128,
     "max_epochs": 10000,
     "early_stop": 20
   },

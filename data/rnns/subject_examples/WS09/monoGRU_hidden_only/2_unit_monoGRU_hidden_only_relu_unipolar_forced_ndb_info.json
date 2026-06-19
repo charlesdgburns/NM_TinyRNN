@@ -6,10 +6,10 @@
     "energy_lambda": 0.001,
     "hebbian_lambda": 0.0,
     "covariance_lambda": 0.0,
-    "weight_seed": 10
+    "weight_seed": 3
   },
-  "val_loss": 0.5645384192466736,
-  "eval_pred_loss": 0.601338267326355,
+  "val_loss": 0.5664541125297546,
+  "eval_pred_loss": 0.6011607050895691,
   "split_sizes": {
     "train": 74,
     "val": 7,
@@ -46,7 +46,7 @@
       10
     ],
     "learning_rate": 0.01,
-    "batch_size": 16,
+    "batch_size": 128,
     "max_epochs": 10000,
     "early_stop": 20
   },
@@ -59,7 +59,7 @@
     "energy_lambda": 0.001,
     "hebbian_lamba": 0.0,
     "covariance_lambda": 0.0,
-    "weight_seed": 10,
+    "weight_seed": 3,
     "nonlinearity": "relu",
     "input_encoding": "unipolar",
     "input_forced_choice": true,
