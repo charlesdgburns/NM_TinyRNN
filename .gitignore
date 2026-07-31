@@ -7,7 +7,8 @@
 **data/rnns/gpu_test
 **data/rnns/nested**
 **data/rnns/no_decoder_bias**
-
+**data/zip_staging
+**data/**zip
 
 **data/WS16
 # Byte-compiled / optimized / DLL files

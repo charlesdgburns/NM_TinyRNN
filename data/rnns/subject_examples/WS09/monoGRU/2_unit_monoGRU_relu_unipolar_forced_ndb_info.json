@@ -1,21 +1,21 @@
 {
-  "outer_loop_number": 7,
-  "inner_fold_idx": 1,
+  "outer_loop_number": 10,
+  "inner_fold_idx": 8,
   "winning_config": {
     "sparsity_lambda": 1e-05,
-    "energy_lambda": 0.01,
+    "energy_lambda": 0.001,
     "hebbian_lambda": 0.0,
     "covariance_lambda": 0.0,
-    "weight_seed": 3
+    "weight_seed": 1
   },
-  "val_loss": 0.6810365915298462,
-  "eval_pred_loss": 0.6362919807434082,
+  "val_loss": 0.562775731086731,
+  "eval_pred_loss": 0.6008864045143127,
   "split_sizes": {
-    "train": 69,
-    "val": 9,
-    "eval": 6
+    "train": 74,
+    "val": 7,
+    "eval": 3
   },
-  "n_outer_eval_blocks": 6,
+  "n_outer_eval_blocks": 3,
   "hparam_ranges": {
     "sparsity_lambdas": [
       0.1,
@@ -56,14 +56,15 @@
     "hidden_size": 2,
     "out_size": 2,
     "sparsity_lambda": 1e-05,
-    "energy_lambda": 0.01,
+    "energy_lambda": 0.001,
     "hebbian_lamba": 0.0,
     "covariance_lambda": 0.0,
-    "weight_seed": 3,
+    "weight_seed": 1,
     "nonlinearity": "relu",
     "input_encoding": "unipolar",
     "input_forced_choice": true,
     "batch_norm": false,
-    "init_decoder": false
+    "init_decoder": false,
+    "decoder_bias": false
   }
 }

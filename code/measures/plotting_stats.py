@@ -10,10 +10,106 @@ from scipy.stats import ttest_rel, f_oneway
 from statsmodels.stats.multitest import multipletests
 from itertools import combinations
 
+from scipy.stats import ttest_rel, wilcoxon, shapiro
+
+def compute_paired_stats(df, y, x, within_variable, paired_across, 
+                         mean_across=None, filter_by=None, hue_order=None,
+                         correction_method='fdr_bh', alpha=0.05):
+    """
+    Helper function: Performs data cleaning, groups by within_variable, extracts differences,
+    checks for normality (Shapiro-Wilk) and outliers (IQR), and selects the 
+    appropriate parametric (t-test) or non-parametric (Wilcoxon) statistical test.
+    """
+    df = df.copy()
+
+    # --- Filter and Aggregation ---
+    if filter_by:
+        for col, val in filter_by.items():
+            df = df[df[col] == val]
+
+    if mean_across:
+        mean_across = [mean_across] if isinstance(mean_across, str) else mean_across
+        group_cols = [paired_across, within_variable, x]
+        df = df.groupby(group_cols)[y].mean().reset_index()
+
+    # --- Validation ---
+    if df[x].nunique() != 2:
+        x_vals = sorted(df[x].unique())
+        raise ValueError(f"'{x}' must have exactly 2 levels for paired testing, found: {x_vals}")
+
+    within_levels = hue_order if hue_order is not None else sorted(df[within_variable].unique())
+    
+    # --- Statistical Testing Loop ---
+    all_paired = []
+    raw_pvals = []
+    test_meta = []
+    x_levels = None
+    
+    for group in within_levels:
+        group_df = df[df[within_variable] == group]
+        paired = group_df.pivot(index=paired_across, columns=x, values=y).dropna()
+
+        if x_levels is None and not paired.empty:
+            x_levels = sorted(paired.columns.tolist())
+        
+        all_paired.append(paired)
+
+        if paired.empty or len(paired) < 3:
+            raw_pvals.append(np.nan)
+            test_meta.append({"test": "None", "reason": "Insufficient Data", "norm_p": np.nan, "has_outliers": False})
+        else:
+            diffs = paired[x_levels[1]].values - paired[x_levels[0]].values
+            
+            # Shapiro-Wilk Normality test
+            _, norm_p = shapiro(diffs)
+            is_normal = norm_p > alpha
+            
+            # Outlier Check via IQR Rule on differences
+            q25, q75 = np.percentile(diffs, [25, 75])
+            iqr = q75 - q25
+            lower_bound = q25 - 1.5 * iqr
+            upper_bound = q75 + 1.5 * iqr
+            has_outliers = np.any((diffs < lower_bound) | (diffs > upper_bound))
+            
+            # Decision Tree Selection
+            if not is_normal or has_outliers:
+                stat_res = wilcoxon(paired[x_levels[0]].values, paired[x_levels[1]].values)
+                chosen_test = "Wilcoxon Signed-Rank"
+                reason = "Outliers detected" if has_outliers else "Non-normal differences"
+            else:
+                stat_res = ttest_rel(paired[x_levels[0]].values, paired[x_levels[1]].values)
+                chosen_test = "Paired t-test"
+                reason = "Normal distribution, no outliers"
+                
+            raw_pvals.append(stat_res.pvalue)
+            test_meta.append({
+                "test": chosen_test, 
+                "reason": reason, 
+                "norm_p": norm_p, 
+                "has_outliers": has_outliers
+            })
+
+    # --- Multiple Comparisons Correction ---
+    valid_mask = ~np.isnan(raw_pvals)
+    corrected_pvals = np.full(len(raw_pvals), np.nan)
+    if valid_mask.sum() > 1:
+        _, corrected_pvals[valid_mask], _, _ = multipletests(
+            np.array(raw_pvals)[valid_mask], method=correction_method)
+    else:
+        corrected_pvals[valid_mask] = np.array(raw_pvals)[valid_mask]
+
+    # Package diagnostic output dataframe
+    stats_summary = []
+    for lvl, p_raw, p_corr, meta in zip(within_levels, raw_pvals, corrected_pvals, test_meta):
+        stats_summary.append({
+            "group": lvl, "test_used": meta["test"], "reason": meta["reason"],
+            "shapiro_p": meta["norm_p"], "outliers_present": meta["has_outliers"],
+            "p_raw": p_raw, "p_corrected": p_corr
+        })
+        
+    return all_paired, x_levels, within_levels, corrected_pvals, pd.DataFrame(stats_summary)
 
 
-
-## Two-variable t-tests plotted easily ##
 def plot_paired_comparison(df,
                            y,
                            x,
@@ -25,91 +121,45 @@ def plot_paired_comparison(df,
                            colors=None,
                            hue_order=None,
                            correction_method='fdr_bh',
-                           ax=None):
+                           ax=None,
+                           title = None):
     """
     Plots a highly-stylized publication-ready paired comparison plot.
-    Colors match the within_variable groups instead of the x-levels.
-    The x-axis features a multi-indexed layout safely placed beneath the data.
+    Automatically runs normality and outlier diagnostics on the fly, 
+    selecting between Paired t-test and Wilcoxon Signed-Rank tests cleanly.
 
     Returns
     -------
     ax    : matplotlib axis object
-    ttest : TtestResult object from the last evaluated group in within_levels
+    report_df : Pandas DataFrame containing the background diagnostic and test metrics
     """
-    df = df.copy()
+    # 1. Delegate statistical selection and execution to backend engine
+    all_paired, x_levels, within_levels, corrected_pvals, report_df = compute_paired_stats(
+        df=df, y=y, x=x, within_variable=within_variable, paired_across=paired_across,
+        mean_across=mean_across, filter_by=filter_by, hue_order=hue_order, 
+        correction_method=correction_method
+    )
+    
+    # 2. Print clear background console logging table for immediate verification
+    print("\n" + "="*50 + "\nPAIRED COMPARISON DIAGNOSTIC RUN REPORT\n" + "="*50)
+    print(report_df[["group", "test_used", "reason", "outliers_present", "p_corrected"]].to_string(index=False))
+    print("="*50 + "\n")
 
-    # --- Filter ---
-    if filter_by:
-        for col, val in filter_by.items():
-            df = df[df[col] == val]
-
-    # --- Average over nuisance variables ---
-    if mean_across:
-        mean_across = [mean_across] if isinstance(mean_across, str) else mean_across
-        group_cols = [paired_across, within_variable, x]
-        df = df.groupby(group_cols)[y].mean().reset_index()
-
-    # --- Validate x has exactly 2 levels ---
-    if df[x].nunique() != 2:
-        x_vals = sorted(df[x].unique())
-        raise ValueError(f"'{x}' must have exactly 2 levels for a paired t-test, found: {x_vals}")
-
-    # --- Handle Group Order ---
-    if hue_order is not None:
-        within_levels = hue_order
-        missing = [g for g in within_levels if g not in df[within_variable].unique()]
-        if missing:
-            raise ValueError(f"The following groups in 'hue_order' were not found in the data: {missing}")
-    else:
-        within_levels = sorted(df[within_variable].unique())
-        
+    # 3. Setup Plot Configuration parameters safely
     n_groups = len(within_levels)
+    all_y_vals = np.concatenate([p.values.flatten() for p in all_paired if not p.empty])
+    y_range = all_y_vals.max() - all_y_vals.min()
 
-    # Assign colors
     if colors is None:
         colors = ['#E66101', '#5E3C99', '#FDB863'] if n_groups <= 3 else plt.cm.tab10.colors
 
-    # --- Collect paired data and raw p-values ---
-    all_paired = []
-    raw_pvals = []
-    x_levels = None
-    ttest = None  # To hold the ttest return object
-    
-    for group in within_levels:
-        group_df = df[df[within_variable] == group]
-        paired = group_df.pivot(index=paired_across, columns=x, values=y).dropna()
-
-        if x_levels is None and not paired.empty:
-            x_levels = sorted(paired.columns.tolist())
-        
-        all_paired.append(paired)
-
-        if paired.empty or len(paired) < 2:
-            raw_pvals.append(np.nan)
-        else:
-            # Explicitly computing paired t-test using ttest_rel
-            ttest_res = ttest_rel(paired[x_levels[0]].values, paired[x_levels[1]].values)
-            raw_pvals.append(ttest_res.pvalue)
-            ttest = ttest_res  # Storing result to return at the end
-
-    # --- Correct for multiple comparisons ---
-    valid_mask = ~np.isnan(raw_pvals)
-    corrected_pvals = np.full(len(raw_pvals), np.nan)
-    if valid_mask.sum() > 1:
-        _, corrected_pvals[valid_mask], _, _ = multipletests(
-            np.array(raw_pvals)[valid_mask], method=correction_method)
-    else:
-        corrected_pvals[valid_mask] = np.array(raw_pvals)[valid_mask]
-
-    # --- Plot Setup ---
-    y_range = df[y].max() - df[y].min()
     if ax is None:
         fig, ax = plt.subplots(figsize=(2.5 * n_groups, 5.5))
         created_fig = True
     else:
         created_fig = False
 
-    # Clean styling baseline
+    # Structural baseline styling layout
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.grid(axis='y', linestyle='--', alpha=0.3, zorder=0)
@@ -117,6 +167,7 @@ def plot_paired_comparison(df,
     xticks_positions = []
     xticks_labels = []
 
+    # 4. Rendering Visualization Loop
     for i, (group, paired, p_val_corr) in enumerate(zip(within_levels, all_paired, corrected_pvals)):
         if paired.empty:
             continue
@@ -130,15 +181,15 @@ def plot_paired_comparison(df,
 
         group_color = colors[i % len(colors)]
 
-        # Connecting lines
+        # Light background pairing lines
         for v0, v1 in zip(vals0, vals1):
             ax.plot([x0, x1], [v0, v1], color='#B0B0B0', alpha=0.4, linewidth=1.0, zorder=1)
 
-        # Plot points
+        # Main Data Scatter points
         ax.scatter([x0] * len(vals0), vals0, color=group_color, edgecolor='none', zorder=2, s=60, alpha=0.85)
         ax.scatter([x1] * len(vals1), vals1, color=group_color, edgecolor='none', zorder=2, s=60, alpha=0.85)
 
-        # Significance annotation (Safely inside plot bounds)
+        # Text/Bracket Annotation System
         if not np.isnan(p_val_corr):
             sig = 'n.s.' if p_val_corr > 0.05 else ('*' if p_val_corr > 0.01 else ('**' if p_val_corr > 0.001 else '***'))
             y_max = max(vals0.max(), vals1.max())
@@ -148,7 +199,7 @@ def plot_paired_comparison(df,
             ax.text((x0 + x1) / 2, y_ann + 0.008 * y_range,
                     f'{sig}\np = {p_val_corr:.3f}', ha='center', va='bottom', fontsize=9, color='#333333')
 
-        # --- Fixed Sub-Axis Bracket Layout ---
+        # Multi-Indexed Bracket Layout Architecture placement
         ax_xmin = (x0 - (-0.5)) / (n_groups)
         ax_xmax = (x1 - (-0.5)) / (n_groups)
         ax_mid  = (i - (-0.5)) / (n_groups)
@@ -163,20 +214,22 @@ def plot_paired_comparison(df,
         ax.text(ax_mid, bracket_y - 0.02, group, 
                 ha='center', va='top', fontsize=11, fontweight='bold', transform=ax.transAxes, clip_on=False)
 
-    # Final axis tuning
+    # 5. Final Axis Frame Formatting Details
     ax.set_xlim(-0.5, n_groups - 0.5)
     ax.set_xticks(xticks_positions)
     ax.set_xticklabels(xticks_labels, fontsize=10)
     
     ax.set_xlabel(x, fontsize=11, labelpad=40)  
     ax.set_ylabel(y, fontsize=11, fontweight='bold')
-    ax.set_title(f'Paired Analysis of {y} by {x}', fontsize=12, pad=15, fontweight='bold', loc='left')
+    if title is None:
+        title = f'Paired Analysis of {y} by {x}'
+    ax.set_title(title, fontsize=12, pad=15, fontweight='bold', loc='left')
 
     if created_fig:
         plt.tight_layout()
         plt.show()
         
-    return ax, ttest
+    return ax, report_df
 ## anova ##
 
 def plot_repeated_measures_anova(df,

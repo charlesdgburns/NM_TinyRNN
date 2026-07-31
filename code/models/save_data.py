@@ -269,6 +269,7 @@ def get_model_trial_by_trial_df(model, dataset, splits: dict) -> pd.DataFrame:
         dtype=torch.float32,
     ).unsqueeze(0)   # (1, T, 3)
     inputs = ds.input_encoder(raw, model.input_encoding, model.input_forced_choice)
+    
     with torch.no_grad():
         predictions, hidden_states = model(inputs)
         # hidden_states: (1, T, H)

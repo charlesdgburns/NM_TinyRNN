@@ -154,7 +154,7 @@ def _blocks_for_sessions(dataset: AB_Dataset, session_names) -> list[int]:
 
 def nested_cv_splits(
     dataset: AB_Dataset,
-    n_outer_loops: int = 5,
+    n_outer_loops: int = 10,
     outer_loop_number: int = 1,
 ) -> dict:
     """

@@ -102,8 +102,13 @@ class AB_Dataset(Dataset):
         n_blocks = 0
 
         parent_dir = DATA_PATH/'AB_behaviour'
-        subject_dirs = [x for x in parent_dir.iterdir()
-                        if x.is_dir() and any(subject_id in x.name for subject_id in self.subject_ids)]
+        subject_ids = [self.subject_ids] if isinstance(self.subject_ids, (int, str)) else self.subject_ids
+
+        subject_dirs = [
+            x for x in parent_dir.iterdir()
+            if x.is_dir() and any(str(subject_id) in x.name for subject_id in subject_ids)
+        ]
+        
         if not subject_dirs: #if this subdirectory is empty
             raise ValueError(f"No subject directories found under {parent_dir} matching {self.subject_ids}")
     

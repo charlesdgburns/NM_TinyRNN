@@ -27,6 +27,41 @@ import pandas as pd
 from NM_TinyRNN.code.measures import analysis
 from NM_TinyRNN.code.models import submit_jobs 
 
+def holdout_most_recent(subdf: pd.DataFrame) -> pd.DataFrame:
+    """
+    Prevents selection of models where the evaluation set was the 
+    most recent chunk of sessions (e.g., outer_loop_number == 10 / max outer fold).
+    """
+    if subdf.empty:
+        return subdf
+
+    # Identify outer loop column
+    outer_col = None
+    for col in ["outer_loop_number", "outer_loop_n", "outer_fold", "outer_loop_idx"]:
+        if col in subdf.columns:
+            outer_col = col
+            break
+
+    # If column not explicitly named, infer from path/info column if available
+    if outer_col is None and "info_path" in subdf.columns:
+        # Extract outer fold integer from info_path (e.g., 'outer_fold_10')
+        subdf = subdf.copy()
+        subdf["_inferred_outer"] = subdf["info_path"].str.extract(r'outer_fold_(\d+)').astype(float)
+        outer_col = "_inferred_outer"
+
+    if outer_col and outer_col in subdf.columns:
+        max_outer = subdf[outer_col].max()
+        # Filter out the maximum (most recent) outer loop fold
+        filtered_subdf = subdf[subdf[outer_col] != max_outer]
+        
+        # Cleanup temporary column if created
+        if outer_col == "_inferred_outer":
+            filtered_subdf = filtered_subdf.drop(columns=["_inferred_outer"])
+            
+        return filtered_subdf
+
+    # If no outer loop column is present, return subdf as-is
+    return subdf
 
 def closest_to_median(subdf):
     """Finds the row closest to the median value of 'eval_CE'."""
@@ -94,8 +129,7 @@ def copy_representative_models(df, example_path):
                 print(f"Warning: {src} not found!")
                 
     print(f"\nSuccessfully processed and copied {copied_count} files.")
-
-
+    
 def main():
     # 1. Setup Command Line Arguments
     parser = argparse.ArgumentParser(description="Filter and copy model data based on model_id.")
@@ -111,6 +145,12 @@ def main():
         choices=["median", "min"], 
         default="median",
         help="Select whether to find the model closest to the 'median' or the absolute 'min' performance."
+    )
+    parser.add_argument(
+        "--holdout_recent",
+        action="store_true",
+        default=True,
+        help="Exclude the most recent temporal chunk (e.g. outer loop 10) from evaluation selection."
     )
     parser.add_argument(
         "--output_dir", 
@@ -134,21 +174,27 @@ def main():
         print(f"Error: No records found matching model_id '{args.model_id}'. Exiting.")
         return
 
-    # 4. Group by Subject and Apply Selection Metric
+    # 4. Filter out the most recent outer loop chunk if requested
+    if args.holdout_recent:
+        print("Holding out the most recent session chunk (outer fold) from selection...")
+        filtered_df = (
+            filtered_df.groupby(["model_id", "subject_id"], as_index=False)
+            .apply(holdout_most_recent)
+            .reset_index(drop=True)
+        )
+
+    # 5. Group by Subject and Apply Selection Metric
     print(f"Grouping by 'subject_id' and finding the representative '{args.metric}' models...")
     
-    # Selection mapping based on CLI choice
     metric_func = closest_to_median if args.metric == "median" else idx_min
 
-    # Group by subject_id (and model_id since it's a fixed constant here)
-    # as_index=False keeps it clean for the subsequent iteration
     representative_df = (
         filtered_df.groupby(["model_id", "subject_id"], as_index=False)
         .apply(metric_func)
         .reset_index(drop=True)
     )
 
-    # 5. Copy the chosen models over to target directory
+    # 6. Copy the chosen models over to target directory
     print(f"Starting file copy routine to: {args.output_dir}")
     copy_representative_models(representative_df, args.output_dir)
 
