@@ -104,14 +104,21 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
                 for nonlinearity in nonlinearities:
                     for input_forced_choice in input_forced_choices:
                         for input_encoding in input_encodings:
-                            constraint= 'energy' if nonlinearity == 'relu' else 'sparsity'
                             for hidden_size in hidden_sizes:
+                                if input_encoding == 'unipolar' and hidden_size == 2 and model_type in ['vanilla', 'GRU','monoGRU']:
+                                    decoder_biases = [True,False] 
+                                elif model_type in ['monoGRU_no_hidden','monoGRU_hidden_only']:
+                                    decoder_biases = [False]
+                                else:
+                                    decoder_biases = [True]
                                 for decoder_bias in decoder_biases:
                                     model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
                                     if input_forced_choice:
                                         model_id+= '_forced'
                                     if decoder_bias == False:
                                         model_id+= '_ndb'
+                                        
+                                    constraint = 'energy' if nonlinearity == 'relu' else 'sparsity'
                                     model_save_path = save_path/'nested_DA_128'/subject_ID/model_type/constraint
                                     completed = 1
                                     for inner_loop_n in range(0,nested_cv.N_OUTER_LOOPS-1):
