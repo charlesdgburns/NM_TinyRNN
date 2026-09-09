@@ -12,6 +12,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
 from scipy.stats import ttest_rel, ttest_ind
@@ -32,7 +33,11 @@ RNNS_PATH = DATA_PATH/'rnns' #this folder should contain a folder per subject, a
 
 def get_analysis_df(info_df, mode='all', n_jobs=-1, use_cache=True):
     '''
-    Load model data in parallel with optional caching and add model_type2 column.
+    Load model data in parallel with optional caching and add computed columns.
+    
+    Computes for each model:
+    - model_type2: model type with '+BC' suffix if relu, '-DB' if no decoder bias
+    - train_CE, val_CE, eval_CE_computed: cross-entropy losses on each split
     
     Args:
         info_df: DataFrame with model information
@@ -42,7 +47,10 @@ def get_analysis_df(info_df, mode='all', n_jobs=-1, use_cache=True):
         use_cache: If True, load from cache if available (default True)
     
     Returns:
-        DataFrame with model data and model_type2 column added
+        DataFrame with model data and computed columns. Note: eval_CE_computed
+        is computed from trials_data with continuous hidden state (no resets),
+        while eval_CE is from training with batch-wise resets. Typically
+        eval_CE_computed is ~0.05 higher due to this difference.
     '''
     # Cache path
     cache_path = DATA_PATH / 'analysis' / 'analysis_df.htsv'
@@ -56,7 +64,7 @@ def get_analysis_df(info_df, mode='all', n_jobs=-1, use_cache=True):
         except Exception as e:
             print(f"Warning: Could not load from cache: {e}. Recomputing...")
     
-    # Compute the dataframe (model_type2 is computed inline in get_model_data)
+    # Compute the dataframe (model_type2 and CE values computed inline in get_model_data)
     results = Parallel(n_jobs=n_jobs)(
         delayed(get_model_data)(row, mode) for row in info_df.itertuples()
     )
@@ -82,7 +90,11 @@ def _compute_model_type2(model_type, nonlinearity, decoder_bias):
 
  
 def get_model_data(each_model, mode='all'):
-    '''Load data for model. Reads all inner folders once, filters by mode.'''
+    '''Load data for model. Reads all inner folders once, filters by mode.
+    
+    Also computes cross-entropy losses for all three splits (train, val, eval)
+    from the trials_data file.
+    '''
     if not each_model.completed:
         print(f"Model {each_model.model_id} has not completed training.")
         return []
@@ -101,6 +113,8 @@ def get_model_data(each_model, mode='all'):
             continue
         
         info_path = inner_folder / f'{each_model.model_id}_info.json'
+        trials_data_path = inner_folder / f'{each_model.model_id}_trials_data.htsv'
+        
         if not info_path.exists():
             continue
         
@@ -115,6 +129,21 @@ def get_model_data(each_model, mode='all'):
                 each_model.decoder_bias
             )
             
+            # Compute cross-entropy for all splits from trials_data
+            train_ce = float("nan")
+            val_ce = float("nan")
+            eval_ce = float("nan")
+            
+            if trials_data_path.exists():
+                try:
+                    trials_df = load_data(trials_data_path)
+                    train_ce = cross_entropy_from_trials_df(trials_df, 'train')
+                    val_ce = cross_entropy_from_trials_df(trials_df, 'val')
+                    eval_ce = cross_entropy_from_trials_df(trials_df, 'eval')
+                    train_val_ce = cross_entropy_from_trials_df(trials_df, 'train_val')
+                except Exception as e:
+                    print(f"Warning: Could not compute CE for {trials_data_path}: {e}")
+            
             row = {
                 **base_row,
                 "model_type2": model_type2,
@@ -123,12 +152,17 @@ def get_model_data(each_model, mode='all'):
                 "model_state_path": str(inner_folder / f'{each_model.model_id}_model_state.pth'),
                 "model_pickle_path": str(inner_folder / f'{each_model.model_id}_model.pickle'),
                 "training_losses_path": str(inner_folder / f'{each_model.model_id}_training_losses.htsv'),
-                "trials_data_path": str(inner_folder / f'{each_model.model_id}_trials_data.htsv'),
+                "trials_data_path": str(trials_data_path),
                 "eval_CE": info_dict.get('eval_pred_loss'),
                 "best_val_CE": info_dict.get('val_loss'),
                 "weight_seed": winning_config.get('weight_seed'),
                 "sparsity_lambda": winning_config.get('sparsity_lambda'),
-                "energy_lambda": winning_config.get('energy_lambda')
+                "energy_lambda": winning_config.get('energy_lambda'),
+                "train_CE": train_ce,
+                "val_CE": val_ce,
+                "train_val_CE":train_val_ce,
+                "eval_CE_computed": eval_ce
+                
             }
             all_rows.append(row)
             
@@ -168,97 +202,80 @@ def load_data(filepath):
         raise ValueError(f"Unsupported file type: {filepath}")
     return data
 
+# recomputing cross entropy for trian and validation splits #
 
-class TrialsDataset(Dataset):
-    '''
-    Convert a trials_data DataFrame into a PyTorch Dataset.
+def cross_entropy_from_trials_df(trials_df: pd.DataFrame, split: str) -> float:
+    """
+    Compute cross-entropy loss on a specified split (or aggregated splits) 
+    from trial-by-trial predictions. Excludes forced-choice trials from the loss calculation.
     
-    Takes a dataframe with columns ['forced_choice', 'choice', 'outcome', 'good_poke']
-    and creates sequences of (inputs, targets, forced_choice_mask).
-    '''
-    def __init__(self, trials_df, sequence_length=64, device='cpu'):
-        '''
-        Args:
-            trials_df: DataFrame with required columns ['forced_choice', 'choice', 'outcome', 'good_poke']
-            sequence_length: Length of sequences to create
-            device: Device to move tensors to ('cpu' or 'cuda')
-        '''
-        self.device = device
-        self.sequence_length = sequence_length
-        
-        # Validate required columns
-        required_cols = ['forced_choice', 'choice', 'outcome', 'good_poke']
-        assert all(col in trials_df.columns for col in required_cols), \
-            f"DataFrame must contain columns {required_cols}"
-        
-        # Encode categorical/boolean columns
-        df = trials_df.copy()
-        df['forced_choice'] = df['forced_choice'].astype(int)
-        df['outcome'] = df['outcome'].astype(int)
-        df['choice'] = df['choice'].astype('category').cat.codes.astype(int)
-        df['good_poke'] = df['good_poke'].astype('category').cat.codes.astype(int)
-        
-        # Create tensor from forced_choice, choice, outcome
-        data_tensor = torch.tensor(
-            df[['forced_choice', 'choice', 'outcome']].values, 
-            dtype=torch.float32
-        )
-        
-        num_rows = data_tensor.size(0)
-        remainder = num_rows % (self.sequence_length + 1)
-        
-        # Trim remainder to fit sequences evenly
-        if remainder != 0:
-            data_tensor = data_tensor[:-remainder]
-        
-        # Reshape into sequences
-        num_sequences = data_tensor.size(0) // (self.sequence_length + 1)
-        sequences = data_tensor.view(num_sequences, self.sequence_length + 1, data_tensor.size(1))
-        
-        # Create inputs (t) and targets (t+1)
-        # Inputs: forced_choice, choice, outcome at time t
-        inputs = sequences[:, :-1, :]  # (num_seq, seq_len, 3)
-        
-        # Targets: choice at time t+1, one-hot encoded
-        targets_codes = sequences[:, 1:, 1].long()  # (num_seq, seq_len)
-        targets = torch.nn.functional.one_hot(targets_codes, num_classes=2).float()
-        
-        # Mask: which targets come from forced choices
-        # aligned with target (not current action), so we look at forced_choice at t+1
-        forced_choice_mask = sequences[:, 1:, 0]  # (num_seq, seq_len)
-        
-        # Move to device and store
-        self.inputs = inputs.to(device)
-        self.targets = targets.to(device)
-        self.forced_choice_mask = forced_choice_mask.to(device)
+    Equivalent to rnns.py compute_losses() which uses:
+        free_choice = (forced_choice_mask==0)
+        predictions = predictions[free_choice]
+        targets = targets[free_choice]
     
-    def __len__(self):
-        return len(self.inputs)
+    Note: probs[i] predict choice[i+1], so we SHIFT FIRST on the full 
+    dataset, then filter by split to maintain temporal continuity.
     
-    def __getitem__(self, idx):
-        return self.inputs[idx], self.targets[idx], self.forced_choice_mask[idx]
+    Hidden state is NOT reset between sequences in trials_data (unlike training),
+    so this loss represents performance under continuous session conditions.
+    
+    Parameters
+    ----------
+    trials_df : DataFrame with columns 'split', 'forced_choice', 'choice', 'prob_A', 'prob_B'
+    split : str, either 'train', 'val', 'eval', or 'train_val' (to aggregate train + val)
+    
+    Returns
+    -------
+    float : mean cross-entropy loss on free-choice trials in the specified split(s), or NaN if empty
+    """
+    df = trials_df.reset_index(drop=True)
+    
+    if len(df) < 2:
+        return float("nan")
+    
+    # Shift to align: probs[i] predict choice[i+1]
+    targets = torch.tensor(df['choice'].values[1:], dtype=torch.long)
+    probs = torch.tensor(df[['prob_A', 'prob_B']].values[:-1], dtype=torch.float32)
+    
+    # Extract forced_choice status aligned with targets (time t+1)
+    forced_mask = df['forced_choice'].values[1:].astype(int)
+    split_labels = df['split'].values[1:]
+    
+    # Filter to specified split only (on the TARGET trials)
+    # Check for individual splits or the aggregated 'train_val' option
+    if split == 'train_val':
+        split_idx = (split_labels == 'train') | (split_labels == 'val')
+    else:
+        split_idx = (split_labels == split)
+    
+    if not split_idx.any():
+        return float("nan")
+    
+    targets = targets[split_idx]
+    probs = probs[split_idx]
+    forced_mask = forced_mask[split_idx]
+    
+    # Further filter to free-choice trials only
+    free_choice_mask = (forced_mask == 0)
+    
+    if not free_choice_mask.any():
+        return float("nan")
+    
+    targets = targets[free_choice_mask]
+    probs = probs[free_choice_mask]
+    
+    # Cross-entropy loss (default is mean reduction)
+    loss = F.cross_entropy(probs, targets)
+    return loss.item()
 
-
-def trials_data_to_dataset(trials_df, split=None, sequence_length=64, device='cpu'):
-    '''
-    Convert a trials_data DataFrame into a TrialsDataset.
+def select_best_outer(analysis_df):
+    # --- SELECT MODEL WITH HIGHEST (val_CE + train_CE) ACROSS INNER FOLDS ---
+    group_cols = ['model_type2', 'hidden_size', 'subject_id', 'outer_loop_n']
     
-    Args:
-        trials_df: DataFrame with required columns ['forced_choice', 'choice', 'outcome', 'good_poke']
-        split: Optional string to filter by 'split' column (e.g., 'eval', 'train', 'val')
-        sequence_length: Length of sequences to create (default 64)
-        device: Device to move tensors to (default 'cpu')
+    # 3. Find indices corresponding to max total_CE across inner_fold_idx
+    min_idx = select_models.groupby(group_cols)['train_val_CE'].idxmin()
     
-    Returns:
-        TrialsDataset object ready for training/evaluation
-    
-    Example:
-        >>> eval_trials = trials_df.query('split == "eval"')
-        >>> dataset = analysis.trials_data_to_dataset(eval_trials, device='cuda')
-    '''
-    df = trials_df.copy()
-    
-    if split is not None and 'split' in df.columns:
-        df = df[df['split'] == split]
-    
-    return TrialsDataset(df, sequence_length=sequence_length, device=device)
+    # 4. Filter DataFrame down to the selected inner fold runs
+    select_models = select_models.loc[min_idx].drop(columns=['train_val_CE'])
+    return select_models

@@ -105,7 +105,7 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
                     for input_forced_choice in input_forced_choices:
                         for input_encoding in input_encodings:
                             for hidden_size in hidden_sizes:
-                                if input_encoding == 'unipolar' and hidden_size == 2 and model_type in ['vanilla', 'GRU','monoGRU']:
+                                if input_encoding == 'unipolar' and nonlinearity =='relu' and model_type in ['vanilla', 'GRU','monoGRU']:
                                     decoder_biases = [True,False] 
                                 elif model_type in ['monoGRU_no_hidden','monoGRU_hidden_only']:
                                     decoder_biases = [False]
