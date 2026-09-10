@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 
 from joblib import Parallel, delayed
+import numpy as np
 import pandas as pd
 import torch
-import torch.nn.functional as F
 
 from NM_TinyRNN.code.measures.analysis import DATA_PATH
 
@@ -15,7 +15,8 @@ def get_performance_df(analysis_df, n_jobs=-1, use_cache=True):
     '''Add saved performance values and trial-level metrics to path rows.'''
     cache_path = DATA_PATH / 'analysis' / 'performance_df.htsv'
     required_columns = {
-        'eval_CE', 'best_val_CE', 'train_CE', 'val_CE', 'eval_CE_computed'
+        'eval_CE', 'best_val_CE', 'train_CE', 'val_CE', 'eval_CE_computed',
+        'train_n_free', 'val_n_free', 'eval_n_free'
     }
 
     if use_cache and cache_path.exists():
@@ -56,9 +57,9 @@ def get_model_performance(each_model):
         'val_CE': float('nan'),
         'train_val_CE': float('nan'),
         'eval_CE_computed': float('nan'),
-        'train_n_trials': float('nan'),
-        'val_n_trials': float('nan'),
-        'eval_n_trials': float('nan'),
+        'train_n_free': float('nan'),
+        'val_n_free': float('nan'),
+        'eval_n_free': float('nan'),
     }
 
     winning_config = info_dict.get('winning_config', {})
@@ -69,13 +70,10 @@ def get_model_performance(each_model):
     trials_path = Path(each_model.trials_data_path)
     if trials_path.exists():
         trials_df = load_data(trials_path)
-        metrics['train_n_trials'] = count_trials_from_trials_df(trials_df, 'train')
-        metrics['val_n_trials'] = count_trials_from_trials_df(trials_df, 'val')
-        metrics['eval_n_trials'] = count_trials_from_trials_df(trials_df, 'eval')
-        metrics['train_CE'] = cross_entropy_from_trials_df(trials_df, 'train')
-        metrics['val_CE'] = cross_entropy_from_trials_df(trials_df, 'val')
-        metrics['train_val_CE'] = cross_entropy_from_trials_df(trials_df, 'train_val')
-        metrics['eval_CE_computed'] = cross_entropy_from_trials_df(trials_df, 'eval')
+        metrics['train_CE'], metrics['train_n_free'] = cross_entropy_from_trials_df(trials_df, 'train')
+        metrics['val_CE'], metrics['val_n_free'] = cross_entropy_from_trials_df(trials_df, 'val')
+        metrics['train_val_CE'], _ = cross_entropy_from_trials_df(trials_df, 'train_val')
+        metrics['eval_CE_computed'], metrics['eval_n_free'] = cross_entropy_from_trials_df(trials_df, 'eval')
 
     return metrics
 
@@ -90,26 +88,14 @@ def load_data(filepath):
     raise ValueError(f'Unsupported file type: {filepath}')
 
 
-def count_trials_from_trials_df(trials_df: pd.DataFrame, split: str) -> int:
-    '''Count trials assigned to a split.'''
-    split_mask = (
-        trials_df['split'].isin(['train', 'val'])
-        if split == 'train_val'
-        else trials_df['split'] == split
-    )
-    return int(split_mask.sum())
-
-
-def cross_entropy_from_trials_df(trials_df: pd.DataFrame, split: str) -> float:
-    '''Compute cross-entropy on free-choice target trials in a split.'''
+def cross_entropy_from_trials_df(trials_df: pd.DataFrame, split: str) -> tuple[float, int]:
+    '''Compute NLL from softmax probabilities and count free-choice targets.'''
     dataframe = trials_df.reset_index(drop=True)
     if len(dataframe) < 2:
-        return float('nan')
+        return float('nan'), 0
 
-    targets = torch.tensor(dataframe['choice'].values[1:], dtype=torch.long)
-    probabilities = torch.tensor(
-        dataframe[['prob_A', 'prob_B']].values[:-1], dtype=torch.float32
-    )
+    targets = dataframe['choice'].values[1:].astype(int)
+    probabilities = dataframe[['prob_A', 'prob_B']].values[:-1].astype(float)
     forced_mask = dataframe['forced_choice'].values[1:].astype(int)
     split_labels = dataframe['split'].values[1:]
     if split == 'train_val':
@@ -118,13 +104,13 @@ def cross_entropy_from_trials_df(trials_df: pd.DataFrame, split: str) -> float:
         split_mask = split_labels == split
 
     free_choice_mask = split_mask & (forced_mask == 0)
+    n_free = int(free_choice_mask.sum())
     if not free_choice_mask.any():
-        return float('nan')
+        return float('nan'), n_free
 
-    return F.cross_entropy(
-        probabilities[free_choice_mask],
-        targets[free_choice_mask],
-    ).item()
+    target_probabilities = probabilities[free_choice_mask, targets[free_choice_mask]]
+    loss = float(-np.log(np.clip(target_probabilities, np.finfo(float).tiny, 1.0)).mean())
+    return loss, n_free
 
 
 def select_best_outer(performance_df):
@@ -138,11 +124,11 @@ def compute_outer_mean(performance_df):
     '''Aggregate outer-fold performance while preserving model metadata.
 
     ``eval_CE_computed`` is averaged across outer folds using
-    ``eval_n_trials`` as the weight for each fold. All non-fold columns are
+    ``eval_n_free`` as the weight for each fold. All non-fold columns are
     retained using their first value within each subject/model group.
     '''
     required_columns = {
-        'subject_id', 'model_id', 'eval_CE_computed', 'eval_n_trials'
+        'subject_id', 'model_id', 'eval_CE_computed', 'eval_n_free'
     }
     missing_columns = required_columns.difference(performance_df.columns)
     if missing_columns:
@@ -152,7 +138,7 @@ def compute_outer_mean(performance_df):
 
     dataframe = performance_df.copy()
     dataframe['_eval_weight'] = pd.to_numeric(
-        dataframe['eval_n_trials'], errors='coerce'
+        dataframe['eval_n_free'], errors='coerce'
     )
     dataframe['_eval_score'] = pd.to_numeric(
         dataframe['eval_CE_computed'], errors='coerce'
@@ -165,7 +151,7 @@ def compute_outer_mean(performance_df):
     group_columns = ['subject_id', 'model_id']
     columns_to_drop = {
         'outer_loop_n', 'inner_loop_idx', 'eval_CE', 'eval_CE_computed',
-        'eval_n_trials',
+        'eval_n_free',
         '_eval_weight', '_eval_score'
     }
     metadata_columns = [
@@ -179,14 +165,14 @@ def compute_outer_mean(performance_df):
         fold_counts.rename('n_outer_folds'),
         on=group_columns,
     ).merge(
-        trial_counts.rename('eval_n_trials'),
+        trial_counts.rename('eval_n_free'),
         on=group_columns,
     )
     weighted_values = dataframe.loc[valid_rows].assign(
         weighted_eval_CE=lambda rows: rows['_eval_score'] * rows['_eval_weight']
     ).groupby(group_columns, sort=False).agg(
         weighted_eval_CE=('weighted_eval_CE', 'sum'),
-        valid_eval_n_trials=('_eval_weight', 'sum'),
+        valid_eval_n_free=('_eval_weight', 'sum'),
     )
     aggregated = aggregated.merge(
         weighted_values,
@@ -194,6 +180,6 @@ def compute_outer_mean(performance_df):
         how='left',
     )
     aggregated['eval_CE_computed'] = (
-        aggregated['weighted_eval_CE'] / aggregated['valid_eval_n_trials']
+        aggregated['weighted_eval_CE'] / aggregated['valid_eval_n_free']
     )
-    return aggregated.drop(columns=['weighted_eval_CE', 'valid_eval_n_trials'])
+    return aggregated.drop(columns=['weighted_eval_CE', 'valid_eval_n_free'])

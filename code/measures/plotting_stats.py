@@ -72,8 +72,9 @@ def plot_pairwise_wilcoxon(
     correction_method='fdr_bh',
     ax=None,
     figsize=(10, 8),
+    significance_level=0.05,
 ):
-    """Plot FDR-adjusted paired Wilcoxon p-values as a heatmap."""
+    """Plot adjusted paired Wilcoxon p-values as a lower-triangle heatmap."""
     if model_order is None:
         model_order = sorted(df[model_col].dropna().unique())
     results_df = compute_pairwise_wilcoxon(
@@ -106,6 +107,27 @@ def plot_pairwise_wilcoxon(
         cbar_kws={'label': f'{correction_method}-adjusted p-value'},
         ax=ax,
     )
+    for row_index, model_a in enumerate(model_order):
+        for column_index, model_b in enumerate(model_order):
+            if row_index <= column_index:
+                continue
+            adjusted_p = p_values.loc[model_a, model_b]
+            if adjusted_p < significance_level:
+                ax.add_patch(
+                    plt.Rectangle(
+                        (column_index, row_index),
+                        1,
+                        1,
+                        fill=False,
+                        edgecolor='red',
+                        linewidth=2.5,
+                    )
+                )
+
+    ax.set_yticks(np.arange(1.5, len(model_order), 1))
+    ax.set_yticklabels(model_order[1:], rotation=0)
+    ax.set_xticks(np.arange(0.5, len(model_order) - 0.5, 1))
+    ax.set_xticklabels(model_order[:-1], rotation=45, ha='right')
     ax.set_title('Pairwise Wilcoxon signed-rank tests')
     ax.set_xlabel('')
     ax.set_ylabel('')

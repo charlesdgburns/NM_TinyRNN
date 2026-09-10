@@ -108,3 +108,13 @@ def select_best_outer(analysis_df):
     from NM_TinyRNN.code.measures.performance import select_best_outer as _select_best_outer
 
     return _select_best_outer(analysis_df)
+
+
+def load_data(filepath):
+    filepath = str(filepath)
+    if filepath.endswith('.json'):
+        with open(filepath, 'r') as file:
+            return json.load(file)
+    if filepath.endswith('.htsv'):
+        return pd.read_csv(filepath, sep='\t')
+    raise ValueError(f'Unsupported file type: {filepath}')
