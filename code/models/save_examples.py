@@ -18,6 +18,7 @@ if package_parent_dir not in sys.path:
 
 # Now your imports will work smoothly
 from NM_TinyRNN.code.measures import analysis
+from NM_TinyRNN.code.measures import performance
 from NM_TinyRNN.code.models import submit_jobs
 import shutil
 from pathlib import Path
@@ -164,7 +165,8 @@ def main():
     # 2. Fetch Dataframes
     print("Fetching analysis dataframes... (this may take a moment)")
     info_df = submit_jobs.get_job_info_df()
-    all_models_df = analysis.get_analysis_df(info_df, mode='all')
+    analysis_df = analysis.get_analysis_df(info_df, mode='all')
+    all_models_df = performance.get_performance_df(analysis_df)
 
     # 3. Filter DataFrame by the provided model_id
     print(f"Filtering dataset for model_id: '{args.model_id}'")

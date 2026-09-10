@@ -12,6 +12,105 @@ from itertools import combinations
 
 from scipy.stats import ttest_rel, wilcoxon, shapiro
 
+
+def compute_pairwise_wilcoxon(
+    df,
+    value_col,
+    model_col='model_type2',
+    subject_col='subject_id',
+    model_order=None,
+    correction_method='fdr_bh',
+):
+    """Compute paired Wilcoxon tests for every pair of models."""
+    if model_order is None:
+        model_order = sorted(df[model_col].dropna().unique())
+
+    wide = df.pivot_table(
+        index=subject_col,
+        columns=model_col,
+        values=value_col,
+        aggfunc='first',
+    ).reindex(columns=model_order)
+
+    results = []
+    for model_a, model_b in combinations(model_order, 2):
+        paired = wide[[model_a, model_b]].dropna()
+        differences = paired[model_a] - paired[model_b]
+        if paired.empty or differences.eq(0).all():
+            statistic = np.nan
+            p_value = 1.0 if differences.eq(0).all() else np.nan
+        else:
+            statistic, p_value = wilcoxon(
+                paired[model_a], paired[model_b]
+            )
+        results.append({
+            'model_a': model_a,
+            'model_b': model_b,
+            'n_subjects': len(paired),
+            'statistic': statistic,
+            'p_value': p_value,
+            'median_difference': differences.median(),
+        })
+
+    results_df = pd.DataFrame(results)
+    valid = results_df['p_value'].notna()
+    results_df['p_adjusted'] = np.nan
+    if valid.any():
+        results_df.loc[valid, 'p_adjusted'] = multipletests(
+            results_df.loc[valid, 'p_value'],
+            method=correction_method,
+        )[1]
+    return results_df
+
+
+def plot_pairwise_wilcoxon(
+    df,
+    value_col,
+    model_col='model_type2',
+    subject_col='subject_id',
+    model_order=None,
+    correction_method='fdr_bh',
+    ax=None,
+    figsize=(10, 8),
+):
+    """Plot FDR-adjusted paired Wilcoxon p-values as a heatmap."""
+    if model_order is None:
+        model_order = sorted(df[model_col].dropna().unique())
+    results_df = compute_pairwise_wilcoxon(
+        df,
+        value_col=value_col,
+        model_col=model_col,
+        subject_col=subject_col,
+        model_order=model_order,
+        correction_method=correction_method,
+    )
+
+    p_values = pd.DataFrame(1.0, index=model_order, columns=model_order)
+    for result in results_df.itertuples():
+        p_values.loc[result.model_a, result.model_b] = result.p_adjusted
+        p_values.loc[result.model_b, result.model_a] = result.p_adjusted
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=figsize)
+    mask = np.triu(np.ones_like(p_values, dtype=bool))
+    sns.heatmap(
+        p_values,
+        mask=mask,
+        annot=True,
+        fmt='.3f',
+        vmin=0,
+        vmax=1,
+        cmap='viridis_r',
+        square=True,
+        linewidths=0.5,
+        cbar_kws={'label': f'{correction_method}-adjusted p-value'},
+        ax=ax,
+    )
+    ax.set_title('Pairwise Wilcoxon signed-rank tests')
+    ax.set_xlabel('')
+    ax.set_ylabel('')
+    return ax, results_df
+
 def compute_paired_stats(df, y, x, within_variable, paired_across, 
                          mean_across=None, filter_by=None, hue_order=None,
                          correction_method='fdr_bh', alpha=0.05):
@@ -36,6 +135,15 @@ def compute_paired_stats(df, y, x, within_variable, paired_across,
     if df[x].nunique() != 2:
         x_vals = sorted(df[x].unique())
         raise ValueError(f"'{x}' must have exactly 2 levels for paired testing, found: {x_vals}")
+
+    if not mean_across:
+        duplicate_rows = df.groupby([paired_across, within_variable, x]).size()
+        if (duplicate_rows > 1).any():
+            raise ValueError(
+                "Duplicate observations found for a subject/condition pair. "
+                "Pass mean_across for fold-level data, or provide one row per "
+                f"({paired_across}, {within_variable}, {x}) for subject-level data."
+            )
 
     within_levels = hue_order if hue_order is not None else sorted(df[within_variable].unique())
     
