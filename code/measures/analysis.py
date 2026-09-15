@@ -1,8 +1,11 @@
 '''Build dataframes containing saved model paths for downstream analyses.'''
 
 from joblib import Parallel, delayed
+import json
+import pickle
 import pandas as pd
 from pathlib import Path
+import torch
 
 
 DATA_PATH = Path('./NM_TinyRNN/data/')
@@ -111,10 +114,16 @@ def select_best_outer(analysis_df):
 
 
 def load_data(filepath):
+    """Load JSON, HTSV, pickle, or PyTorch checkpoint data."""
     filepath = str(filepath)
     if filepath.endswith('.json'):
         with open(filepath, 'r') as file:
             return json.load(file)
     if filepath.endswith('.htsv'):
         return pd.read_csv(filepath, sep='\t')
+    if filepath.endswith('.pickle'):
+        with open(filepath, 'rb') as file:
+            return pickle.load(file)
+    if filepath.endswith('.pth'):
+        return torch.load(filepath, weights_only=True)
     raise ValueError(f'Unsupported file type: {filepath}')

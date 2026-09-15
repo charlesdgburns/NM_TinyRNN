@@ -100,20 +100,38 @@ def add_data(analysis_df):
 
 COMPONENTS = ['hidden', 'gate_update', 'gate_reset', 'logit_value']
 
-def compute_similarities(analysis_df, n_jobs=-1):
-    """Compute similarity of activations within each (model_id, subject_id) group, in parallel."""
+def compute_similarities(analysis_df, n_jobs=-1, similarity_measure="pearson"):
+    """Compute activation similarity within each (model_id, subject_id) group."""
+    if similarity_measure not in {"pearson", "cosine"}:
+        raise ValueError(
+            "similarity_measure must be either 'pearson' or 'cosine'"
+        )
+
     groups = list(analysis_df.groupby(['model_id', 'subject_id']))
- 
+
     results = Parallel(n_jobs=n_jobs)(
-        delayed(_process_group)(group_rows.reset_index(drop=True), model_id, subject_id)
+        delayed(_process_group)(
+            group_rows.reset_index(drop=True),
+            model_id,
+            subject_id,
+            similarity_measure,
+        )
         for (model_id, subject_id), group_rows in groups
     )
- 
+
     results = [r for r in results if r is not None]
-    return pd.DataFrame([row for result in results for row in result]) if results else pd.DataFrame()
- 
- 
-def _process_group(group_rows, model_id, subject_id):
+    return (
+        pd.DataFrame([row for result in results for row in result])
+        if results else pd.DataFrame()
+    )
+
+
+def _process_group(
+    group_rows,
+    model_id,
+    subject_id,
+    similarity_measure="pearson",
+):
     """
     For a single (model_id, subject_id):
     - Builds a (n_trials, n_outer, n_inner, n_comp) matrix
@@ -175,18 +193,23 @@ def _process_group(group_rows, model_id, subject_id):
         # For each fold column: [col0_trial0..col0_trialN, col1_trial0..col1_trialN, ...]
         X_comp = X_comp.transpose(2, 0, 1).reshape(-1, n_folds)  # (n_cidx * n_trials, n_folds)
  
-        # Pearson r via normalised dot product:
-        # subtract column mean, divide by column norm -> each column has mean=0, norm=1
-        # then corr(i,j) = col_i · col_j  (no further division needed)
-        X_comp = X_comp - np.nanmean(X_comp, axis=0, keepdims=True)
-        norms = np.linalg.norm(X_comp, axis=0, keepdims=True)
+        # Pearson or cosine similarity.
+        if similarity_measure == "pearson":
+            # Center each fold before normalizing.
+            X_sim = X_comp - np.nanmean(
+                X_comp, axis=0, keepdims=True
+            )
+        else:
+            # Cosine similarity uses the original vectors.
+            X_sim = X_comp
+
+        norms = np.linalg.norm(X_sim, axis=0, keepdims=True)
         norms[norms == 0] = np.nan
-        X_comp = X_comp / norms  # each column now unit norm
- 
-        corr_matrix = X_comp.T @ X_comp  # (n_folds, n_folds) — exact Pearson r
- 
-        pair_sims = corr_matrix[fi, fj]  # upper triangle, shape (n_pairs,)
- 
+        X_sim = X_sim / norms
+
+        corr_matrix = X_sim.T @ X_sim
+        pair_sims = corr_matrix[fi, fj]
+
         for k in range(len(fi)):
             results.append({
                 "model_id":       model_id,
@@ -197,8 +220,9 @@ def _process_group(group_rows, model_id, subject_id):
                 "model_B_inner_n": fold_inner[fj[k]],
                 "component":      comp,
                 "similarity":     pair_sims[k],
+                "similarity_measure": similarity_measure,
             })
- 
+
     return results
  
 from scipy.optimize import linear_sum_assignment
@@ -373,7 +397,7 @@ def parameter_contribution_df(best_models_df):
     for each_model in best_models_df.itertuples():
         model =  analysis.load_data(each_model.model_pickle_path)
         params_dict = {k:v.detach().numpy() for k,v in model.named_parameters()}
-        for each_input in ['outcome','past_choice','past_hidden']:
+        for each_input in ['context','past_choice','outcome','past_hidden']:
             for each_output in ['update_gate','reset_gate','hidden_state']:
                 if each_output == 'hidden_state': param_keys = ['rnn.W_ih', 'rnn.W_hh']
                 elif each_output == 'update_gate': param_keys = ['rnn.W_iz', 'rnn.W_hz']
@@ -384,10 +408,10 @@ def parameter_contribution_df(best_models_df):
                     contributions_dict['value'].append(np.nan)
                 else:
                     total_abs_weights = sum(np.sum(np.abs(params_dict[k])) for k in param_keys)
-                    if each_input == 'outcome': input_weights = params_dict[param_keys[0]][0,:]
+                    if each_input == 'context': input_weights = params_dict[param_keys[0]][0,:]
                     elif each_input == 'past_choice': input_weights = params_dict[param_keys[0]][1,:]
+                    elif each_input == 'outcome': input_weights = params_dict[param_keys[0]][2,:]
                     elif each_input == 'past_hidden': input_weights = params_dict[param_keys[1]]
-                    
                     contributions_dict['value'].append(np.sum(np.abs(input_weights)) / total_abs_weights)
 
                 contributions_dict['model_id'].append(each_model.model_id)
@@ -416,13 +440,21 @@ def _concat_weights(params):
     keys = sorted(params.keys())
     return np.concatenate([params[k].ravel() for k in keys])
 
-def _similarity(a, b):
-    """Pearson correlation between two flat vectors."""
-    a = a - a.mean()
-    b = b - b.mean()
+def _similarity(a, b, similarity_measure="pearson"):
+    """Compute Pearson or cosine similarity between two vectors."""
+    if similarity_measure not in {"pearson", "cosine"}:
+        raise ValueError(
+            "similarity_measure must be either 'pearson' or 'cosine'"
+        )
+
+    if similarity_measure == "pearson":
+        a = a - a.mean()
+        b = b - b.mean()
+
     denom = np.linalg.norm(a) * np.linalg.norm(b)
     if denom == 0:
         return np.nan
+
     return np.dot(a, b) / denom
 
 def _gate_dim(params):
@@ -713,48 +745,23 @@ def canonicalize_1unit_gru(params):
     
     return p
 
-def compute_weight_similarities(models_df, model_pickle_col='model_pickle_path',
-                                model_id_col='model_id', subject_col='subject_id'):
+def compute_weight_similarities(
+    models_df,
+    model_pickle_col="model_pickle_path",
+    model_id_col="model_id",
+    subject_col="subject_id",
+    similarity_measure="pearson",
+):
     """
-    Computes pairwise weight similarity across subjects for each model type,
-    accounting for the single hidden-unit permutation symmetry.
-
-    For each pair of subjects sharing the same model_id, computes Pearson
-    correlation between their concatenated RNN weight vectors. Subject A is
-    treated as the fixed reference; subject B is tested in both its original
-    and permuted form, and the better match is recorded.
-
-    Permutation (swap units 1 <-> 2) affects:
-      - W_ih, W_iz, W_ir : swap rows   (write to hidden units)
-      - W_hh, W_hz, W_hr : swap rows AND columns  (read from + write to hidden)
-
-    Mixed gate dimensionality (1D vs 2D W_hz) pairs are skipped with a warning.
-
-    Parameters
-    ----------
-    models_df : pd.DataFrame
-        One row per model, must contain columns for model path, model_id,
-        and subject_id (column names configurable via keyword args).
-    model_pickle_col : str
-        Column name containing paths to saved model (.pth or pickle).
-    model_id_col : str
-        Column name identifying the model architecture type.
-    subject_col : str
-        Column name identifying the subject.
-
-    Returns
-    -------
-    pd.DataFrame
-        Long-format dataframe with one row per model pair:
-        model_id, subject_A, outer_loop_n_A, inner_loop_idx_A,
-        subject_B, outer_loop_n_B, inner_loop_idx_B,
-        within_subject, similarity, permutation_applied (bool),
-        sim_original, sim_permuted.
+    Computes pairwise weight similarity using Pearson or cosine similarity.
     """
+    if similarity_measure not in {"pearson", "cosine"}:
+        raise ValueError(
+            "similarity_measure must be either 'pearson' or 'cosine'"
+        )
+
     import itertools
     import warnings
-
-    # --- main loop ---
 
     rows = []
 
@@ -796,34 +803,25 @@ def compute_weight_similarities(models_df, model_pickle_col='model_pickle_path',
                 continue
 
             vec_a = _concat_weights(params_a)
-
-            # Test both orientations of subject B
-            vec_b_orig = _concat_weights(params_b)
-            vec_b_perm = _concat_weights(_permute_weights(params_b))
-
-            sim_orig = _similarity(vec_a, vec_b_orig)
-            sim_perm = _similarity(vec_a, vec_b_perm)
-
-            if np.isnan(sim_orig) and np.isnan(sim_perm):
-                best_sim, permuted = np.nan, False
-            elif np.isnan(sim_perm) or sim_orig >= sim_perm:
-                best_sim, permuted = sim_orig, False
-            else:
-                best_sim, permuted = sim_perm, True
+            vec_b = _concat_weights(params_b)
+            similarity = _similarity(
+                vec_a,
+                vec_b,
+                similarity_measure=similarity_measure,
+            )
 
             rows.append({
-                'model_id':             model_id,
-                'subject_A':            row_a[subject_col],
-                'outer_loop_n_A':       row_a.get('outer_loop_n'),
-                'inner_loop_idx_A':     row_a.get('inner_loop_idx'),
-                'subject_B':            row_b[subject_col],
-                'outer_loop_n_B':       row_b.get('outer_loop_n'),
-                'inner_loop_idx_B':     row_b.get('inner_loop_idx'),
-                'within_subject':       row_a[subject_col] == row_b[subject_col],
-                'similarity':           best_sim,
-                'permutation_applied':  permuted,
-                'sim_original':         sim_orig,
-                'sim_permuted':         sim_perm,
+                "model_id": model_id,
+                "subject_A": row_a[subject_col],
+                "outer_loop_n_A": row_a.get("outer_loop_n"),
+                "inner_loop_idx_A": row_a.get("inner_loop_idx"),
+                "subject_B": row_b[subject_col],
+                "outer_loop_n_B": row_b.get("outer_loop_n"),
+                "inner_loop_idx_B": row_b.get("inner_loop_idx"),
+                "within_subject": row_a[subject_col] == row_b[subject_col],
+                "similarity": similarity,
+                "sim_original": similarity,
+                "similarity_measure": similarity_measure,
             })
 
     return pd.DataFrame(rows)

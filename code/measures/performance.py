@@ -1,6 +1,7 @@
 '''Compute performance metrics from an analysis dataframe's saved paths.'''
 
 import json
+import pickle
 from pathlib import Path
 
 from joblib import Parallel, delayed
@@ -79,12 +80,18 @@ def get_model_performance(each_model):
 
 
 def load_data(filepath):
+    """Load JSON, HTSV, pickle, or PyTorch checkpoint data."""
     filepath = str(filepath)
     if filepath.endswith('.json'):
         with open(filepath, 'r') as file:
             return json.load(file)
     if filepath.endswith('.htsv'):
         return pd.read_csv(filepath, sep='\t')
+    if filepath.endswith('.pickle'):
+        with open(filepath, 'rb') as file:
+            return pickle.load(file)
+    if filepath.endswith('.pth'):
+        return torch.load(filepath, weights_only=True)
     raise ValueError(f'Unsupported file type: {filepath}')
 
 
