@@ -77,7 +77,7 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
             continue
         
         for outer_loop_n in range(1,nested_cv.N_OUTER_LOOPS+1): #10 loops is recommended
-            for model_type in ['vanilla','GRU','lightGRU', 'monoGRU', 'monoGRU_abs','monoGRU_no_hidden','monoGRU_hidden_only']:# 'vanilla', 'constGate', 'monoGRU_abs'  ['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
+            for model_type in ['GRU', 'monoGRU',]:# 'vanilla', 'lightGRU', 'constGate', 'monoGRU_abs'  ['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
                 #Default parameters
                 hidden_sizes = [1,2]
                 input_encodings = ['unipolar']
@@ -88,10 +88,10 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
 
                 if model_type == 'GRU':
                     nonlinearities = ['relu','tanh']
-                    input_encodings = ['unipolar','encoder','onehot']
+                    input_encodings = ['unipolar'] #'encoder','onehot'
                 if model_type == 'vanilla':
                     nonlinearities = ['relu','tanh']
-                    input_encodings = ['unipolar','encoder','onehot']
+                    input_encodings = ['unipolar'] #'encoder','onehot'
                 if  model_type == 'monoGRU_abs':
                     nonlinearities = ['tanh']
                     hidden_sizes = [1]
@@ -119,7 +119,7 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
                                         model_id+= '_ndb'
                                         
                                     constraint = 'energy' if nonlinearity == 'relu' else 'sparsity'
-                                    model_save_path = save_path/'nested_DA_128'/subject_ID/model_type/constraint
+                                    model_save_path = save_path/'nested_DA_8'/subject_ID/model_type/constraint
                                     completed = 1
                                     for inner_loop_n in range(0,nested_cv.N_OUTER_LOOPS-1):
                                         completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
@@ -316,7 +316,7 @@ def get_NM_TinyRNN_SLURM_script(train_info, RAM="64GB", time_limit="23:59:00"):
 #SBATCH --output={JOBS_PATH}/out/{train_info.subject_id}_{session_ID}.out
 #SBATCH --error={JOBS_PATH}/err/{session_ID}.err
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=10
 #SBATCH --mem={RAM}
 #SBATCH --time={time_limit}
 set -euo pipefail

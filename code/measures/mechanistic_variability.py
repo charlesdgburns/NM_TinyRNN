@@ -13,6 +13,7 @@ Note that comparisons must be somehow aligned in the hidden unit activations.
 """
 
 import os
+import itertools
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -23,6 +24,7 @@ from joblib import Parallel, delayed
 ## local imports
 from NM_TinyRNN.code.models import submit_jobs
 from NM_TinyRNN.code.measures import analysis
+from NM_TinyRNN.code.measures import performance as perf
 from NM_TinyRNN.code.models import datasets as ds
 
 # GLOBAL VARIABLES 
@@ -63,19 +65,20 @@ def build_analysis_df(save_path=SAVE_PATH):
     for path in analysis_path.glob("*/*/*"):
         if path.is_dir():
             subject_id = path.parts[-3]
-            train_seed = path.parts[-2][-1]
-            weight_seed = path.parts[-1].split('_')[-1]
+            outer_loop_n = path.parts[-2].replace('outer_fold_', '')
+            inner_loop_idx = path.parts[-1].replace('inner_fold_', '')
 
             info_files = list(path.glob("*_info.json"))
             for info_file in info_files:
                 model_id = info_file.name.replace("_info.json", "")
                 data_rows.append({
                     "subject_id": subject_id,
-                    "train_seed": train_seed,
-                    "weight_seed": weight_seed,
+                    "outer_loop_n": outer_loop_n,
+                    "inner_loop_idx": inner_loop_idx,
                     "model_id": model_id,
                     "info_path": path / f"{model_id}_info.json",
                     "model_state_path": path / f"{model_id}_model_state.pth",
+                    "model_pickle_path": path / f"{model_id}_model.pickle",
                     "training_losses_path": path / f"{model_id}_training_losses.htsv",
                     "trials_data_path": path / f"{model_id}_trials_data.htsv"
                 })
@@ -100,130 +103,170 @@ def add_data(analysis_df):
 
 COMPONENTS = ['hidden', 'gate_update', 'gate_reset', 'logit_value']
 
-def compute_similarities(analysis_df, n_jobs=-1, similarity_measure="pearson"):
-    """Compute activation similarity within each (model_id, subject_id) group."""
+def compute_similarities(
+    analysis_df,
+    n_jobs=-1,
+    similarity_measure="pearson",
+    use_cache=True,
+    cache_path=None,
+):
+    """Compute or load activation similarities for each model pair."""
     if similarity_measure not in {"pearson", "cosine"}:
         raise ValueError(
             "similarity_measure must be either 'pearson' or 'cosine'"
         )
 
-    groups = list(analysis_df.groupby(['model_id', 'subject_id']))
+    if cache_path is None:
+        cache_path = Path(
+            f"NM_TinyRNN/data/analysis/mechanistic_variability_"
+            f"{similarity_measure}_similarities_v2.htsv"
+        )
+    else:
+        cache_path = Path(cache_path)
+
+    if use_cache and cache_path.exists():
+        cached_df = pd.read_csv(cache_path, sep="\t")
+        print(f"Loaded similarity dataframe from cache: {cache_path}")
+        return cached_df
+
+    groups = list(analysis_df.groupby('model_id'))
 
     results = Parallel(n_jobs=n_jobs)(
         delayed(_process_group)(
             group_rows.reset_index(drop=True),
             model_id,
-            subject_id,
             similarity_measure,
         )
-        for (model_id, subject_id), group_rows in groups
+        for model_id, group_rows in groups
     )
 
     results = [r for r in results if r is not None]
-    return (
+    similarity_df = (
         pd.DataFrame([row for result in results for row in result])
         if results else pd.DataFrame()
     )
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    similarity_df.to_csv(cache_path, sep="\t", index=False)
+    print(f"Saved similarity dataframe to cache: {cache_path}")
+    return similarity_df
 
 
 def _process_group(
     group_rows,
     model_id,
-    subject_id,
     similarity_measure="pearson",
 ):
-    """
-    For a single (model_id, subject_id):
-    - Builds a (n_trials, n_outer, n_inner, n_comp) matrix
-    - For each component, computes a vectorized (n_outer*n_inner, n_outer*n_inner) Pearson correlation matrix
-    - Reads off-diagonal pairs back into rows
-    """
-    outer_vals = sorted(group_rows['outer_loop_n'].unique())
-    inner_vals = sorted(group_rows['inner_loop_idx'].unique())
-    n_outer, n_inner = len(outer_vals), len(inner_vals)
-    n_folds = n_outer * n_inner
-    outer_idx_map = {v: i for i, v in enumerate(outer_vals)}
-    inner_idx_map = {v: i for i, v in enumerate(inner_vals)}
+    """Compare model pairs using cached activations on every subject's trials."""
+    fold_records = []
+    for _, row in group_rows.sort_values(
+        ['subject_id', 'outer_loop_n', 'inner_loop_idx']
+    ).iterrows():
+        model = analysis.load_data(str(row.model_pickle_path))
+        trials = analysis.load_data(str(row.trials_data_path))
+        if model is not None and trials is not None:
+            fold_records.append({
+                'subject_id': row.subject_id,
+                'outer_loop_n': row.outer_loop_n,
+                'inner_loop_idx': row.inner_loop_idx,
+                'model': model,
+                'trials': trials,
+            })
  
-    # Load and standardize all data into the grid
-    loaded = {}
-    for _, row in group_rows.iterrows():
-        data = analysis.load_data(row.trials_data_path)
-        if data is not None:
-            loaded[(row.outer_loop_n, row.inner_loop_idx)] = _standardize_activations(data)
- 
-    if len(loaded) < 2:
+    if len(fold_records) < 2:
         return None
  
-    ref_df = next(iter(loaded.values()))
-    n_trials = len(ref_df)
- 
-    # Identify component columns from reference df
-    comp_cols = {comp: [c for c in ref_df.columns if c.startswith(comp)] for comp in COMPONENTS}
-    all_cols = [c for cols in comp_cols.values() for c in cols]
-    col_idx = {c: i for i, c in enumerate(all_cols)}
-    n_comp = len(all_cols)
- 
-    # Build big matrix: (n_trials, n_outer, n_inner, n_comp)
-    big_matrix = np.full((n_trials, n_outer, n_inner, n_comp), np.nan)
-    for (outer, inner), df in loaded.items():
-        oi = outer_idx_map[outer]
-        ii = inner_idx_map[inner]
-        big_matrix[:, oi, ii, :] = df[all_cols].values
- 
-    # Flatten (n_outer, n_inner) -> n_folds: (n_trials, n_folds, n_comp)
-    # Fold order: outer varies slowest, inner fastest (C-order)
-    X = big_matrix.reshape(n_trials, n_folds, n_comp)
- 
-    # Upper triangle pairs (i < j), maps flat fold index back to (outer, inner)
-    fi, fj = np.triu_indices(n_folds, k=1)
-    fold_outer = np.array(outer_vals)[np.arange(n_folds) // n_inner]
-    fold_inner = np.array(inner_vals)[np.arange(n_folds) % n_inner]
- 
-    results = []
-    for comp, cols in comp_cols.items():
-        if not cols:
-            continue
-        cidx = [col_idx[c] for c in cols]
- 
-        # Extract component slice: (n_trials, n_folds, n_cidx)
-        X_comp = X[:, :, cidx]
- 
-        # Concatenate component cols along trials axis -> (n_cidx * n_trials, n_folds)
-        # For each fold column: [col0_trial0..col0_trialN, col1_trial0..col1_trialN, ...]
-        X_comp = X_comp.transpose(2, 0, 1).reshape(-1, n_folds)  # (n_cidx * n_trials, n_folds)
- 
-        # Pearson or cosine similarity.
-        if similarity_measure == "pearson":
-            # Center each fold before normalizing.
-            X_sim = X_comp - np.nanmean(
-                X_comp, axis=0, keepdims=True
+    n_folds = len(fold_records)
+    trial_records = {}
+    for record in fold_records:
+        trial_records.setdefault(record['subject_id'], record['trials'])
+
+    activation_cache = {}
+    for model_index, record in enumerate(fold_records):
+        for trial_subject, trials in trial_records.items():
+            activation_cache[(model_index, trial_subject)] = _run_model_on_trials(
+                record['model'], trials
             )
-        else:
-            # Cosine similarity uses the original vectors.
-            X_sim = X_comp
 
-        norms = np.linalg.norm(X_sim, axis=0, keepdims=True)
-        norms[norms == 0] = np.nan
-        X_sim = X_sim / norms
-
-        corr_matrix = X_sim.T @ X_sim
-        pair_sims = corr_matrix[fi, fj]
-
-        for k in range(len(fi)):
-            results.append({
-                "model_id":       model_id,
-                "subject_id":     subject_id,
-                "model_A_outer_n": fold_outer[fi[k]],
-                "model_A_inner_n": fold_inner[fi[k]],
-                "model_B_outer_n": fold_outer[fj[k]],
-                "model_B_inner_n": fold_inner[fj[k]],
-                "component":      comp,
-                "similarity":     pair_sims[k],
-                "similarity_measure": similarity_measure,
-            })
+    results = []
+    for index_a, index_b in itertools.combinations(range(n_folds), 2):
+        record_a = fold_records[index_a]
+        record_b = fold_records[index_b]
+        for trial_subject in trial_records:
+            activations_a = activation_cache[(index_a, trial_subject)]
+            activations_b = activation_cache[(index_b, trial_subject)]
+            component_columns_a = _component_columns(activations_a)
+            component_columns_b = _component_columns(activations_b)
+            for comp in COMPONENTS:
+                cols = [
+                    column for column in activations_a.columns
+                    if column.startswith(comp) and column in activations_b.columns
+                ]
+                if (comp not in component_columns_a
+                        or comp not in component_columns_b
+                        or not cols):
+                    continue
+                similarity = _similarity(
+                    activations_a[cols].to_numpy().ravel(),
+                    activations_b[cols].to_numpy().ravel(),
+                    similarity_measure,
+                )
+                results.append({
+                    "model_id": model_id,
+                    "subject_A": record_a['subject_id'],
+                    "model_A_outer_n": record_a['outer_loop_n'],
+                    "model_A_inner_n": record_a['inner_loop_idx'],
+                    "subject_B": record_b['subject_id'],
+                    "model_B_outer_n": record_b['outer_loop_n'],
+                    "model_B_inner_n": record_b['inner_loop_idx'],
+                    "trial_subject": trial_subject,
+                    "component": comp,
+                    "similarity": similarity,
+                    "similarity_measure": similarity_measure,
+                    "within_subject": record_a['subject_id'] == record_b['subject_id'],
+                })
 
     return results
+
+
+def _component_columns(activations):
+    return {component for component in COMPONENTS
+            if any(column.startswith(component) for column in activations.columns)}
+
+
+def _run_model_on_trials(model, trials_data):
+    """Run a model on raw trial columns and return comparable activations."""
+    raw = torch.tensor(
+        trials_data[["forced_choice", "choice", "outcome"]].to_numpy(),
+        dtype=torch.float32,
+    ).unsqueeze(0)
+    inputs = ds.input_encoder(raw, model.input_encoding, model.input_forced_choice)
+    model_device = next(model.parameters()).device
+    inputs = inputs.to(model_device)
+
+    model.eval()
+    with torch.no_grad():
+        if model.input_encoding == 'encoder':
+            inputs = model.encoder(inputs)
+        hidden_states, gate_activations = model.rnn(
+            inputs, return_gate_activations=True
+        )
+        predictions = model.decoder(hidden_states)
+
+    activations = pd.DataFrame({
+        f"hidden_{unit + 1}": hidden_states[0, :, unit].cpu().numpy()
+        for unit in range(hidden_states.shape[-1])
+    })
+    for gate_name, gate_values in gate_activations.items():
+        for unit in range(gate_values.shape[-1]):
+            activations[f"gate_{gate_name}_{unit + 1}"] = (
+                gate_values[0, :, unit].cpu().numpy()
+            )
+
+    log_probs = predictions.log_softmax(dim=2)
+    activations["logit_value"] = (
+        log_probs[0, :, 0] - log_probs[0, :, 1]
+    ).cpu().numpy()
+    return _standardize_activations(activations)
  
 from scipy.optimize import linear_sum_assignment
 #
@@ -258,6 +301,7 @@ def _standardize_activations(trials_df: pd.DataFrame, verbose: bool = False):
         if trials_df.hidden_2.min() < -0.1: trials_df['hidden_2'] = -trials_df['hidden_2']
         else: trials_df['hidden_2'] = trials_df['hidden_2'].max() - trials_df['hidden_2']
     return trials_df
+
 def standardize_weights(model: torch.nn.Module, verbose: bool = False):
     """
     Standardizes a 2-unit TinyRNN model in-place to a canonical form 
@@ -827,63 +871,57 @@ def compute_weight_similarities(
     return pd.DataFrame(rows)
 
 
-# --- MAIN EXECUTION --- #
+# --- BATCH ANALYSIS --- #
+
+def run_across_subject_similarity_analysis(
+    model_list=None,
+    subject_list=None,
+    use_best_models=True,
+    n_jobs=-1,
+):
+    """Build, compute, and save the across-subject similarity analysis."""
+    if model_list is None:
+        model_list = ['GRU', 'monoGRU+BC-DB']
+    if subject_list is None:
+        subject_list = [
+            'WS01', 'WS02', 'WS08', 'WS09', 'WS10',
+            'WS13', 'WS14', 'WS16', 'WS20', 'WS22',
+        ]
+
+    info_df = submit_jobs.get_DA_info_df()
+    all_models_df = analysis.get_analysis_df(info_df, mode='all')
+    performance_df = perf.get_performance_df(all_models_df)
+    best_model_df = perf.select_best_outer(performance_df)
+
+    source_df = best_model_df if use_best_models else all_models_df
+    select_models = source_df.query(
+        'hidden_size == 2 and input_encoding == "unipolar"'
+    ).copy()
+    select_models = select_models[
+        select_models.model_type2.isin(model_list)
+        & select_models.subject_id.isin(subject_list)
+    ].copy()
+    select_models['model_id'] = select_models.model_type2
+
+    output_dir = Path('NM_TinyRNN/data/analysis')
+    output_dir.mkdir(parents=True, exist_ok=True)
+    selected_path = output_dir / 'mechanistic_variability_selected_models.htsv'
+    similarity_path = output_dir / 'mechanistic_variability_pearson_similarities_v2.htsv'
+    select_models.to_csv(selected_path, sep='\t', index=False)
+    print(f'Saved selected model dataframe to {selected_path}')
+    print(select_models)
+
+    sim_df = compute_similarities(
+        select_models,
+        n_jobs=n_jobs,
+        similarity_measure='pearson',
+        use_cache=False,
+        cache_path=similarity_path,
+    )
+    print(f'Saved similarity dataframe to {similarity_path}')
+    print(sim_df)
+    return select_models, sim_df
+
 
 if __name__ == "__main__":
-    # 1. Training
-    train_models()
-
-    # 2. Build Analysis DataFrame
-    analysis_df = build_analysis_df(SAVE_PATH)
-    analysis_df = add_data(analysis_df)
-
-    # Visualization: Hidden units scatter
-    mono_df = analysis_df.query("model_id=='2_unit_monoGRU_relu_unipolar'").sort_values(['train_seed','weight_seed'])
-    if not mono_df.empty:
-        n_t, n_w = mono_df.train_seed.nunique(), mono_df.weight_seed.nunique()
-        fig, ax = plt.subplots(n_t, n_w, figsize=(n_w*3, n_t*3))
-        flat_ax = ax.flatten() if hasattr(ax, 'flatten') else [ax]
-        for i, row in enumerate(mono_df.itertuples()):
-            td = analysis.load_data(row.trials_data_path)
-            sns.scatterplot(data=td, x='hidden_1', y='hidden_2', hue='logit_value', palette='coolwarm', legend=False, ax=flat_ax[i])
-        plt.show()
-
-    # Visualization: Performance stripping
-    best_idx = analysis_df.groupby(['model_id','train_seed'])['val_CE'].idxmin()
-    best_models_df = analysis_df.loc[best_idx]
-    sns.stripplot(data=analysis_df, x='train_seed', y='eval_CE', hue='model_id')
-    plt.show()
-
-    fig, ax = plt.subplots()
-    sns.stripplot(data=best_models_df, x='model_id', y='eval_CE', hue='model_id', dodge=True)
-    sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
-    plt.show()
-
-    # 3. Similarities
-    sim_df = compute_similarities(best_models_df)
-    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-    sns.stripplot(data=best_models_df, x='model_id', y='eval_CE', ax=ax[0])
-    sns.stripplot(data=sim_df, x='model_id', y='hidden_state_similarity', ax=ax[1])
-    sns.stripplot(data=sim_df, x='model_id', y='update_gate_similarity', ax=ax[2])
-    ax[0].set(title='performance'); ax[1].set(title='hidden states'); ax[2].set(title='gating mechanism')
-    plt.tight_layout()
-    plt.show()
-
-    # 4. Parameters
-    cont_df = parameter_contribution_df(best_models_df)
-    update_gate_df = cont_df[cont_df.variable.str.contains('update')]
-    fig, ax = plt.subplots(figsize=(10, 5))
-    sns.stripplot(data=update_gate_df, x='variable', y='value', hue='model_id', dodge=True, ax=ax)
-    sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
-    plt.show()
-    
-    # Example Logit Plot
-    v_models = best_models_df.query('model_id=="2_unit_vanilla_relu_unipolar"')
-    if not v_models.empty:
-        min_idx = v_models.eval_CE.idxmin()
-        model_row = best_models_df.loc[min_idx]
-        td = analysis.load_data(model_row.trials_data_path)
-        plt.figure()
-        sns.scatterplot(data=td, x='logit_past', y='logit_change', hue='trial_type')
-        plt.tight_layout()
-        plt.show()
+    run_across_subject_similarity_analysis()
