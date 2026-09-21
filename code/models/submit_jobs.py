@@ -119,7 +119,7 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
                                         model_id+= '_ndb'
                                         
                                     constraint = 'energy' if nonlinearity == 'relu' else 'sparsity'
-                                    model_save_path = save_path/'nested_DA_8'/subject_ID/model_type/constraint
+                                    model_save_path = save_path/'nested_DA_128_10'/subject_ID/model_type/constraint
                                     completed = 1
                                     for inner_loop_n in range(0,nested_cv.N_OUTER_LOOPS-1):
                                         completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()

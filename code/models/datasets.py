@@ -7,7 +7,7 @@ import pandas as pd
 from pathlib import Path
 
 DATA_PATH = Path('./NM_TinyRNN/data/')
-SEQUENCE_LENGTH = 32
+SEQUENCE_LENGTH = 64
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 REQUIRED = ['forced_choice', 'outcome', 'choice', 'good_poke']

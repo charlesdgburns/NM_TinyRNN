@@ -9,18 +9,25 @@ This is written for the 2-armed bandit reversal task modelled trial-by-trial.
 3. compare similarity of activations (hidden units and gates).
 4. compare the parameters (weights) of models.
 
-Note that comparisons must be somehow aligned in the hidden unit activations.
+Refactored to utilize a canonical structural alignment and 
+similarity metrics to be completely self-sufficient.
 """
 
 import os
 import itertools
+import warnings
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 import torch
+import torch.nn as nn
 from joblib import Parallel, delayed
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
+
 ## local imports
 from NM_TinyRNN.code.models import submit_jobs
 from NM_TinyRNN.code.measures import analysis
@@ -31,276 +38,7 @@ from NM_TinyRNN.code.models import datasets as ds
 AB_DATA_PATH = Path("NM_TinyRNN/data/AB_behaviour")
 SAVE_PATH = Path("NM_TinyRNN/data/rnns/mech_var")
 
-# --- FUNCTIONS --- #
-
-def train_models(train_seeds=list(range(1, 3)),
-                 weight_seeds=list(range(1, 11)),
-                 subjects=["WS16"]):
-    """Performs parallel training of RNN models."""
-    for each_subject in subjects:
-        data_path = AB_DATA_PATH / f"{each_subject}"
-        for each_train_seed in train_seeds:
-            for each_model_type in ['monoGRU']:
-                save_path = SAVE_PATH / f"{each_subject}/train_seed_{each_train_seed}"
-                
-                # Train with 'biological constraints'
-                submit_jobs.train_outers(
-                    data_path=data_path,
-                    save_path=save_path,
-                    train_seed=each_train_seed,
-                    weight_seeds=weight_seeds,
-                    n_jobs=-1,
-                    model_type=each_model_type,
-                    nonlinearity='relu',
-                    constraint='energy'
-                )
-    print("Training complete.")
-    return None
-
-def build_analysis_df(save_path=SAVE_PATH):
-    """Iterates over the saved models and builds a dataframe for analysis."""
-    analysis_path = Path(save_path)
-    data_rows = []
-
-    for path in analysis_path.glob("*/*/*"):
-        if path.is_dir():
-            subject_id = path.parts[-3]
-            outer_loop_n = path.parts[-2].replace('outer_fold_', '')
-            inner_loop_idx = path.parts[-1].replace('inner_fold_', '')
-
-            info_files = list(path.glob("*_info.json"))
-            for info_file in info_files:
-                model_id = info_file.name.replace("_info.json", "")
-                data_rows.append({
-                    "subject_id": subject_id,
-                    "outer_loop_n": outer_loop_n,
-                    "inner_loop_idx": inner_loop_idx,
-                    "model_id": model_id,
-                    "info_path": path / f"{model_id}_info.json",
-                    "model_state_path": path / f"{model_id}_model_state.pth",
-                    "model_pickle_path": path / f"{model_id}_model.pickle",
-                    "training_losses_path": path / f"{model_id}_training_losses.htsv",
-                    "trials_data_path": path / f"{model_id}_trials_data.htsv"
-                })
-    return pd.DataFrame(data_rows)
-
-def add_data(analysis_df):
-    """Extracts evaluation metrics and hyperparameters from info files."""
-    evaluation_CEs, validation_CEs, sparsity_lambdas, energy_lambdas = [], [], [], []
-    
-    for each_row in analysis_df.itertuples():
-        info_dict = analysis.load_data(str(each_row.info_path))
-        evaluation_CEs.append(info_dict['eval_pred_loss'])
-        validation_CEs.append(info_dict['best_val_pred_loss'])
-        sparsity_lambdas.append(info_dict['options_dict']['sparsity_lambda'])
-        energy_lambdas.append(info_dict['options_dict']['energy_lambda'])
-
-    analysis_df['eval_CE'] = evaluation_CEs
-    analysis_df['val_CE'] = validation_CEs
-    analysis_df['sparsity_lambda'] = sparsity_lambdas
-    analysis_df['energy_lambda'] = energy_lambdas
-    return analysis_df
-
-COMPONENTS = ['hidden', 'gate_update', 'gate_reset', 'logit_value']
-
-def compute_similarities(
-    analysis_df,
-    n_jobs=-1,
-    similarity_measure="pearson",
-    use_cache=True,
-    cache_path=None,
-):
-    """Compute or load activation similarities for each model pair."""
-    if similarity_measure not in {"pearson", "cosine"}:
-        raise ValueError(
-            "similarity_measure must be either 'pearson' or 'cosine'"
-        )
-
-    if cache_path is None:
-        cache_path = Path(
-            f"NM_TinyRNN/data/analysis/mechanistic_variability_"
-            f"{similarity_measure}_similarities_v2.htsv"
-        )
-    else:
-        cache_path = Path(cache_path)
-
-    if use_cache and cache_path.exists():
-        cached_df = pd.read_csv(cache_path, sep="\t")
-        print(f"Loaded similarity dataframe from cache: {cache_path}")
-        return cached_df
-
-    groups = list(analysis_df.groupby('model_id'))
-
-    results = Parallel(n_jobs=n_jobs)(
-        delayed(_process_group)(
-            group_rows.reset_index(drop=True),
-            model_id,
-            similarity_measure,
-        )
-        for model_id, group_rows in groups
-    )
-
-    results = [r for r in results if r is not None]
-    similarity_df = (
-        pd.DataFrame([row for result in results for row in result])
-        if results else pd.DataFrame()
-    )
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    similarity_df.to_csv(cache_path, sep="\t", index=False)
-    print(f"Saved similarity dataframe to cache: {cache_path}")
-    return similarity_df
-
-
-def _process_group(
-    group_rows,
-    model_id,
-    similarity_measure="pearson",
-):
-    """Compare model pairs using cached activations on every subject's trials."""
-    fold_records = []
-    for _, row in group_rows.sort_values(
-        ['subject_id', 'outer_loop_n', 'inner_loop_idx']
-    ).iterrows():
-        model = analysis.load_data(str(row.model_pickle_path))
-        trials = analysis.load_data(str(row.trials_data_path))
-        if model is not None and trials is not None:
-            fold_records.append({
-                'subject_id': row.subject_id,
-                'outer_loop_n': row.outer_loop_n,
-                'inner_loop_idx': row.inner_loop_idx,
-                'model': model,
-                'trials': trials,
-            })
- 
-    if len(fold_records) < 2:
-        return None
- 
-    n_folds = len(fold_records)
-    trial_records = {}
-    for record in fold_records:
-        trial_records.setdefault(record['subject_id'], record['trials'])
-
-    activation_cache = {}
-    for model_index, record in enumerate(fold_records):
-        for trial_subject, trials in trial_records.items():
-            activation_cache[(model_index, trial_subject)] = _run_model_on_trials(
-                record['model'], trials
-            )
-
-    results = []
-    for index_a, index_b in itertools.combinations(range(n_folds), 2):
-        record_a = fold_records[index_a]
-        record_b = fold_records[index_b]
-        for trial_subject in trial_records:
-            activations_a = activation_cache[(index_a, trial_subject)]
-            activations_b = activation_cache[(index_b, trial_subject)]
-            component_columns_a = _component_columns(activations_a)
-            component_columns_b = _component_columns(activations_b)
-            for comp in COMPONENTS:
-                cols = [
-                    column for column in activations_a.columns
-                    if column.startswith(comp) and column in activations_b.columns
-                ]
-                if (comp not in component_columns_a
-                        or comp not in component_columns_b
-                        or not cols):
-                    continue
-                similarity = _similarity(
-                    activations_a[cols].to_numpy().ravel(),
-                    activations_b[cols].to_numpy().ravel(),
-                    similarity_measure,
-                )
-                results.append({
-                    "model_id": model_id,
-                    "subject_A": record_a['subject_id'],
-                    "model_A_outer_n": record_a['outer_loop_n'],
-                    "model_A_inner_n": record_a['inner_loop_idx'],
-                    "subject_B": record_b['subject_id'],
-                    "model_B_outer_n": record_b['outer_loop_n'],
-                    "model_B_inner_n": record_b['inner_loop_idx'],
-                    "trial_subject": trial_subject,
-                    "component": comp,
-                    "similarity": similarity,
-                    "similarity_measure": similarity_measure,
-                    "within_subject": record_a['subject_id'] == record_b['subject_id'],
-                })
-
-    return results
-
-
-def _component_columns(activations):
-    return {component for component in COMPONENTS
-            if any(column.startswith(component) for column in activations.columns)}
-
-
-def _run_model_on_trials(model, trials_data):
-    """Run a model on raw trial columns and return comparable activations."""
-    raw = torch.tensor(
-        trials_data[["forced_choice", "choice", "outcome"]].to_numpy(),
-        dtype=torch.float32,
-    ).unsqueeze(0)
-    inputs = ds.input_encoder(raw, model.input_encoding, model.input_forced_choice)
-    model_device = next(model.parameters()).device
-    inputs = inputs.to(model_device)
-
-    model.eval()
-    with torch.no_grad():
-        if model.input_encoding == 'encoder':
-            inputs = model.encoder(inputs)
-        hidden_states, gate_activations = model.rnn(
-            inputs, return_gate_activations=True
-        )
-        predictions = model.decoder(hidden_states)
-
-    activations = pd.DataFrame({
-        f"hidden_{unit + 1}": hidden_states[0, :, unit].cpu().numpy()
-        for unit in range(hidden_states.shape[-1])
-    })
-    for gate_name, gate_values in gate_activations.items():
-        for unit in range(gate_values.shape[-1]):
-            activations[f"gate_{gate_name}_{unit + 1}"] = (
-                gate_values[0, :, unit].cpu().numpy()
-            )
-
-    log_probs = predictions.log_softmax(dim=2)
-    activations["logit_value"] = (
-        log_probs[0, :, 0] - log_probs[0, :, 1]
-    ).cpu().numpy()
-    return _standardize_activations(activations)
- 
-from scipy.optimize import linear_sum_assignment
-#
-def _standardize_activations(trials_df: pd.DataFrame, verbose: bool = False):
-    """Standardizes a 2-unit network for alignment."""
-    if 'hidden_2' not in trials_df:
-        corr1 = np.corrcoef(trials_df.hidden_1, trials_df.logit_value)[0,1]
-        corr1 = -np.inf if np.isnan(corr1) else corr1
-        if corr1<-0.1:
-            trials_df.hidden_1 = -trials_df.hidden_1 #flip sign
-        return trials_df #nothing to do here.
-    if trials_df is None: return None
-    corr1 = np.corrcoef(trials_df.hidden_1, trials_df.logit_value)[0,1]
-    corr2 = np.corrcoef(trials_df.hidden_2, trials_df.logit_value)[0,1]
-    
-    corr1 = -np.inf if np.isnan(corr1) else corr1
-    corr2 = -np.inf if np.isnan(corr2) else corr2
-
-    if corr2 > corr1:
-        for prefix in ['hidden_', 'gate_update_', 'gate_reset_']:
-            col1, col2 = f"{prefix}1", f"{prefix}2"
-            if col1 in trials_df.columns and col2 in trials_df.columns:
-                trials_df[col1], trials_df[col2] = trials_df[col2].copy(), trials_df[col1].copy()
-        corr1, corr2 = corr2, corr1
-
-    if corr1 < 0:
-        if trials_df.hidden_1.min() < -0.1: trials_df['hidden_1'] = -trials_df['hidden_1']
-        else: trials_df['hidden_1'] = trials_df['hidden_1'].max() - trials_df['hidden_1']
-
-    corr2_curr = np.corrcoef(trials_df.hidden_2, trials_df.logit_value)[0,1]
-    if not np.isnan(corr2_curr) and corr2_curr > 0.0:
-        if trials_df.hidden_2.min() < -0.1: trials_df['hidden_2'] = -trials_df['hidden_2']
-        else: trials_df['hidden_2'] = trials_df['hidden_2'].max() - trials_df['hidden_2']
-    return trials_df
+# --- CORE ALIGNMENT & SIMILARITY FUNCTIONS --- #
 
 def standardize_weights(model: torch.nn.Module, verbose: bool = False):
     """
@@ -435,6 +173,322 @@ def standardize_weights(model: torch.nn.Module, verbose: bool = False):
               f"Swapped: {was_swapped} | Flip H1: {flip_h1} | Flip H2: {flip_h2}")
     return was_swapped, flip_h1, flip_h2
 
+def compute_weight_similarity(model_a: nn.Module, model_b: nn.Module) -> float:
+    """
+    Computes Cosine Similarity between the flattened parameters of Model A 
+    and Model B. Assumes models are already canonicalized.
+    """
+    def extract_flat_params(model):
+        params = []
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                params.append(param.data.detach().cpu().numpy().ravel())
+        return np.concatenate(params)
+
+    vec_a = extract_flat_params(model_a)
+    vec_b = extract_flat_params(model_b)
+
+    cosine_sim = np.dot(vec_a, vec_b) / (np.linalg.norm(vec_a) * np.linalg.norm(vec_b) + 1e-8)
+    return float(cosine_sim)
+
+def compute_activation_similarity(
+    model_a: nn.Module, 
+    model_b: nn.Module, 
+    trial_inputs: torch.Tensor,
+    metric: str = 'pearson'
+) -> float:
+    """
+    Runs data through both models and compares their internal hidden states.
+    Assumes models are already canonicalized so unit i in A matches unit i in B.
+    
+    metric: 'pearson' (unit-wise correlation averaged) or 'cka' (Centered Kernel Alignment)
+    """
+    model_a.eval()
+    model_b.eval()
+
+    with torch.no_grad():
+        out_a, _ = model_a.rnn(trial_inputs)
+        out_b, _ = model_b.rnn(trial_inputs)
+
+        act_a = out_a.reshape(-1, out_a.shape[-1]).cpu().numpy()
+        act_b = out_b.reshape(-1, out_b.shape[-1]).cpu().numpy()
+
+    if metric == 'pearson':
+        correlations = []
+        for i in range(act_a.shape[1]):
+            std_a = np.std(act_a[:, i])
+            std_b = np.std(act_b[:, i])
+            if std_a > 1e-5 and std_b > 1e-5:
+                cov = np.cov(act_a[:, i], act_b[:, i])[0, 1]
+                correlations.append(cov / (std_a * std_b))
+        
+        return float(np.mean(correlations)) if correlations else 0.0
+
+    elif metric == 'cka':
+        act_a_centered = act_a - act_a.mean(axis=0)
+        act_b_centered = act_b - act_b.mean(axis=0)
+        
+        hsic = np.linalg.norm(act_b_centered.T @ act_a_centered, ord='fro') ** 2
+        var_a = np.linalg.norm(act_a_centered.T @ act_a_centered, ord='fro')
+        var_b = np.linalg.norm(act_b_centered.T @ act_b_centered, ord='fro')
+        
+        return float(hsic / (var_a * var_b + 1e-8))
+    
+    else:
+        raise ValueError("Metric must be 'pearson' or 'cka'")
+
+# --- FUNCTIONS --- #
+
+def train_models(train_seeds=list(range(1, 3)),
+                 weight_seeds=list(range(1, 11)),
+                 subjects=["WS16"]):
+    """Performs parallel training of RNN models."""
+    for each_subject in subjects:
+        data_path = AB_DATA_PATH / f"{each_subject}"
+        for each_train_seed in train_seeds:
+            for each_model_type in ['monoGRU']:
+                save_path = SAVE_PATH / f"{each_subject}/train_seed_{each_train_seed}"
+                
+                submit_jobs.train_outers(
+                    data_path=data_path,
+                    save_path=save_path,
+                    train_seed=each_train_seed,
+                    weight_seeds=weight_seeds,
+                    n_jobs=-1,
+                    model_type=each_model_type,
+                    nonlinearity='relu',
+                    constraint='energy'
+                )
+    print("Training complete.")
+    return None
+
+def build_analysis_df(save_path=SAVE_PATH):
+    """Iterates over the saved models and builds a dataframe for analysis."""
+    analysis_path = Path(save_path)
+    data_rows = []
+
+    for path in analysis_path.glob("*/*/*"):
+        if path.is_dir():
+            subject_id = path.parts[-3]
+            outer_loop_n = path.parts[-2].replace('outer_fold_', '')
+            inner_loop_idx = path.parts[-1].replace('inner_fold_', '')
+
+            info_files = list(path.glob("*_info.json"))
+            for info_file in info_files:
+                model_id = info_file.name.replace("_info.json", "")
+                data_rows.append({
+                    "subject_id": subject_id,
+                    "outer_loop_n": outer_loop_n,
+                    "inner_loop_idx": inner_loop_idx,
+                    "model_id": model_id,
+                    "info_path": path / f"{model_id}_info.json",
+                    "model_state_path": path / f"{model_id}_model_state.pth",
+                    "model_pickle_path": path / f"{model_id}_model.pickle",
+                    "training_losses_path": path / f"{model_id}_training_losses.htsv",
+                    "trials_data_path": path / f"{model_id}_trials_data.htsv"
+                })
+    return pd.DataFrame(data_rows)
+
+def add_data(analysis_df):
+    """Extracts evaluation metrics and hyperparameters from info files."""
+    evaluation_CEs, validation_CEs, sparsity_lambdas, energy_lambdas = [], [], [], []
+    
+    for each_row in analysis_df.itertuples():
+        info_dict = analysis.load_data(str(each_row.info_path))
+        evaluation_CEs.append(info_dict['eval_pred_loss'])
+        validation_CEs.append(info_dict['best_val_pred_loss'])
+        sparsity_lambdas.append(info_dict['options_dict']['sparsity_lambda'])
+        energy_lambdas.append(info_dict['options_dict']['energy_lambda'])
+
+    analysis_df['eval_CE'] = evaluation_CEs
+    analysis_df['val_CE'] = validation_CEs
+    analysis_df['sparsity_lambda'] = sparsity_lambdas
+    analysis_df['energy_lambda'] = energy_lambdas
+    return analysis_df
+
+COMPONENTS = ['hidden', 'gate_update', 'gate_reset', 'logit_value']
+
+def compute_similarities(
+    analysis_df,
+    n_jobs=-1,
+    similarity_measure="pearson",
+    use_cache=True,
+    cache_path=None,
+):
+    """Compute or load activation similarities for each model pair."""
+    if similarity_measure not in {"pearson", "cosine", "cka"}:
+        raise ValueError(
+            "similarity_measure must be 'pearson', 'cosine', or 'cka'"
+        )
+
+    if cache_path is None:
+        cache_path = Path(
+            f"NM_TinyRNN/data/analysis/mechanistic_variability_"
+            f"{similarity_measure}_similarities_v2.htsv"
+        )
+    else:
+        cache_path = Path(cache_path)
+
+    if use_cache and cache_path.exists():
+        cached_df = pd.read_csv(cache_path, sep="\t")
+        print(f"Loaded similarity dataframe from cache: {cache_path}")
+        return cached_df
+
+    groups = list(analysis_df.groupby('model_id'))
+
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(_process_group)(
+            group_rows.reset_index(drop=True),
+            model_id,
+            similarity_measure,
+        )
+        for model_id, group_rows in groups
+    )
+
+    results = [r for r in results if r is not None]
+    similarity_df = (
+        pd.DataFrame([row for result in results for row in result])
+        if results else pd.DataFrame()
+    )
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    similarity_df.to_csv(cache_path, sep="\t", index=False)
+    print(f"Saved similarity dataframe to cache: {cache_path}")
+    return similarity_df
+
+
+def _process_group(
+    group_rows,
+    model_id,
+    similarity_measure="pearson",
+):
+    """Compare model pairs using canonically aligned activations on every subject's trials."""
+    fold_records = []
+    for _, row in group_rows.sort_values(
+        ['subject_id', 'outer_loop_n', 'inner_loop_idx']
+    ).iterrows():
+        model = analysis.load_data(str(row.model_pickle_path))
+        trials = analysis.load_data(str(row.trials_data_path))
+        if model is not None and trials is not None:
+            # Standardize model in place so it aligns canonically to all other models
+            standardize_weights(model)
+            fold_records.append({
+                'subject_id': row.subject_id,
+                'outer_loop_n': row.outer_loop_n,
+                'inner_loop_idx': row.inner_loop_idx,
+                'model': model,
+                'trials': trials,
+            })
+ 
+    if len(fold_records) < 2:
+        return None
+ 
+    n_folds = len(fold_records)
+    trial_records = {}
+    for record in fold_records:
+        trial_records.setdefault(record['subject_id'], record['trials'])
+
+    results = []
+    for index_a, index_b in itertools.combinations(range(n_folds), 2):
+        record_a = fold_records[index_a]
+        record_b = fold_records[index_b]
+        
+        model_a = record_a['model']
+        model_b = record_b['model']
+
+        for trial_subject in trial_records:
+            if trial_subject != record_b['subject_id']:
+                continue
+                
+            trials = trial_records[trial_subject]
+            
+            raw = torch.tensor(
+                trials[["forced_choice", "choice", "outcome"]].to_numpy(),
+                dtype=torch.float32,
+            ).unsqueeze(0)
+            inputs = ds.input_encoder(raw, model_a.input_encoding, model_a.input_forced_choice)
+            model_device = next(model_a.parameters()).device
+            inputs = inputs.to(model_device)
+            
+            if similarity_measure in ['pearson', 'cka']:
+                hidden_sim = compute_activation_similarity(model_a, model_b, inputs, metric=similarity_measure)
+            else:
+                hidden_sim = compute_activation_similarity(model_a, model_b, inputs, metric='pearson')
+
+            activations_a = _run_model_on_trials(model_a, trials, inputs)
+            activations_b = _run_model_on_trials(model_b, trials, inputs)
+            
+            component_columns_a = _component_columns(activations_a)
+            component_columns_b = _component_columns(activations_b)
+            
+            for comp in COMPONENTS:
+                if comp == 'hidden':
+                    similarity = hidden_sim
+                else:
+                    cols = [
+                        column for column in activations_a.columns
+                        if column.startswith(comp) and column in activations_b.columns
+                    ]
+                    if (comp not in component_columns_a or comp not in component_columns_b or not cols):
+                        continue
+                    
+                    similarity = _similarity(
+                        activations_a[cols].to_numpy().ravel(),
+                        activations_b[cols].to_numpy().ravel(),
+                        "pearson" if similarity_measure == 'cka' else similarity_measure, 
+                    )
+                
+                results.append({
+                    "model_id": model_id,
+                    "subject_A": record_a['subject_id'],
+                    "model_A_outer_n": record_a['outer_loop_n'],
+                    "model_A_inner_n": record_a['inner_loop_idx'],
+                    "subject_B": record_b['subject_id'],
+                    "model_B_outer_n": record_b['outer_loop_n'],
+                    "model_B_inner_n": record_b['inner_loop_idx'],
+                    "trial_subject": trial_subject,
+                    "component": comp,
+                    "similarity": similarity,
+                    "similarity_measure": similarity_measure,
+                    "within_subject": record_a['subject_id'] == record_b['subject_id'],
+                })
+
+    return results
+
+
+def _component_columns(activations):
+    return {component for component in COMPONENTS
+            if any(column.startswith(component) for column in activations.columns)}
+
+
+def _run_model_on_trials(model, trials_data, inputs):
+    """Run a model on raw trial columns and return comparable activations.
+       Models are canonically standardized upstream."""
+    model.eval()
+    with torch.no_grad():
+        if model.input_encoding == 'encoder':
+            inputs = model.encoder(inputs)
+        hidden_states, gate_activations = model.rnn(
+            inputs, return_gate_activations=True
+        )
+        predictions = model.decoder(hidden_states)
+
+    activations = pd.DataFrame({
+        f"hidden_{unit + 1}": hidden_states[0, :, unit].cpu().numpy()
+        for unit in range(hidden_states.shape[-1])
+    })
+    for gate_name, gate_values in gate_activations.items():
+        for unit in range(gate_values.shape[-1]):
+            activations[f"gate_{gate_name}_{unit + 1}"] = (
+                gate_values[0, :, unit].cpu().numpy()
+            )
+
+    log_probs = predictions.log_softmax(dim=2)
+    activations["logit_value"] = (
+        log_probs[0, :, 0] - log_probs[0, :, 1]
+    ).cpu().numpy()
+    
+    return activations
+
 def parameter_contribution_df(best_models_df):
     """Computes the normalized contribution of inputs to gated components."""
     contributions_dict = {'model_id':[], 'outer_loop_n':[], 'weight_seed':[], 'performance':[], 'variable':[], 'value':[]}
@@ -467,22 +521,13 @@ def parameter_contribution_df(best_models_df):
 
 ## Inspecting weights
 
-import numpy as np
-import matplotlib.pyplot as plt
-import itertools
-
-def _load_weights(model_path):
-    """Load model and extract rnn weight matrices as numpy arrays."""
-    model = analysis.load_data(str(model_path))
-    standardize_weights(model)
-    params = {k: v.detach().numpy() for k, v in model.named_parameters()
-                if k.startswith('rnn.')}
-    return params
-
-def _concat_weights(params):
-    """Concatenate all rnn weight matrices into a single flat vector."""
-    keys = sorted(params.keys())
-    return np.concatenate([params[k].ravel() for k in keys])
+def _extract_flat_params(model):
+    """Extract flattened parameters for similarity/clustering."""
+    params = []
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            params.append(param.data.detach().cpu().numpy().ravel())
+    return np.concatenate(params)
 
 def _similarity(a, b, similarity_measure="pearson"):
     """Compute Pearson or cosine similarity between two vectors."""
@@ -501,25 +546,18 @@ def _similarity(a, b, similarity_measure="pearson"):
 
     return np.dot(a, b) / denom
 
-def _gate_dim(params):
-    """Return the gate dimensionality (number of cols in W_hz) or None."""
-    if 'rnn.W_hz' in params:
-        return params['rnn.W_hz'].shape[1]
-    return None
-
 def plot_pairwise_parameters(subject_models_df, model_pickle_col='model_pickle_path'):
     """
     Plot pairwise parameter correlations across trained models for a single subject.
-    
-    subject_models_df: DataFrame filtered to a single subject, 
-                       with one row per trained model
+    Models are canonically standardizing prior to extraction.
     """
-    # Load all weights
     weights = {}
+    
     for idx, row in subject_models_df.iterrows():
         try:
-            params = _load_weights(row[model_pickle_col])
-            weights[idx] = _concat_weights(params)
+            model = analysis.load_data(row[model_pickle_col])
+            standardize_weights(model)
+            weights[idx] = _extract_flat_params(model)
         except Exception as e:
             print(f"Could not load model at index {idx}: {e}")
 
@@ -530,13 +568,14 @@ def plot_pairwise_parameters(subject_models_df, model_pickle_col='model_pickle_p
     print(f"Loaded {n_models} models, {param_dim} parameters each")
 
     # --- Plot 1: Pairwise scatter of raw parameter vectors ---
-    n_pairs = min(len(list(itertools.combinations(indices, 2))), 20)  # cap for readability
+    n_pairs = min(len(list(itertools.combinations(indices, 2))), 20)
     pairs = list(itertools.combinations(indices, 2))[:n_pairs]
     
     ncols = 4
     nrows = int(np.ceil(n_pairs / ncols))
     fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 3, nrows * 3))
-    axes = axes.flatten()
+    if nrows * ncols == 1: axes = [axes]
+    else: axes = axes.flatten()
 
     for ax, (idx_a, idx_b) in zip(axes, pairs):
         va, vb = weights[idx_a], weights[idx_b]
@@ -551,7 +590,7 @@ def plot_pairwise_parameters(subject_models_df, model_pickle_col='model_pickle_p
     for ax in axes[n_pairs:]:
         ax.set_visible(False)
 
-    plt.suptitle("Pairwise parameter scatter (single subject)", y=1.02)
+    plt.suptitle("Pairwise parameter scatter (single subject, canonically aligned)", y=1.02)
     plt.tight_layout()
     plt.show()
 
@@ -579,78 +618,18 @@ def plot_pairwise_parameters(subject_models_df, model_pickle_col='model_pickle_p
 
     return sim_matrix
 
-# validation of reordering of the weights
-
-def data_rerun(model, trials_data):
-    data = trials_data.copy()
-
-    # Build a single (1, T, 3) input tensor from the raw subject_df so that
-    # every trial appears in temporal order regardless of sequence chunking.
-    raw = torch.tensor(
-        data[["forced_choice", "choice","outcome"]].values,
-        dtype=torch.float32,
-    ).unsqueeze(0)   # (1, T, 3)
-    inputs = ds.input_encoder(raw, model.input_encoding, model.input_forced_choice)
-
-    with torch.no_grad():
-        predictions, hidden_states = model(inputs)
-        # hidden_states: (1, T, H)
-        for u in range(model.H):
-            data[f"hidden_{u+1}"] = hidden_states[0, :, u].cpu().numpy()
-
-        rnn_type = getattr(model, "rnn_type", "vanilla")
-        if rnn_type != "vanilla":
-            _, gate_activations = model.rnn(inputs, return_gate_activations=True)
-            for gate_name, acts in gate_activations.items():
-                for u in range(acts.shape[-1]):
-                    data[f"gate_{gate_name}_{u+1}"] = acts[0, :, u].cpu().numpy()
-
-    log_probs = predictions.log_softmax(dim=2)   # (1, T, 2)
-    logits    = (log_probs[0, :, 0] - log_probs[0, :, 1]).cpu().numpy()
-    data["logit_value"] = logits
-    data["logit_past"]   = np.concatenate([[np.nan], logits[:-1]])
-    data["logit_change"] = np.concatenate([[np.nan], np.diff(logits)])
-    data["prob_A"]       = log_probs[0, :, 0].exp().cpu().numpy()
-    data["prob_B"]       = log_probs[0, :, 1].exp().cpu().numpy()
-    data
-
-    return data
-
-
-
-##k-means clustering on weights
-
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
-from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import silhouette_score
-
 def cluster_models_full(models_df, model_pickle_col='model_pickle_path',
                         loss_col='eval_CE', k_range=range(2, 10), n_clusters=None):
     """
-    Full clustering pipeline:
-    1. Elbow + silhouette to pick k (or use n_clusters if provided)
-    2. K-means clustering
-    3. PCA visualization colored by cluster and loss
-    4. Cluster summary
+    Full clustering pipeline mapping models into an aligned shared canonical parameter space.
     """
-    # --- Load weights ---
     indices, vecs, meta = [], [], []
+    
     for idx, row in models_df.iterrows():
         try:
-            params = _load_weights(row[model_pickle_col])
-            if '1_unit_GRU' in row['model_id']:
-                params = canonicalize_1unit_gru(params)
-        
-            vecs.append(_concat_weights(params))
+            model = analysis.load_data(row[model_pickle_col])
+            standardize_weights(model)
+            vecs.append(_extract_flat_params(model))
             indices.append(idx)
             meta.append(row)
         except Exception as e:
@@ -708,13 +687,12 @@ def cluster_models_full(models_df, model_pickle_col='model_pickle_path',
         label = f"Cluster {c} (n={n}" + (f", CE={mean_loss:.3f})" if mean_loss else ")")
         ax.scatter(X_pca[mask, 0], X_pca[mask, 1], label=label, s=50, alpha=0.8)
 
-    # Mark cluster centroids in PCA space
     centroids_pca = pca.transform(kmeans.cluster_centers_)
     ax.scatter(centroids_pca[:, 0], centroids_pca[:, 1],
                marker='x', s=150, c='black', linewidths=2, label='Centroids')
     ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]:.1%} var)")
     ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]:.1%} var)")
-    ax.set_title("PCA of parameter vectors")
+    ax.set_title("PCA of aligned parameter vectors")
     ax.legend(fontsize=8)
 
     # Loss plot
@@ -729,130 +707,49 @@ def cluster_models_full(models_df, model_pickle_col='model_pickle_path',
 
     plt.tight_layout(); plt.show()
 
-    # --- Summary ---
-    print("\nCluster summary:")
-    cluster_stats = []
-    for c in range(chosen_k):
-        mask = meta_df['cluster'] == c
-        row = {'cluster': c, 'n': mask.sum()}
-        if loss_col in meta_df.columns:
-            row['mean_loss'] = meta_df.loc[mask, loss_col].mean()
-            row['min_loss'] = meta_df.loc[mask, loss_col].min()
-            row['std_loss'] = meta_df.loc[mask, loss_col].std()
-        cluster_stats.append(row)
-        print(f"  Cluster {c}: n={row['n']}", end="")
-        if loss_col in meta_df.columns:
-            print(f", mean={row['mean_loss']:.4f}, min={row['min_loss']:.4f}, std={row['std_loss']:.4f}")
-
-    if loss_col in meta_df.columns:
-        best_cluster = min(cluster_stats, key=lambda x: x['mean_loss'])['cluster']
-        print(f"\nBest cluster by mean loss: Cluster {best_cluster}")
-
-    meta_df['param_vec'] = list(X)  # attach raw vecs for downstream use
     return meta_df, kmeans, pca, X_scaled
-
-
-# computing weight similarities (NEED TO CONSIDER SYMMETRIES MORE CAREFULLY)
-def canonicalize_1unit_gru(params):
-    """
-    Canonicalize a 1-unit GRU by fixing the sign of the hidden state.
-    
-    Convention: force W_hh > 0 (recurrent self-connection is positive).
-    This is arbitrary but deterministic — any single weight that 
-    participates in the hidden state path works as a reference.
-    
-    Affected by h sign flip:
-        - W_ih   : input -> candidate h (writes to h)
-        - W_hh   : h -> candidate h     (writes and reads h)
-        - W_hz   : h -> update gate     (reads h)
-        - W_hr   : h -> reset gate      (reads h)
-        - bias_h : bias of candidate h  (additive to h path)
-    
-    NOT affected (sigmoid gates; their inputs are not h itself):
-        - W_iz, W_ir : input -> gates
-        - bias_z, bias_r : gate biases
-    """
-    p = {k: v.copy() for k, v in params.items()}
-    
-    sign = np.sign(p['rnn.W_hh'].item())
-    
-    if sign == 0:
-        print("Warning: W_hh is zero, cannot determine sign convention")
-        return p
-    
-    if sign < 0:
-        p['rnn.W_ih']    *= -1
-        p['rnn.W_hh']    *= -1
-        p['rnn.W_hz']    *= -1
-        p['rnn.W_hr']    *= -1
-        p['rnn.bias_h']  *= -1
-    
-    return p
 
 def compute_weight_similarities(
     models_df,
     model_pickle_col="model_pickle_path",
     model_id_col="model_id",
     subject_col="subject_id",
-    similarity_measure="pearson",
+    similarity_measure="cosine", 
 ):
     """
-    Computes pairwise weight similarity using Pearson or cosine similarity.
+    Computes pairwise weight similarity utilizing the standardized canonical network forms.
     """
-    if similarity_measure not in {"pearson", "cosine"}:
-        raise ValueError(
-            "similarity_measure must be either 'pearson' or 'cosine'"
-        )
-
-    import itertools
-    import warnings
-
     rows = []
 
     for model_id, group in models_df.groupby(model_id_col):
         group = group.reset_index(drop=True)
 
-        # Load all weights once, keyed by row index
-        weights = {}
+        # Load and standardize all models once, keyed by row index
+        models = {}
         for idx, row in group.iterrows():
             try:
-                weights[idx] = _load_weights(row[model_pickle_col])
-                if '1_unit_GRU' in model_id:
-                    print('Standardising parameters')
-                    weights[idx] = canonicalize_1unit_gru(weights[idx])
+                model = analysis.load_data(row[model_pickle_col])
+                standardize_weights(model)
+                models[idx] = model
             except Exception as e:
                 warnings.warn(
-                    f"Could not load model for subject {row[subject_col]} "
+                    f"Could not load/standardize model for subject {row[subject_col]} "
                     f"(outer={row.get('outer_loop_n', '?')}, "
                     f"inner={row.get('inner_loop_idx', '?')}): {e}"
                 )
 
-        # Pairwise comparisons across all rows (includes within-subject pairs)
+        # Pairwise comparisons across all rows using standardized forms
         for idx_a, idx_b in itertools.combinations(group.index, 2):
-            if idx_a not in weights or idx_b not in weights:
+            if idx_a not in models or idx_b not in models:
                 continue
 
             row_a = group.loc[idx_a]
             row_b = group.loc[idx_b]
-            params_a = weights[idx_a]
-            params_b = weights[idx_b]
-
-            # Skip mixed gate dimensionality
-            dim_a, dim_b = _gate_dim(params_a), _gate_dim(params_b)
-            if dim_a != dim_b:
-                warnings.warn(
-                    f"Skipping {row_a[subject_col]} vs {row_b[subject_col]} "
-                    f"for model '{model_id}': gate dims differ ({dim_a} vs {dim_b})."
-                )
-                continue
-
-            vec_a = _concat_weights(params_a)
-            vec_b = _concat_weights(params_b)
-            similarity = _similarity(
-                vec_a,
-                vec_b,
-                similarity_measure=similarity_measure,
-            )
+            model_a = models[idx_a]
+            model_b = models[idx_b]
+            
+            # Calculate similarity of flat canonical params
+            similarity = compute_weight_similarity(model_a, model_b)
 
             rows.append({
                 "model_id": model_id,
@@ -865,7 +762,7 @@ def compute_weight_similarities(
                 "within_subject": row_a[subject_col] == row_b[subject_col],
                 "similarity": similarity,
                 "sim_original": similarity,
-                "similarity_measure": similarity_measure,
+                "similarity_measure": "cosine", 
             })
 
     return pd.DataFrame(rows)
@@ -881,10 +778,10 @@ def run_across_subject_similarity_analysis(
 ):
     """Build, compute, and save the across-subject similarity analysis."""
     if model_list is None:
-        model_list = ['GRU', 'monoGRU+BC-DB']
+        model_list = ['GRU+BC', 'GRU+BC-DB', 'GRU', 'monoGRU+BC', 'monoGRU+BC-DB']
     if subject_list is None:
         subject_list = [
-            'WS01', 'WS02', 'WS08', 'WS09', 'WS10',
+            'WS01', 'WS02','WS05', 'WS08', 'WS09', 'WS10',
             'WS13', 'WS14', 'WS16', 'WS20', 'WS22',
         ]
 
@@ -909,7 +806,6 @@ def run_across_subject_similarity_analysis(
     similarity_path = output_dir / 'mechanistic_variability_pearson_similarities_v2.htsv'
     select_models.to_csv(selected_path, sep='\t', index=False)
     print(f'Saved selected model dataframe to {selected_path}')
-    print(select_models)
 
     sim_df = compute_similarities(
         select_models,
@@ -919,9 +815,10 @@ def run_across_subject_similarity_analysis(
         cache_path=similarity_path,
     )
     print(f'Saved similarity dataframe to {similarity_path}')
-    print(sim_df)
     return select_models, sim_df
 
 
 if __name__ == "__main__":
+    print('Running analysis')
     run_across_subject_similarity_analysis()
+    print('done!')

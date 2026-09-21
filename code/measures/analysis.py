@@ -21,7 +21,7 @@ def get_analysis_df(info_df, mode='all', n_jobs=-1, use_cache=True):
     if mode != 'all':
         raise ValueError("Path discovery only supports mode='all'; select best models from a performance dataframe.")
 
-    cache_path = DATA_PATH / 'analysis' / 'analysis_df.htsv'
+    cache_path = DATA_PATH / 'analysis' / 'analysis_df_final.htsv'
     if use_cache and cache_path.exists():
         try:
             expanded_df = pd.read_csv(cache_path, sep='\t')
@@ -111,7 +111,6 @@ def select_best_outer(analysis_df):
     from NM_TinyRNN.code.measures.performance import select_best_outer as _select_best_outer
 
     return _select_best_outer(analysis_df)
-
 
 def load_data(filepath):
     """Load JSON, HTSV, pickle, or PyTorch checkpoint data."""

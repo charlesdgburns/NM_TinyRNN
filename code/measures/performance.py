@@ -14,7 +14,7 @@ from NM_TinyRNN.code.measures.analysis import DATA_PATH
 
 def get_performance_df(analysis_df, n_jobs=-1, use_cache=True):
     '''Add saved performance values and trial-level metrics to path rows.'''
-    cache_path = DATA_PATH / 'analysis' / 'performance_df.htsv'
+    cache_path = DATA_PATH / 'analysis' / 'performance_df_final.htsv'
     required_columns = {
         'eval_CE', 'best_val_CE', 'train_CE', 'val_CE', 'eval_CE_computed',
         'train_n_free', 'val_n_free', 'eval_n_free'
