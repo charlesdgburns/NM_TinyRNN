@@ -11,10 +11,19 @@ This is written for the 2-armed bandit reversal task modelled trial-by-trial.
 
 Refactored to utilize a canonical structural alignment and 
 similarity metrics to be completely self-sufficient.
+
+
+
+This script is structured as follows:
+
+1. Code to align two models
+
+2. Code to compue similarity metrics between models
+
+3. Code to run the analysis across all models in parallel and save results
 """
 
 import os
-import itertools
 import warnings
 from pathlib import Path
 import numpy as np
@@ -28,6 +37,11 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import silhouette_score
 
+# For finding optimal alignment
+import copy
+import itertools
+from scipy.optimize import linear_sum_assignment
+
 ## local imports
 from NM_TinyRNN.code.models import submit_jobs
 from NM_TinyRNN.code.measures import analysis
@@ -38,145 +52,299 @@ from NM_TinyRNN.code.models import datasets as ds
 AB_DATA_PATH = Path("NM_TinyRNN/data/AB_behaviour")
 SAVE_PATH = Path("NM_TinyRNN/data/rnns/mech_var")
 
-# --- CORE ALIGNMENT & SIMILARITY FUNCTIONS --- #
+## CORE ALIGNMENT FUNCTIONS ##
 
-def standardize_weights(model: torch.nn.Module, verbose: bool = False):
-    """
-    Standardizes a 2-unit TinyRNN model in-place to a canonical form 
-    using only its decoder weights. No trial data required.
-    
-    Supports both 'tanh' and 'relu' networks gracefully.
-    """
-    rnn = model.rnn
-    rnn_type = model.rnn_type
-    
-    # Check if the model uses ReLU or Tanh
-    is_relu = getattr(model, 'nonlinearity', 'tanh') == 'relu'
 
+def align_rnns(
+    model_a: torch.nn.Module,
+    model_b: torch.nn.Module,
+    nonlinearity: str | None = None,
+    scale_steps: int = 5,
+) -> tuple[torch.nn.Module, float, dict]:
+    """Aligns Model B to Model A by fully searching the symmetry group
+
+    (all permutations and sign/scale transformations) to minimize global parameter distance.
+
+    Parameters
+    ----------
+    model_a : torch.nn.Module
+        Reference RNN model.
+    model_b : torch.nn.Module
+        Model to align.
+    nonlinearity : str, optional
+        'relu' or 'tanh'. If None, inferred from `model_a.nonlinearity`.
+    scale_steps : int
+        Number of candidate positive scale factors per unit for ReLU (default: 5).
+
+    Returns
+    -------
+    model_b_aligned : torch.nn.Module
+        Copy of Model B with aligned weights.
+    aligned_distance : float
+        Euclidean parameter distance after symmetry alignment.
+    info : dict
+        Contains 'perm' (permutation array), 'transform_vec' (D or S),
+        and 'unaligned_distance' (distance before alignment).
+    """
+    if nonlinearity is None:
+        if hasattr(model_a, "nonlinearity"):
+            nonlinearity = str(model_a.nonlinearity).lower()
+        elif hasattr(model_a.rnn, "nonlinearity"):
+            nonlinearity = str(model_a.rnn.nonlinearity).lower()
+        else:
+            raise AttributeError("Could not infer nonlinearity.")
+
+    nonlinearity = nonlinearity.lower()
+    model_b_aligned = copy.deepcopy(model_b)
+
+    # --- Extract reference parameters (Model A) ---
     with torch.no_grad():
-        # The decoder weights have shape (out_size, hidden_size) -> e.g., (2, 2)
-        dec_w = model.decoder.weight.data
-        
-        # Calculate the effective weight vector: class_0_weights - class_1_weights
-        # This represents the actual linear direction driving the binary logit
-        w_eff = dec_w[0, :] - dec_w[1, :] # Shape: (2,)
-        
-        # ----------------------------------------------------
-        # STEP 1: Determine Permutation (Swapping Unit 1 and 2)
-        # ----------------------------------------------------
-        # Force the unit with the larger absolute impact on the logit to be Unit 0
-        was_swapped = torch.abs(w_eff[1]) > torch.abs(w_eff[0])
-        perm_idx = [1, 0] if was_swapped else [0, 1]
-        
-        # Mentally apply the permutation to see what the effective weights look like post-swap
-        w_eff_aligned = w_eff[perm_idx]
-        
-        # ----------------------------------------------------
-        # STEP 2: Determine Sign Flips
-        # ----------------------------------------------------
-        flip_h1 = False
-        flip_h2 = False
-        
-        if not is_relu:
-            # For Tanh/Linear networks, we can safely fix the sign orientations
-            # Force Unit 0's readout weight to be positive
-            flip_h1 = w_eff_aligned[0] < 0
-            # Force Unit 1's readout weight to be positive as well
-            flip_h2 = w_eff_aligned[1] < 0
-            
-        sign_multipliers = torch.tensor([-1.0 if flip_h1 else 1.0, -1.0 if flip_h2 else 1.0], dtype=torch.float32)
+        W_ih_A = model_a.rnn.W_ih.data.float().cpu().numpy()
+        W_hh_A = model_a.rnn.W_hh.data.float().cpu().numpy()
+        b_h_A = (
+            model_a.rnn.bias_h.data.float().cpu().numpy()
+            if hasattr(model_a.rnn, "bias_h")
+            else np.zeros(W_hh_A.shape[0])
+        )
+        W_dec_A = model_a.decoder.weight.data.float().cpu().numpy()
 
-        # ----------------------------------------------------
-        # STEP 3: Apply Symmetries Upstream In-Place
-        # ----------------------------------------------------
-        
-        # A. Update Decoder (Output Layer)
-        if dec_w.shape[1] == 2:
-            model.decoder.weight.data = model.decoder.weight.data[:, perm_idx] * sign_multipliers
+        W_ih_B = model_b.rnn.W_ih.data.float().cpu().numpy()
+        W_hh_B = model_b.rnn.W_hh.data.float().cpu().numpy()
+        b_h_B = (
+            model_b.rnn.bias_h.data.float().cpu().numpy()
+            if hasattr(model_b.rnn, "bias_h")
+            else np.zeros(W_hh_B.shape[0])
+        )
+        W_dec_B = model_b.decoder.weight.data.float().cpu().numpy()
 
-        # B. Update Initial Hidden States
-        if hasattr(rnn, 'hidden_0') and rnn.hidden_0.data.shape[0] == 2:
-            rnn.hidden_0.data = rnn.hidden_0.data[perm_idx] * sign_multipliers
+        # Enforce shape (H, I) for input weights
+        if W_ih_A.shape[0] != W_hh_A.shape[0]:
+            W_ih_A = W_ih_A.T
+            W_ih_B = W_ih_B.T
 
-        # C. Update Hidden RNN / GRU / monoGRU Layer Blocks
-        if rnn_type in ['vanilla', 'LightGRU', 'GRU'] or 'monoGRU' in rnn_type:
-            
-            # --- Input-to-Hidden Tensors ---
-            # Candidate state (W_ih): columns represent target units -> apply sign flip
-            if hasattr(rnn, 'W_ih') and rnn.W_ih is not None:
-                if rnn.W_ih.data.shape[1] == 2:
-                    rnn.W_ih.data = rnn.W_ih.data[:, perm_idx] * sign_multipliers
-            
-            # Sigmoid Gates (W_iz, W_ir): permute columns, but DO NOT flip signs
-            for attr in ['W_iz', 'W_ir']:
-                if hasattr(rnn, attr) and getattr(rnn, attr) is not None:
-                    param = getattr(rnn, attr)
-                    if param.data.shape[1] == 2:
-                        param.data = param.data[:, perm_idx]
+    H = W_hh_A.shape[0]
 
-            # --- Biases ---
-            # Candidate bias (bias_h): maps to hidden unit outputs -> apply sign flip
-            if hasattr(rnn, 'bias_h') and rnn.bias_h is not None:
-                if rnn.bias_h.data.shape[0] == 2:
-                    rnn.bias_h.data = rnn.bias_h.data[perm_idx] * sign_multipliers
-            
-            # Gate biases (bias_z, bias_r): only permute, DO NOT flip signs
-            for attr in ['bias_z', 'bias_r']:
-                if hasattr(rnn, attr) and getattr(rnn, attr) is not None:
-                    param = getattr(rnn, attr)
-                    if param.data.ndim > 0 and param.data.shape[0] == 2:
-                        param.data = param.data[perm_idx]
+    # Calculate unaligned baseline parameter distance
+    unaligned_sq_dist = (
+        np.sum((W_ih_A - W_ih_B) ** 2)
+        + np.sum((b_h_A - b_h_B) ** 2)
+        + np.sum((W_hh_A - W_hh_B) ** 2)
+        + np.sum((W_dec_A - W_dec_B) ** 2)
+    )
+    unaligned_distance = float(np.sqrt(unaligned_sq_dist))
 
-            # --- Recurrent Tensors ---
-            # Full candidate Recurrent matrix (W_hh): scales both source and target axes
-            if hasattr(rnn, 'W_hh') and rnn.W_hh is not None:
-                if rnn.W_hh.data.shape == (2, 2):
-                    rnn.W_hh.data = rnn.W_hh.data[perm_idx, :][:, perm_idx]
-                    rnn.W_hh.data = rnn.W_hh.data * sign_multipliers.unsqueeze(1) # row scale (source)
-                    rnn.W_hh.data = rnn.W_hh.data * sign_multipliers.unsqueeze(0) # col scale (target)
+    # --- Construct Candidate Transformation Space ---
+    all_permutations = list(itertools.permutations(range(H)))
 
-            # Recurrent Gate matrices (W_hz, W_hr):
-            # Rows represent incoming hidden states -> apply sign flip to counteract input
-            # Columns represent gate targets going to Sigmoid -> DO NOT flip signs
-            for attr in ['W_hz', 'W_hr']:
-                if hasattr(rnn, attr) and getattr(rnn, attr) is not None:
-                    param = getattr(rnn, attr)
-                    if param.data.shape == (2, 2):
-                        param.data = param.data[perm_idx, :][:, perm_idx]
-                        param.data = param.data * sign_multipliers.unsqueeze(1) # row scale ONLY
-                    elif param.data.shape == (2, 1):
-                        param.data = param.data[perm_idx, :]
-                        param.data = param.data * sign_multipliers.unsqueeze(1) # row scale ONLY
-                        
-        elif rnn_type == 'LSTM':
-            # Support for LSTM layout [i, f, g, o] gates stacked side-by-side
-            for i, gate_name in enumerate(['i', 'f', 'g', 'o']):
-                start, end = i * 2, (i + 1) * 2
-                if rnn.W.data.shape[1] >= end:
-                    # Input matrix W
-                    if gate_name == 'g':
-                        rnn.W.data[:, start:end] = rnn.W.data[:, start:end][:, perm_idx] * sign_multipliers
-                        rnn.bias.data[start:end] = rnn.bias.data[start:end][perm_idx] * sign_multipliers
-                    else:
-                        rnn.W.data[:, start:end] = rnn.W.data[:, start:end][:, perm_idx]
-                        rnn.bias.data[start:end] = rnn.bias.data[start:end][perm_idx]
-                    
-                    # Recurrent matrix U
-                    rnn.U.data[perm_idx, :] = rnn.U.data[perm_idx, :] 
-                    rnn.U.data = rnn.U.data * sign_multipliers.unsqueeze(1) 
-                    rnn.U.data[:, start:end] = rnn.U.data[:, start:end][:, perm_idx] 
-                    if gate_name == 'g':
-                        rnn.U.data[:, start:end] = rnn.U.data[:, start:end] * sign_multipliers.unsqueeze(0)
+    if nonlinearity == "tanh":
+        # Tanh transformations: sign flips S in {-1, +1}^H
+        transform_candidates = list(itertools.product([1.0, -1.0], repeat=H))
+    else:
+        # ReLU transformations: scaling factors D in R_>0^H
+        # Grid around 1.0 (e.g., [0.5, 0.8, 1.0, 1.25, 2.0])
+        scales = np.linspace(0.5, 2.0, scale_steps)
+        transform_candidates = list(itertools.product(scales, repeat=H))
 
-    if verbose:
-        print(f"Data-Free Alignment Complete! [Type: {'ReLU' if is_relu else 'Tanh'}] "
-              f"Swapped: {was_swapped} | Flip H1: {flip_h1} | Flip H2: {flip_h2}")
-    return was_swapped, flip_h1, flip_h2
+    best_distance = float("inf")
+    best_perm = np.arange(H)
+    best_transform_vec = np.ones(H, dtype=np.float32)
+
+    # --- Fully Exhaustive Search ---
+    for p_tuple in all_permutations:
+        perm = np.array(p_tuple, dtype=int)
+        P_mat = np.eye(H)[perm]  # Permutation matrix
+
+        for t_tuple in transform_candidates:
+            t_vec = np.array(t_tuple, dtype=np.float32)
+            T_mat = np.diag(t_vec)
+            T_inv = np.diag(1.0 / t_vec)
+
+            # Combined transformation mapping B -> A: PT = T @ P
+            PT = T_mat @ P_mat
+            inv_PT = P_mat.T @ T_inv
+
+            # Transform main network parameters
+            W_ih_B_trans = PT @ W_ih_B
+            b_h_B_trans = PT @ b_h_B
+            W_hh_B_trans = inv_PT.T @ W_hh_B @ PT.T
+            W_dec_B_trans = W_dec_B @ inv_PT
+
+            # Compute full Euclidean parameter distance
+            cand_sq_dist = (
+                np.sum((W_ih_A - W_ih_B_trans) ** 2)
+                + np.sum((b_h_A - b_h_B_trans) ** 2)
+                + np.sum((W_hh_A - W_hh_B_trans) ** 2)
+                + np.sum((W_dec_A - W_dec_B_trans) ** 2)
+            )
+
+            if cand_sq_dist < best_distance:
+                best_distance = cand_sq_dist
+                best_perm = perm
+                best_transform_vec = t_vec
+
+    # Safety check: if unaligned distance is already better than any symmetry shift, keep original
+    if unaligned_distance < np.sqrt(best_distance):
+        best_perm = np.arange(H)
+        best_transform_vec = np.ones(H, dtype=np.float32)
+
+    perm = best_perm
+    transform_vec = best_transform_vec
+
+    # --- STEP 3: Apply Optimal Transformation to PyTorch State ---
+    with torch.no_grad():
+        device = next(model_b_aligned.parameters()).device
+        P_mat_t = torch.eye(H, device=device)[perm]
+        T_mat_t = torch.diag(
+            torch.tensor(transform_vec, device=device, dtype=torch.float32)
+        )
+        T_inv_t = torch.diag(
+            torch.tensor(1.0 / transform_vec, device=device, dtype=torch.float32)
+        )
+
+        PT_t = T_mat_t @ P_mat_t
+        inv_PT_t = P_mat_t.T @ T_inv_t
+
+        rnn = model_b_aligned.rnn
+
+        # Input weights
+        if hasattr(rnn, "W_ih"):
+            w_ih = rnn.W_ih.data
+            is_transposed = w_ih.shape[0] != H
+            w_ih_norm = w_ih.T if is_transposed else w_ih
+            w_ih_aligned = PT_t @ w_ih_norm
+            rnn.W_ih.data = w_ih_aligned.T if is_transposed else w_ih_aligned
+
+        # Hidden bias
+        if hasattr(rnn, "bias_h") and rnn.bias_h is not None:
+            rnn.bias_h.data = PT_t @ rnn.bias_h.data
+
+        if hasattr(rnn, "hidden_0") and rnn.hidden_0 is not None:
+            rnn.hidden_0.data = PT_t @ rnn.hidden_0.data
+
+        # Recurrent weights (Row-vector format: h @ W_hh)
+        if hasattr(rnn, "W_hh"):
+            rnn.W_hh.data = inv_PT_t.T @ rnn.W_hh.data @ PT_t.T
+
+        # Gate weights transformation
+        transform_gate_weights(rnn, perm, transform_vec)
+
+        # Decoder weights
+        model_b_aligned.decoder.weight.data = (
+            model_b_aligned.decoder.weight.data @ inv_PT_t
+        )
+
+    # --- STEP 4: Calculate Final Post-Alignment Distance ---
+    with torch.no_grad():
+        W_ih_B_aligned = model_b_aligned.rnn.W_ih.data.float().cpu().numpy()
+        W_hh_B_aligned = model_b_aligned.rnn.W_hh.data.float().cpu().numpy()
+        b_h_B_aligned = (
+            model_b_aligned.rnn.bias_h.data.float().cpu().numpy()
+            if hasattr(model_b_aligned.rnn, "bias_h")
+            else np.zeros(H)
+        )
+        W_dec_B_aligned = model_b_aligned.decoder.weight.data.float().cpu().numpy()
+
+        if W_ih_B_aligned.shape[0] != H:
+            W_ih_B_aligned = W_ih_B_aligned.T
+
+        aligned_sq_dist = (
+            np.sum((W_ih_A - W_ih_B_aligned) ** 2)
+            + np.sum((b_h_A - b_h_B_aligned) ** 2)
+            + np.sum((W_hh_A - W_hh_B_aligned) ** 2)
+            + np.sum((W_dec_A - W_dec_B_aligned) ** 2)
+        )
+        aligned_distance = float(np.sqrt(aligned_sq_dist))
+
+    info = {
+        "perm": perm,
+        "transform_vec": transform_vec,
+        "unaligned_distance": unaligned_distance,
+        "aligned_distance": aligned_distance
+    }
+
+    return model_b_aligned, info
+
+
+def transform_gate_weights(
+    rnn: torch.nn.Module,
+    perm: np.ndarray,
+    transform_vec: np.ndarray,
+) -> None:
+    """Transforms the gate parameters of a gated RNN module under hidden state permutation
+
+    and sign-flip/scaling transformations (Godfrey et al. / Ainsworth et al.).
+
+    Parameters
+    ----------
+    rnn : torch.nn.Module
+        The RNN layer (e.g., ManualGRU, MonoGated, StereoGated, LightGRU).
+    perm : np.ndarray
+        Permutation indices array of shape (H,).
+    transform_vec : np.ndarray
+        Diagonal scaling or sign-flip vector of shape (H,).
+    nonlinearity : str
+        'relu' or 'tanh'.
+    """
+    H = len(perm)
+    device = next(rnn.parameters()).device
+
+    P_mat = torch.eye(H, device=device)[perm]
+    T_mat = torch.diag(torch.tensor(transform_vec, device=device, dtype=torch.float32))
+    T_inv = torch.diag(torch.tensor(1.0 / transform_vec, device=device, dtype=torch.float32))
+
+    # PT maps B-space hidden units to A-space: h_A = PT @ h_B.
+    PT = T_mat @ P_mat
+    inv_PT = P_mat.T @ T_inv
+
+    gate_names = ["z", "r", "i"]  # update, reset, input gates
+
+    for g in gate_names:
+        w_iz_attr = f"W_i{g}"
+        w_hz_attr = f"W_h{g}"
+        bias_z_attr = f"bias_{g}"
+
+        # 1. Transform Recurrent Gate Weights (W_hz, W_hr, W_hi)
+        if hasattr(rnn, w_hz_attr):
+            w_hz = getattr(rnn, w_hz_attr)
+            if w_hz is not None and isinstance(w_hz, torch.nn.Parameter):
+                data = w_hz.data
+                # Full H x H gate weight matrix (e.g., ManualGRU, LightGRU, MonoGated subnetwork)
+                if data.shape == (H, H):
+                    # Gate outputs are permuted, while their hidden inputs use PT.
+                    w_hz.data = inv_PT.T @ data @ P_mat.T
+                # 1D scalar gate weight vector (H x 1) (e.g., MonoGated default, StereoGated)
+                elif data.shape == (H, 1):
+                    # The scalar gate is not permuted as an output. Its hidden
+                    # input must therefore be mapped by the inverse hidden transform.
+                    w_hz.data = inv_PT.T @ data
+
+        # 2. Transform Input Gate Weights (W_iz, W_ir, W_ii)
+        if hasattr(rnn, w_iz_attr):
+            w_iz = getattr(rnn, w_iz_attr)
+            if w_iz is not None and isinstance(w_iz, torch.nn.Parameter):
+                data = w_iz.data
+                # Full I x H gate weight matrix
+                if data.shape[1] == H:
+                    # Account for potential transposition in parameter orientation
+                    w_iz.data = data @ P_mat.T
+
+        # 3. Transform Gate Biases (bias_z, bias_r, bias_i)
+        if hasattr(rnn, bias_z_attr):
+            bias_z = getattr(rnn, bias_z_attr)
+            if bias_z is not None and isinstance(bias_z, torch.nn.Parameter):
+                # Full H-dimensional gate bias
+                if bias_z.data.shape == (H,):
+                    bias_z.data = P_mat @ bias_z.data
+                # Scalar 1D gate bias (shape (1,)) remains invariant
+
+## CORE SIMILARITY FUNCTIONS ##
 
 def compute_weight_similarity(model_a: nn.Module, model_b: nn.Module) -> float:
     """
     Computes Cosine Similarity between the flattened parameters of Model A 
     and Model B. Assumes models are already canonicalized.
+
+    This is equivalent to the normalised frobenius norm of the difference between the two parameter vectors.
     """
     def extract_flat_params(model):
         params = []
@@ -237,74 +405,8 @@ def compute_activation_similarity(
     else:
         raise ValueError("Metric must be 'pearson' or 'cka'")
 
-# --- FUNCTIONS --- #
+# Computational functions #
 
-def train_models(train_seeds=list(range(1, 3)),
-                 weight_seeds=list(range(1, 11)),
-                 subjects=["WS16"]):
-    """Performs parallel training of RNN models."""
-    for each_subject in subjects:
-        data_path = AB_DATA_PATH / f"{each_subject}"
-        for each_train_seed in train_seeds:
-            for each_model_type in ['monoGRU']:
-                save_path = SAVE_PATH / f"{each_subject}/train_seed_{each_train_seed}"
-                
-                submit_jobs.train_outers(
-                    data_path=data_path,
-                    save_path=save_path,
-                    train_seed=each_train_seed,
-                    weight_seeds=weight_seeds,
-                    n_jobs=-1,
-                    model_type=each_model_type,
-                    nonlinearity='relu',
-                    constraint='energy'
-                )
-    print("Training complete.")
-    return None
-
-def build_analysis_df(save_path=SAVE_PATH):
-    """Iterates over the saved models and builds a dataframe for analysis."""
-    analysis_path = Path(save_path)
-    data_rows = []
-
-    for path in analysis_path.glob("*/*/*"):
-        if path.is_dir():
-            subject_id = path.parts[-3]
-            outer_loop_n = path.parts[-2].replace('outer_fold_', '')
-            inner_loop_idx = path.parts[-1].replace('inner_fold_', '')
-
-            info_files = list(path.glob("*_info.json"))
-            for info_file in info_files:
-                model_id = info_file.name.replace("_info.json", "")
-                data_rows.append({
-                    "subject_id": subject_id,
-                    "outer_loop_n": outer_loop_n,
-                    "inner_loop_idx": inner_loop_idx,
-                    "model_id": model_id,
-                    "info_path": path / f"{model_id}_info.json",
-                    "model_state_path": path / f"{model_id}_model_state.pth",
-                    "model_pickle_path": path / f"{model_id}_model.pickle",
-                    "training_losses_path": path / f"{model_id}_training_losses.htsv",
-                    "trials_data_path": path / f"{model_id}_trials_data.htsv"
-                })
-    return pd.DataFrame(data_rows)
-
-def add_data(analysis_df):
-    """Extracts evaluation metrics and hyperparameters from info files."""
-    evaluation_CEs, validation_CEs, sparsity_lambdas, energy_lambdas = [], [], [], []
-    
-    for each_row in analysis_df.itertuples():
-        info_dict = analysis.load_data(str(each_row.info_path))
-        evaluation_CEs.append(info_dict['eval_pred_loss'])
-        validation_CEs.append(info_dict['best_val_pred_loss'])
-        sparsity_lambdas.append(info_dict['options_dict']['sparsity_lambda'])
-        energy_lambdas.append(info_dict['options_dict']['energy_lambda'])
-
-    analysis_df['eval_CE'] = evaluation_CEs
-    analysis_df['val_CE'] = validation_CEs
-    analysis_df['sparsity_lambda'] = sparsity_lambdas
-    analysis_df['energy_lambda'] = energy_lambdas
-    return analysis_df
 
 COMPONENTS = ['hidden', 'gate_update', 'gate_reset', 'logit_value']
 
@@ -320,11 +422,11 @@ def compute_similarities(
         raise ValueError(
             "similarity_measure must be 'pearson', 'cosine', or 'cka'"
         )
-
+    folder_name = Path(analysis_df.iloc[0]['save_path']).parts[3]
     if cache_path is None:
         cache_path = Path(
             f"NM_TinyRNN/data/analysis/mechanistic_variability_"
-            f"{similarity_measure}_similarities_v2.htsv"
+            f"{similarity_measure}_similarities_{folder_name}.htsv"
         )
     else:
         cache_path = Path(cache_path)
@@ -369,8 +471,6 @@ def _process_group(
         model = analysis.load_data(str(row.model_pickle_path))
         trials = analysis.load_data(str(row.trials_data_path))
         if model is not None and trials is not None:
-            # Standardize model in place so it aligns canonically to all other models
-            standardize_weights(model)
             fold_records.append({
                 'subject_id': row.subject_id,
                 'outer_loop_n': row.outer_loop_n,
@@ -394,11 +494,34 @@ def _process_group(
         
         model_a = record_a['model']
         model_b = record_b['model']
-
+        model_b_aligned, alignment_info = align_rnns(model_a, model_b)
+        
+        record_b['model'] = model_b_aligned
+        record_b['unaligned_parameter_distance'] = alignment_info['unaligned_distance']
+        record_b['aligned_parameter_distance'] = alignment_info['aligned_distance']
+        #we create a dictionary which we append to the results list for the final dataframe.
+        results_subdict = {}
         for trial_subject in trial_records:
             if trial_subject != record_b['subject_id']:
                 continue
-                
+            #initialise the results we want to append
+            results_subdict['model_id'] = model_id
+            results_subdict['subject_A'] = record_a['subject_id']
+            results_subdict['model_A_outer_n'] = record_a['outer_loop_n']
+            results_subdict['model_A_inner_n'] = record_a['inner_loop_idx']
+            results_subdict['subject_B'] = record_b['subject_id']
+            results_subdict['model_B_outer_n'] = record_b['outer_loop_n']
+            results_subdict['model_B_inner_n'] = record_b['inner_loop_idx']
+            results_subdict['trial_subject'] = trial_subject
+            results_subdict['within_subject'] = record_a['subject_id'] == record_b['subject_id']
+            results_subdict['unaligned_param_dist'] = record_b['unaligned_parameter_distance']
+            results_subdict['aligned_param_dist'] = record_b['aligned_parameter_distance']
+
+            #simplest thing to do is compute the distance in weight space.
+            results_subdict['weight_similarity'] = compute_weight_similarity(model_a, model_b_aligned)
+
+            #next, we run the model through trials and compute activation similarities:
+            #extract trials for the subject we are comparing
             trials = trial_records[trial_subject]
             
             raw = torch.tensor(
@@ -410,17 +533,19 @@ def _process_group(
             inputs = inputs.to(model_device)
             
             if similarity_measure in ['pearson', 'cka']:
-                hidden_sim = compute_activation_similarity(model_a, model_b, inputs, metric=similarity_measure)
+                hidden_sim = compute_activation_similarity(model_a, model_b_aligned, inputs, metric=similarity_measure)
             else:
-                hidden_sim = compute_activation_similarity(model_a, model_b, inputs, metric='pearson')
+                hidden_sim = compute_activation_similarity(model_a, model_b_aligned, inputs, metric='pearson')
 
             activations_a = _run_model_on_trials(model_a, trials, inputs)
-            activations_b = _run_model_on_trials(model_b, trials, inputs)
+            activations_b = _run_model_on_trials(model_b_aligned, trials, inputs)
             
             component_columns_a = _component_columns(activations_a)
             component_columns_b = _component_columns(activations_b)
-            
+
+            ## now we compute similarities
             for comp in COMPONENTS:
+                column_name = f"{comp}_similarity"
                 if comp == 'hidden':
                     similarity = hidden_sim
                 else:
@@ -429,6 +554,7 @@ def _process_group(
                         if column.startswith(comp) and column in activations_b.columns
                     ]
                     if (comp not in component_columns_a or comp not in component_columns_b or not cols):
+                        results_subdict[column_name] = np.nan
                         continue
                     
                     similarity = _similarity(
@@ -436,21 +562,12 @@ def _process_group(
                         activations_b[cols].to_numpy().ravel(),
                         "pearson" if similarity_measure == 'cka' else similarity_measure, 
                     )
-                
-                results.append({
-                    "model_id": model_id,
-                    "subject_A": record_a['subject_id'],
-                    "model_A_outer_n": record_a['outer_loop_n'],
-                    "model_A_inner_n": record_a['inner_loop_idx'],
-                    "subject_B": record_b['subject_id'],
-                    "model_B_outer_n": record_b['outer_loop_n'],
-                    "model_B_inner_n": record_b['inner_loop_idx'],
-                    "trial_subject": trial_subject,
-                    "component": comp,
-                    "similarity": similarity,
-                    "similarity_measure": similarity_measure,
-                    "within_subject": record_a['subject_id'] == record_b['subject_id'],
-                })
+                    #appending activation similarities
+                results_subdict[column_name] = similarity
+            
+           
+
+            results.append(results_subdict)
 
     return results
 

@@ -20,8 +20,8 @@ def get_analysis_df(info_df, mode='all', n_jobs=-1, use_cache=True):
     '''
     if mode != 'all':
         raise ValueError("Path discovery only supports mode='all'; select best models from a performance dataframe.")
-
-    cache_path = DATA_PATH / 'analysis' / 'analysis_df_final.htsv'
+    folder_name = info_df.loc[0,'save_path'].parts[3]
+    cache_path = DATA_PATH / 'analysis' / f'analysis_df_{folder_name}_final.htsv'
     if use_cache and cache_path.exists():
         try:
             expanded_df = pd.read_csv(cache_path, sep='\t')

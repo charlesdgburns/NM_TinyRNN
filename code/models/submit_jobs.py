@@ -57,7 +57,7 @@ def run_training(overwrite=False, test = True, ws_all = False):
 
 
 def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
-                    save_path = SAVE_PATH):
+                    save_path = SAVE_PATH, folder_name = 'nested_DA_8'):
     '''Organise the architecture information in a large dataframe. 
     Key arguments here are 'model_id', 'data_path','save_path' and 'outer_loop_n'
     '''
@@ -68,6 +68,11 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
                'nm_size':[],'nm_dim':[],'nm_mode':[],
                'model_id':[],'save_path':[],'data_path':[], 'completed':[]}
    
+    if folder_name == 'nested_DA_8':
+        model_list = ['GRU','monoGRU']
+    elif folder_name == 'nested_DA_128':
+        model_list = ['vanilla','GRU', 'lightGRU', 'monoGRU','constGate','monoGRU_abs','monoGRU_no_hidden','monoGRU_hidden_only']
+
     for subdir in processed_data_path.iterdir():
         subject_ID = subdir.stem
         if not "WS" in subject_ID:
@@ -77,7 +82,8 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
             continue
         
         for outer_loop_n in range(1,nested_cv.N_OUTER_LOOPS+1): #10 loops is recommended
-            for model_type in ['GRU', 'monoGRU',]:# 'vanilla', 'lightGRU', 'constGate', 'monoGRU_abs'  ['vanilla','GRU','LSTM','NMRNN', 'monoGRU','monoGRU2','stereoGRU']:
+            
+            for model_type in model_list:
                 #Default parameters
                 hidden_sizes = [1,2]
                 input_encodings = ['unipolar']
@@ -119,7 +125,7 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
                                         model_id+= '_ndb'
                                         
                                     constraint = 'energy' if nonlinearity == 'relu' else 'sparsity'
-                                    model_save_path = save_path/'nested_DA_128_10'/subject_ID/model_type/constraint
+                                    model_save_path = save_path/folder_name/subject_ID/model_type/constraint
                                     completed = 1
                                     for inner_loop_n in range(0,nested_cv.N_OUTER_LOOPS-1):
                                         completed *= (model_save_path/f'outer_fold_{outer_loop_n}'/f'inner_fold_{inner_loop_n}'/f'{model_id}_trials_data.htsv').exists()
