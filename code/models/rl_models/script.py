@@ -14,13 +14,13 @@ import scipy
 if __package__:
     from .model_comparison_helper_functions import model_comparison
     from .model_fitting_helper_functions import fit_subjects, score_sessions
-    from .registry import PRIMARY_MODELS, make_models
-    from .sessions import load_sessions
+    from .model_implementation_model_classes import PRIMARY_MODELS, make_models
+    from .model_implementation_helper_functions import load_sessions
 else:
     from model_comparison_helper_functions import model_comparison
     from model_fitting_helper_functions import fit_subjects, score_sessions
-    from registry import PRIMARY_MODELS, make_models
-    from sessions import load_sessions
+    from model_implementation_model_classes import PRIMARY_MODELS, make_models
+    from model_implementation_helper_functions import load_sessions
 
 
 def _json_values(value):

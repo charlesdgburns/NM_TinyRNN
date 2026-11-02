@@ -1,5 +1,5 @@
-"""Run the portable cognitive-model comparison CLI."""
+"""Run the cognitive-model fitting/comparison script."""
 
-from .run_comparison import main
+from .script import main
 
 main()
