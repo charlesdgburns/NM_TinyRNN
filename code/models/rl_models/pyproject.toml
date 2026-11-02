@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tinyrnn-cognitive-models"
+version = "1.1.0"
+description = "Explicit Q-learning and Bayesian models with reproducible ML/MAP and session CV."
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "pandas>=1.5", "scipy>=1.10"]
+license = {file = "LICENSE"}
+
+[tool.setuptools]
+packages = ["rl_models"]
+package-dir = {rl_models = "."}
+
+[tool.setuptools.package-data]
+rl_models = ["README.md", "EQUATIONS.md", "DRIFT_MODELS.md", "CHANGELOG.md", "VALIDATION.md", "PROVENANCE.json", "LICENSE",
+             "MEAN_BASELINES.txt", "MODEL_CATALOG.md"]
