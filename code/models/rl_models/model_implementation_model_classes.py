@@ -7,6 +7,7 @@ arrays also retain the final input's update for mechanistic inspection.
 
 Legacy classes preserve their original fitted equations. New Q_history_model
 and Q_forgetting_model use the full signed choice-history scale consistently.
+Q_model_bias_prsvEMA_trial retains the local half-scale EMA parameterization.
 All histories are positive for recent right choices. Positive bias favors left.
 """
 
@@ -22,6 +23,7 @@ else:
 
 __all__ = [
     "Q_model", "Q_model_bias", "Q_model_forget", "Q_model_config",
+    "Q_model_bias_prsvEMA_trial", "Q_model_bias_prsvEMA_trial_positive",
     "BayesSym_2AB", "BayesAsym_2AB", "BayesAsym", "Q_history_model", "Q_forgetting_model",
     "Q_drift_model", "Q_mean_model", "make_mean_models", "make_model", "make_models",
     "PRIMARY_MODELS", "DRIFT_MODELS", "MEAN_MODELS",
@@ -241,6 +243,59 @@ class Q_model_forget(Q_model_config):
 
     def __init__(self, param_bounds=None):
         super().__init__(forget=True, param_bounds=param_bounds)
+
+
+# Legacy-scale reward EMA: the one-rule extension and its nonnegative variant.
+
+
+class Q_model_bias_prsvEMA_trial(_Model):
+    """Legacy-scale Q + bias + EMA history, with tied unchosen decay to zero.
+
+    Parameters are alpha,iTemp,bias,prsv,alp_p. The two unit rates are alpha
+    and alp_p; iTemp is nonnegative, bias is signed, and prsv is signed unless
+    positive_history=True. No independent forgetting rate or target is fitted.
+
+    Starting from Q_L=Q_R=P_R=0, input choice c (0=left,1=right) and reward r:
+        Q_c' = (1-alpha)*Q_c + alpha*r
+        Q_u' = (1-alpha)*Q_u
+        P_R' = (1-alp_p)*P_R + alp_p*(c-.5)
+    The pre-choice right logit is iTemp*(Q_R-Q_L+prsv*P_R-bias).
+    Relative to local Q_model_config(bias=True,prsv_ema=True,forget=False),
+    only unchosen updating changes. Unlike forget=True, the target is zero.
+
+    Exported history/history_post are the actual half-scale P_R, including
+    when prsv=0. Reward_EMA_prsvEMA uses twice this trace, so its coefficient
+    is prsv/2 for identical policies. ML equivalence requires this conversion;
+    unchanged numeric MAP priors are not invariant to the scale change.
+    """
+
+    def __init__(self, positive_history=False, param_bounds=None):
+        self.positive_history = bool(positive_history)
+        self.name = "Q_model_bias_prsvEMA_trial" + ("_positive" if self.positive_history else "")
+        names = ["alpha", "iTemp", "bias", "prsv", "alp_p"]
+        ranges = ["unit", "pos", "unc", "pos" if self.positive_history else "unc", "unit"]
+        _set_parameters(self, names, ranges, param_bounds)
+
+    def forward(self, session, param_values):
+        """Use shared likelihood/masks and expose the literal legacy history scale."""
+        result = _q_forward(
+            self, session, param_values, forgetting="alpha", target=0.0,
+            history_mode="ema", history_scale=0.5,
+        )
+        result["history"] *= 0.5
+        result["history_post"] *= 0.5
+        return result
+
+
+class Q_model_bias_prsvEMA_trial_positive(Q_model_bias_prsvEMA_trial):
+    """Five-parameter legacy-scale reward EMA with prsv >= 0, as fitted to 11 subjects.
+
+    This applies the upstream single-trial coefficient domain to the local EMA
+    extension; it is not an EMA class present in the original upstream notebook.
+    """
+
+    def __init__(self, param_bounds=None):
+        super().__init__(positive_history=True, param_bounds=param_bounds)
 
 
 # Matched variants: a full signed history scale and identical single/EMA domains.
@@ -616,6 +671,10 @@ def make_model(name, *, param_bounds=None):
         "Q_visit_prsvEMA": lambda: Q_history_model("visit", "ema", bias=True, param_bounds=param_bounds),
         "Reward_EMA_prsv": lambda: Q_history_model("trial", "single", bias=True, param_bounds=param_bounds),
         "Reward_EMA_prsvEMA": lambda: Q_history_model("trial", "ema", bias=True, param_bounds=param_bounds),
+        "Q_model_bias_prsvEMA_trial": lambda: Q_model_bias_prsvEMA_trial(param_bounds=param_bounds),
+        "Q_model_bias_prsvEMA_trial_positive": lambda: Q_model_bias_prsvEMA_trial_positive(
+            param_bounds=param_bounds
+        ),
         "Q_model_bias_prsvEMA_forget": lambda: Q_model_config(
             bias=True, prsv_ema=True, forget=True, param_bounds=param_bounds
         ),

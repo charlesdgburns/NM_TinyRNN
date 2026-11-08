@@ -136,7 +136,7 @@ def run_comparison(
             param_ranges=model.param_ranges, param_bounds=model.param_bounds,
             options={key: getattr(model, key) for key in (
                 "bias", "prsv", "prsv_ema", "forget", "learning", "history", "target", "read_env_from_session",
-                "rule", "decaying_bias", "initial_value",
+                "rule", "decaying_bias", "initial_value", "positive_history",
             ) if hasattr(model, key)},
         ) for model in model_objects],
         environment=dict(

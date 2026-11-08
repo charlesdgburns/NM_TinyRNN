@@ -13,6 +13,8 @@ from .model_implementation_model_classes import (
     Q_mean_model,
     Q_model,
     Q_model_bias,
+    Q_model_bias_prsvEMA_trial,
+    Q_model_bias_prsvEMA_trial_positive,
     Q_model_config,
     Q_model_forget,
     make_mean_models,
@@ -21,10 +23,11 @@ from .model_implementation_model_classes import (
 )
 from .model_implementation_helper_functions import Session, load_sessions, sessions_from_dataframe
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 __all__ = [
     "Q_model", "Q_model_bias", "Q_model_forget", "Q_model_config",
+    "Q_model_bias_prsvEMA_trial", "Q_model_bias_prsvEMA_trial_positive",
     "Q_history_model", "Q_forgetting_model", "BayesSym_2AB", "BayesAsym_2AB", "BayesAsym",
     "Q_drift_model", "DRIFT_MODELS", "Session", "load_sessions", "sessions_from_dataframe",
     "Q_mean_model", "MEAN_MODELS", "make_mean_models",

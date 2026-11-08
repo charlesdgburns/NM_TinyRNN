@@ -3,7 +3,7 @@
 Core files for defining, fitting and comparing two-action reversal-learning
 models, following the original local RL folder and Thomas Akam's code style.
 All previously published model equations, parameter domains, fitting procedures
-and eight-model defaults are retained. Only the source layout is consolidated.
+and eight-model defaults are retained. Additional named models are explicit opt-ins.
 
 | File | Purpose |
 |---|---|
@@ -17,7 +17,8 @@ and eight-model defaults are retained. Only the source layout is consolidated.
 
 ## Models
 
-The default comparison contains:
+The core comparison models are listed below. The original eight remain the default;
+the two legacy-scale reward-EMA variants are opt-in additions.
 
 | Name | Parameters | Value/history rule |
 |---|---:|---|
@@ -25,6 +26,8 @@ The default comparison contains:
 | `Q_visit_prsv` | 4 | Chosen-only learning, single-trial history |
 | `Q_visit_prsvEMA` | 5 | Chosen-only learning, EMA history |
 | `Reward_EMA_prsvEMA` | 5 | Per-trial reward EMA, EMA history |
+| `Q_model_bias_prsvEMA_trial` | 5 | Same reward EMA with signed, legacy half-scale EMA history (opt-in) |
+| `Q_model_bias_prsvEMA_trial_positive` | 5 | Legacy-scale reward EMA with nonnegative history strength; the variant fitted to all 11 subjects (opt-in) |
 | `Q_decay_free_prsvEMA` | 7 | Independent unchosen forgetting towards a fitted target, EMA history |
 | `Q_model_bias_prsvEMA_forget` | 6 | Legacy half-scale EMA history, unchosen forgetting towards .5 |
 | `BayesSym_2AB` | 5 | Reward/omission evidence, reversal hazard and EMA history |
@@ -44,13 +47,14 @@ Additional named choices are:
   Paper variants forget only the unchosen value towards .5. Released code
   forgets both values after learning and starts at .5.
 
-There are 28 named choices, including equivalent parameterizations and controls.
+There are 30 named choices, including equivalent parameterizations and controls.
 `make_model(name)` constructs one; `make_models()` constructs the eight defaults.
 `DRIFT_MODELS` and `MEAN_MODELS` provide the explicit opt-in sets.
 
 Direct classes include `Q_model`, `Q_model_bias`, `Q_model_forget`,
 `Q_model_config`, `Q_history_model`, `Q_forgetting_model`, `Q_drift_model`,
-`Q_mean_model`, `BayesSym_2AB` and `BayesAsym_2AB` (`BayesAsym` alias).
+`Q_mean_model`, `Q_model_bias_prsvEMA_trial`, `Q_model_bias_prsvEMA_trial_positive`,
+`BayesSym_2AB` and `BayesAsym_2AB` (`BayesAsym` alias).
 Bayesian class constructors default to single history; named comparisons
 explicitly select `prsv=False, prsv_ema=True`.
 
@@ -60,6 +64,54 @@ coefficients are unrestricted. Independent priors are Beta(2,2), Gamma(2,2)
 and Normal(0,5), respectively. Legacy Q single-history strength is nonnegative;
 its EMA trace retains the original half-scale convention. Drift-other values
 are unclipped and may be negative or exceed one.
+
+### Legacy-scale reward EMA
+
+`Q_model_bias_prsvEMA_trial_positive` is the literal legacy-scale, nonnegative-history
+variant used in the 11-subject refits. Its signed counterpart is
+`Q_model_bias_prsvEMA_trial`; both retain the same five-parameter order:
+
+| Parameter | Meaning | Bounds |
+|---|---|---|
+| `alpha` | Chosen learning and tied unchosen decay rate | [0,1] |
+| `iTemp` | Inverse temperature, beta | [0,infinity) |
+| `bias` | Left-side bias before multiplication by beta | Unrestricted |
+| `prsv` | Legacy half-scale history strength | Unrestricted; [0,infinity) in `_positive` |
+| `alp_p` | History update rate, eta | [0,1] |
+
+With choice `c=0` (left) or `c=1` (right), reward `r`, and unchosen action `u`:
+
+```text
+Q_c' = (1-alpha)*Q_c + alpha*r
+Q_u' = (1-alpha)*Q_u
+P_R' = (1-alp_p)*P_R + alp_p*(c-0.5)
+logit_right = iTemp*(Q_R-Q_L + prsv*P_R - bias)
+```
+
+States start at zero on every supplied reset sequence. The logit uses pre-choice
+states; primes denote the state after receiving the current choice/outcome.
+Forced and unscored inputs update both values and history; masks affect only scoring.
+`history` and `history_post` export the actual half-scale `P_R` for these classes.
+
+Relative to local `Q_model_config(bias=True, prsv_ema=True, forget=False)`, the
+only changed value rule is decay of the unchosen value towards zero on every trial,
+at the existing `alpha` rate. There is no additional forgetting rate or fitted target.
+The `_positive` bound borrows the original upstream single-trial coefficient domain;
+upstream does not itself define this EMA extension.
+
+The signed model is an exact reparameterization of `Reward_EMA_prsvEMA`:
+`prsv_legacy = 2*prsv_reward_ema`, since its trace is half as large. The positive
+model instead restricts the allowed policies, excluding negative-history solutions.
+All remaining parameters were allowed to adapt in the earlier 11-subject ML refits.
+This package update supplies the fitting definitions; it does not rerun or bundle
+those animal-data fits.
+
+ML equivalence uses the coefficient conversion above. MAP uses this framework's
+standard prior in the supplied parameter units: Normal(0,5) for signed `prsv`,
+Gamma(shape=2,scale=2) for positive `prsv`. An equivalent MAP comparison in full-scale
+units requires transforming that coefficient prior (Normal SD 2.5 or Gamma scale 1).
+When `alp_p=0`, history is identically zero and `prsv` is unidentified; when `prsv=0`,
+`alp_p` is unidentified. Nonnegative boundary solutions need this interpretation.
 
 ## Run
 
@@ -107,6 +159,11 @@ model = make_model("Reward_EMA_prsvEMA")
 fits_df = fit_subjects(sessions, model, repeats=10, seed=0, compute_CVLL=True)
 comparison = model_comparison(fits_df, metric="CVLL", normalise=True)
 ```
+
+To fit the legacy-scale nonnegative variant, substitute
+`make_model("Q_model_bias_prsvEMA_trial_positive")`; the same name is accepted by
+`script.py --models`. Direct construction is also available through
+`Q_model_bias_prsvEMA_trial(positive_history=True)` or the dedicated `_positive` class.
 
 Pre-choice state t scores choice t; post-input state t predicts the next choice.
 Forward outputs and `get_trial_variables()` expose actual states and fitted
