@@ -43,7 +43,7 @@ import itertools
 from scipy.optimize import linear_sum_assignment
 
 ## local imports
-from NM_TinyRNN.code.models import submit_jobs
+from NM_TinyRNN.code.models import experiments
 from NM_TinyRNN.code.measures import analysis
 from NM_TinyRNN.code.measures import performance as perf
 from NM_TinyRNN.code.models import datasets as ds
@@ -60,7 +60,7 @@ def align_rnns(
     model_b: torch.nn.Module,
     nonlinearity: str | None = None,
     scale_steps: int = 5,
-) -> tuple[torch.nn.Module, float, dict]:
+) -> tuple[torch.nn.Module, dict]:
     """Aligns Model B to Model A by fully searching the symmetry group
 
     (all permutations and sign/scale transformations) to minimize global parameter distance.
@@ -80,11 +80,9 @@ def align_rnns(
     -------
     model_b_aligned : torch.nn.Module
         Copy of Model B with aligned weights.
-    aligned_distance : float
-        Euclidean parameter distance after symmetry alignment.
     info : dict
         Contains 'perm' (permutation array), 'transform_vec' (D or S),
-        and 'unaligned_distance' (distance before alignment).
+        'unaligned_distance' and 'aligned_distance'.
     """
     if nonlinearity is None:
         if hasattr(model_a, "nonlinearity"):
@@ -387,10 +385,9 @@ def compute_activation_similarity(
             std_a = np.std(act_a[:, i])
             std_b = np.std(act_b[:, i])
             if std_a > 1e-5 and std_b > 1e-5:
-                cov = np.cov(act_a[:, i], act_b[:, i])[0, 1]
-                correlations.append(cov / (std_a * std_b))
+                correlations.append(float(np.corrcoef(act_a[:, i], act_b[:, i])[0, 1]))
         
-        return float(np.mean(correlations)) if correlations else 0.0
+        return float(np.mean(correlations)) if correlations else float('nan')
 
     elif metric == 'cka':
         act_a_centered = act_a - act_a.mean(axis=0)
@@ -496,7 +493,7 @@ def _process_group(
         model_b = record_b['model']
         model_b_aligned, alignment_info = align_rnns(model_a, model_b)
         
-        record_b['model'] = model_b_aligned
+        # Keep original models fixed across pairwise comparisons.
         record_b['unaligned_parameter_distance'] = alignment_info['unaligned_distance']
         record_b['aligned_parameter_distance'] = alignment_info['aligned_distance']
         #we create a dictionary which we append to the results list for the final dataframe.
@@ -902,8 +899,8 @@ def run_across_subject_similarity_analysis(
             'WS13', 'WS14', 'WS16', 'WS20', 'WS22',
         ]
 
-    info_df = submit_jobs.get_DA_info_df()
-    all_models_df = analysis.get_analysis_df(info_df, mode='all')
+    experiment_df = experiments.get_DA_info_df()
+    all_models_df = analysis.get_analysis_df(experiment_df, mode='all')
     performance_df = perf.get_performance_df(all_models_df)
     best_model_df = perf.select_best_outer(performance_df)
 

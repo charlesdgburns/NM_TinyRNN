@@ -12,17 +12,39 @@ Changing sequence length changes block counts and remainder exclusions, but does
 not randomize block construction. Nested CV still assigns whole sessions to
 folds using its existing deterministic splitting policy.
 
-## Submitting jobs
+## Experiment dataframes and job submission
 
-SLURM submission code lives in `code/servers/SLURM/submit_jobs.py`.
-The old `code.models.submit_jobs` import remains a compatibility alias to the
-same module, including shared settings and `importlib.reload` behavior.
+`code/models/experiments.py` builds the shared backbone table, conventionally
+named `experiment_df`. One row describes a subject/group, model configuration
+and outer fold, with data/result paths, completion status, sequence length and
+batch size. The existing `get_*_info_df` function names are retained.
+
+`code/servers/SLURM/submit_jobs.py` consumes that table to write and submit jobs.
+SLURM resource settings stay in the submission layer, not in the manifest.
 
 ```python
+from NM_TinyRNN.code.models import experiments
 from NM_TinyRNN.code.servers.SLURM import submit_jobs
 
+experiment_df = experiments.get_DA_info_df(sequence_length=64, batch_size=16)
+submit_jobs.run_training(experiment_df)
+```
+
+A supplied dataframe is used without rebuilding a preset or imposing the default
+test-mode row limit. Its sequence/batch settings come from its own rows.
+`overwrite=False` skips completed configurations. Each submitted job trains all
+outer folds, so the existing dispatcher uses the manifest's outer-fold-1 rows.
+The caller's dataframe is not modified.
+
+The old keyword-based convenience call still works:
+
+```python
 submit_jobs.run_training(test=False, sequence_length=64, batch_size=16)
 ```
+
+Submission modules re-export the original builder names for compatibility, and
+`code.models.submit_jobs` still aliases the SLURM module. New analysis code can
+import `experiments` without depending on server tooling.
 
 This writes results below:
 
@@ -36,7 +58,7 @@ The default DA folder is `nested_DA_S32_B8` with the current globals. The name
 records configuration; it does not select an architecture set or infer a batch
 size. The default DA architectures remain GRU and monoGRU.
 
-All four job-info factories accept `sequence_length` and `batch_size` and store
+All four experiment-manifest factories accept `sequence_length` and `batch_size` and store
 both in every job row. Their automatic folder prefixes are:
 
 | Factory | Automatic folder |
@@ -49,8 +71,8 @@ both in every job row. Their automatic folder prefixes are:
 To inspect a job table without submitting anything:
 
 ```python
-jobs = submit_jobs.get_DA_info_df(sequence_length=64, batch_size=16)
-print(jobs[['sequence_length', 'batch_size', 'save_path']].head())
+experiment_df = experiments.get_DA_info_df(sequence_length=64, batch_size=16)
+print(experiment_df[['sequence_length', 'batch_size', 'save_path']].head())
 ```
 
 SLURM commands pass both values explicitly to `nested_cv.train_outers`.
@@ -65,6 +87,23 @@ notebooks; new callers can specify `model_types` directly instead of encoding an
 architecture selection in a folder name. For historical job tables, the new
 settings columns describe supplied/default settings, not verified metadata from
 old saved runs.
+
+## Analysis from the same backbone
+
+```python
+from NM_TinyRNN.code.measures import analysis, performance
+
+# Rebuild after training to refresh the filesystem-derived completion flags.
+experiment_df = experiments.get_DA_info_df(sequence_length=64, batch_size=16)
+analysis_df = analysis.get_analysis_df(experiment_df)
+performance_df = performance.get_performance_df(analysis_df)
+```
+
+`analysis_df` expands the manifest into one row per saved inner-fold model, with
+artifact paths. `performance_df` adds measured scores; other measures can use the
+same manifest/path tables. Analysis still accepts the legacy `info_df=` keyword.
+Experiment definitions, server execution, and derived measurements thus remain
+separate responsibilities. No dataframe serialization format is imposed.
 
 ## Direct training and nested CV
 

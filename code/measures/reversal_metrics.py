@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from NM_TinyRNN.code.models import submit_jobs as pat
+from NM_TinyRNN.code.models import experiments
 from NM_TinyRNN.code.measures import analysis
 from NM_TinyRNN.code.models import datasets as ds
 ## The reversal trial (x=0) is the first trial pre reversal
@@ -205,8 +205,8 @@ def _run_model_on_trials_data(model,trials_data, fixed_gates = None):
 
 if __name__ == "__main__":        
     ## get a test dataframe
-    info_df = pat.get_DA_info_df()
-    info_df = analysis.add_data_to_info_df(info_df)
+    experiment_df = experiments.get_DA_info_df()
+    info_df = analysis.add_data_to_info_df(experiment_df)
     best_monoGRU_idx = info_df.query("model_id == '2_unit_monoGRU_relu_unipolar'").eval_CE.idxmin()
     best_monoGRU_row = info_df.loc[best_monoGRU_idx]
     test_trials_data = analysis.load_data(best_monoGRU_row.trials_data_path)

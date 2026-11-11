@@ -12,15 +12,25 @@ DATA_PATH = Path('./NM_TinyRNN/data/')
 RNNS_PATH = DATA_PATH / 'rnns'
 
 
-def get_analysis_df(info_df, mode='all', n_jobs=-1, use_cache=True):
+def get_analysis_df(experiment_df=None, mode='all', n_jobs=-1, use_cache=True, *, info_df=None):
     '''Build a dataframe with model metadata and paths to saved artifacts.
+
+    experiment_df is the manifest from code.models.experiments (one row per
+    configuration and outer fold). This function expands it to one row per saved
+    inner-fold model. The legacy info_df keyword remains accepted.
 
     Performance values are deliberately not computed here. Use
     ``get_performance_df`` from ``code.measures.performance`` to add metrics.
     '''
+    if experiment_df is None:
+        experiment_df = info_df
+    elif info_df is not None:
+        raise TypeError("Pass experiment_df or the legacy info_df keyword, not both")
+    if experiment_df is None:
+        raise TypeError("An experiment_df manifest is required")
     if mode != 'all':
         raise ValueError("Path discovery only supports mode='all'; select best models from a performance dataframe.")
-    folder_name = info_df.loc[0,'save_path'].parts[3]
+    folder_name = Path(experiment_df.iloc[0]['save_path']).parts[3]
     cache_path = DATA_PATH / 'analysis' / f'analysis_df_{folder_name}_final.htsv'
     if use_cache and cache_path.exists():
         try:
@@ -33,7 +43,7 @@ def get_analysis_df(info_df, mode='all', n_jobs=-1, use_cache=True):
             print(f"Warning: Could not load analysis paths from cache: {error}. Recomputing...")
 
     results = Parallel(n_jobs=n_jobs)(
-        delayed(get_model_paths)(row) for row in info_df.itertuples()
+        delayed(get_model_paths)(row) for row in experiment_df.itertuples()
     )
     expanded_df = pd.DataFrame([row for result in results for row in result])
 

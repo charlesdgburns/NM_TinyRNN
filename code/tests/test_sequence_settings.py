@@ -15,7 +15,7 @@ import torch
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO.parent))
-from NM_TinyRNN.code.models import datasets as ds, nested_cv as nc
+from NM_TinyRNN.code.models import datasets as ds, nested_cv as nc, experiments
 from NM_TinyRNN.code.servers.SLURM import submit_jobs as sj
 from NM_TinyRNN.code.models import rnns, training
 
@@ -69,10 +69,10 @@ class SequenceSettings(unittest.TestCase):
                 self.dataset(sequence_length=invalid)
 
     def test_job_factories_name_and_record_settings(self):
-        for factory, prefix in [(sj.get_DA_info_df, 'nested_DA'),
-                                (sj.get_job_info_df, 'nested_DA'),
-                                (sj.get_test_info_df, 'nested_DA'),
-                                (sj.get_ws_all_info_df, 'test_input_encodings')]:
+        for factory, prefix in [(experiments.get_DA_info_df, 'nested_DA'),
+                                (experiments.get_job_info_df, 'nested_DA'),
+                                (experiments.get_test_info_df, 'nested_DA'),
+                                (experiments.get_ws_all_info_df, 'test_input_encodings')]:
             frame = factory(processed_data_path=self.behavior, save_path=self.root,
                             sequence_length=7, batch_size=3)
             self.assertFalse(frame.empty)
@@ -80,19 +80,19 @@ class SequenceSettings(unittest.TestCase):
             self.assertTrue(frame.batch_size.eq(3).all())
             self.assertEqual({p.relative_to(self.root).parts[0] for p in frame.save_path},
                              {f'{prefix}_S7_B3'})
-        frame = sj.get_DA_info_df(processed_data_path=self.behavior, save_path=self.root)
+        frame = experiments.get_DA_info_df(processed_data_path=self.behavior, save_path=self.root)
         self.assertEqual(frame.iloc[0].save_path.relative_to(self.root).parts[0],
                          f'nested_DA_S{ds.SEQUENCE_LENGTH}_B{training.BATCH_SIZE}')
-        legacy = sj.get_DA_info_df(processed_data_path=self.behavior, save_path=self.root,
+        legacy = experiments.get_DA_info_df(processed_data_path=self.behavior, save_path=self.root,
                                    folder_name='nested_DA_128')
         self.assertIn('vanilla', legacy.model_type.unique())
         self.assertEqual(legacy.iloc[0].save_path.relative_to(self.root).parts[0], 'nested_DA_128')
         for kwargs in [dict(sequence_length=0), dict(batch_size=0)]:
             with self.assertRaises(ValueError):
-                sj.get_DA_info_df(processed_data_path=self.behavior, **kwargs)
+                experiments.get_DA_info_df(processed_data_path=self.behavior, **kwargs)
 
     def test_generated_command_reaches_nested_training(self):
-        frame = sj.get_DA_info_df(processed_data_path=self.behavior, save_path=self.root,
+        frame = experiments.get_DA_info_df(processed_data_path=self.behavior, save_path=self.root,
                                  sequence_length=7, batch_size=3)
         row = frame.iloc[0]
         with patch.object(sj, 'JOBS_PATH', self.root / 'Jobs'):
