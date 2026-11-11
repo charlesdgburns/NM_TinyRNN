@@ -14,8 +14,12 @@ folds using its existing deterministic splitting policy.
 
 ## Submitting jobs
 
+SLURM submission code lives in `code/servers/SLURM/submit_jobs.py`.
+The old `code.models.submit_jobs` import remains a compatibility alias to the
+same module, including shared settings and `importlib.reload` behavior.
+
 ```python
-from NM_TinyRNN.code.models import submit_jobs
+from NM_TinyRNN.code.servers.SLURM import submit_jobs
 
 submit_jobs.run_training(test=False, sequence_length=64, batch_size=16)
 ```

@@ -15,7 +15,8 @@ import torch
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO.parent))
-from NM_TinyRNN.code.models import datasets as ds, nested_cv as nc, submit_jobs as sj
+from NM_TinyRNN.code.models import datasets as ds, nested_cv as nc
+from NM_TinyRNN.code.servers.SLURM import submit_jobs as sj
 from NM_TinyRNN.code.models import rnns, training
 
 
@@ -40,6 +41,15 @@ class SequenceSettings(unittest.TestCase):
 
     def dataset(self, **kwargs):
         return ds.AB_Dataset(self.behavior / 'WS01', device=torch.device('cpu'), **kwargs)
+
+    def test_legacy_submission_import_shares_settings_and_reload(self):
+        import importlib
+        from NM_TinyRNN.code.models import submit_jobs as legacy
+        self.assertIs(legacy, sj)
+        self.assertEqual(Path(sj.__file__).resolve(), REPO / 'code/servers/SLURM/submit_jobs.py')
+        with patch.object(legacy, 'JOBS_PATH', self.root / 'legacy_jobs'):
+            self.assertEqual(sj.JOBS_PATH, self.root / 'legacy_jobs')
+        self.assertIs(importlib.reload(legacy), sj)
 
     def test_block_lengths_alignment_and_default(self):
         for length in [4, 7, ds.SEQUENCE_LENGTH]:
