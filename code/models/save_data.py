@@ -128,6 +128,7 @@ def save_inner_fold_results(
     eval_model.sparsity_lambda = config_dict["sparsity_lambda"]
     eval_model.energy_lambda   = config_dict["energy_lambda"]
     eval_model.hebbian_lambda  = config_dict["hebbian_lambda"]
+    eval_model.covariance_lambda = config_dict["covariance_lambda"]
     eval_model.weight_seed     = config_dict["weight_seed"]
     eval_model.eval()
 
@@ -144,7 +145,7 @@ def save_inner_fold_results(
     # 4. info.json
     hparam_ranges: dict = {}
     for attr in (
-        "sparsity_lambdas", "energy_lambdas", "hebbian_lambdas",
+        "sparsity_lambdas", "energy_lambdas", "hebbian_lambdas", "covariance_lambdas",
         "weight_seeds", "learning_rate", "batch_size",
         "max_epochs", "early_stop",
     ):
@@ -153,6 +154,7 @@ def save_inner_fold_results(
 
     info = {
         "outer_loop_number":    outer_loop_number,
+        "sequence_length":      getattr(dataset, "sequence_length", None),
         "inner_fold_idx":       inner_fold_idx,
         "winning_config":       _json_safe(config_dict),
         "val_loss":             _json_safe(result["val_loss"]),
@@ -170,7 +172,7 @@ def save_inner_fold_results(
         json.dump(info, fh, indent=2)
 
     # 5. training_losses.htsv (optional -- only written if TrainerGPU surfaces them)
-    if "training_losses" in result and result["loss_dict"] is not None:
+    if result.get("training_losses") is not None:
         tl = result["training_losses"]
         if isinstance(tl, pd.DataFrame):
             losses_df = tl

@@ -7,10 +7,18 @@ import pandas as pd
 from pathlib import Path
 
 DATA_PATH = Path('./NM_TinyRNN/data/')
-SEQUENCE_LENGTH = 64
+SEQUENCE_LENGTH = 32
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 REQUIRED = ['forced_choice', 'outcome', 'choice', 'good_poke']
+
+
+def validate_sequence_length(sequence_length):
+    """Require a positive integer number of next-choice predictions per block."""
+    if (isinstance(sequence_length, (bool, np.bool_))
+            or not isinstance(sequence_length, (int, np.integer)) or sequence_length < 1):
+        raise ValueError("sequence_length must be a positive integer")
+    return int(sequence_length)
 
 
 # ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -83,7 +91,7 @@ class AB_Dataset(Dataset):
     def __init__(self, subject_data_path, subject_ids=None, sequence_length=SEQUENCE_LENGTH, 
                  input_encoding = 'unipolar', input_forced_choice = False, device=DEVICE):
         self.device = device
-        self.sequence_length = sequence_length
+        self.sequence_length = validate_sequence_length(sequence_length)
         self.subject_data_path = subject_data_path
         self.input_encoding = input_encoding
         self.input_forced_choice = input_forced_choice

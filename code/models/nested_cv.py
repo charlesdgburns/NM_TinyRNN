@@ -65,9 +65,10 @@ import torch
 from joblib import Parallel, delayed
 
 # ── relative imports (adjust if your package layout differs) ──────────────────
-from NM_TinyRNN.code.models.datasets import AB_Dataset
+from NM_TinyRNN.code.models.datasets import AB_Dataset, SEQUENCE_LENGTH
 from NM_TinyRNN.code.models.save_data import save_inner_fold_results
 from NM_TinyRNN.code.models import rnns
+from NM_TinyRNN.code.models.training import BATCH_SIZE
 
 #Global variables
 N_OUTER_LOOPS = 10
@@ -87,9 +88,15 @@ def train_outers(data_path,
                 input_forced_choice:bool =False,
                 nonlinearity:str='relu',
                 constraint:str='energy',
-                decoder_bias:bool=False):
-    '''Minimal inputs required to test fit all model types.'''
-    options = rnns.OPTIONS_DICT
+                decoder_bias:bool=False,
+                sequence_length:int=SEQUENCE_LENGTH,
+                batch_size:int=BATCH_SIZE):
+    """Train all outer folds with explicit block length and minibatch size.
+
+    sequence_length defaults to datasets.SEQUENCE_LENGTH; batch_size counts
+    sequences per optimizer step. Callers supply the output directory unchanged.
+    """
+    options = rnns.OPTIONS_DICT.copy()
     options['rnn_type'] = model_type
     options['hidden_size'] = hidden_size
     options['nm_size'] = nm_size
@@ -100,7 +107,7 @@ def train_outers(data_path,
     options['nonlinearity'] = nonlinearity
     options['decoder_bias'] = decoder_bias
     
-    dataset = AB_Dataset(data_path, 
+    dataset = AB_Dataset(data_path, sequence_length=sequence_length,
                          input_encoding=input_encoding,
                          input_forced_choice=input_forced_choice)
     options['input_size'] = dataset.inputs.shape[-1]
@@ -110,6 +117,7 @@ def train_outers(data_path,
         trainer_kwargs ={'energy_lambdas':[0]}
     else: 
         trainer_kwargs = {}
+    trainer_kwargs["batch_size"] = batch_size
     for outer_loop_n in range(1, N_OUTER_LOOPS+1):
         run_outer_fold(model, dataset, outer_loop_n,
                                 n_outer_loops = N_OUTER_LOOPS,
