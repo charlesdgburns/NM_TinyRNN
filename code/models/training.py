@@ -16,6 +16,17 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 TRAIN_SEED = 42 #seed to use for ordering to ensure reproducibility
 
 class Trainer:
+    """Train candidates with independent weight seeds.
+
+    Seed semantics depend on the entry point (AB_Dataset sequence path):
+    - Direct fit: train_seed controls train/validation session assignment via
+      dataset._session_split(seed_split=...), block shuffling, and training RNGs.
+      Evaluation-session selection has its own dataset seed_eval policy.
+    - Nested CV: session folds are predefined; train_seed controls training RNGs
+      and block shuffling only (nested_cv derives a seed for each inner fold).
+    Neither path randomizes block construction: sequence_length controls that.
+    The loader's private generator seeds shuffle order, not session assignment.
+    """
     def __init__(
         self,
         weight_seeds: list = list(range(11)),
@@ -24,7 +35,7 @@ class Trainer:
         hebbian_lambdas: list = [0.0], # Changed None to 0.0 for tensor compatibility
         covariance_lambdas: list = [0.0], # Added covariance lambda list
         learning_rate: float = 1e-2,
-        batch_size: int = 128,
+        batch_size: int = 8,
         max_epochs: int = 10000,
         early_stop: int = 20,
         train_seed: int = 42,
@@ -72,8 +83,8 @@ class Trainer:
 
         # Prepare Data
         splits = dataset._session_split(seed_split=self.train_seed)
-        train_loader = get_dataloader(dataset, 'train', splits, batch_size=self.batch_size)
-        val_loader   = get_dataloader(dataset, 'val',   splits, batch_size=self.batch_size)
+        train_loader = get_dataloader(dataset, 'train', splits, batch_size=self.batch_size, seed=self.train_seed)
+        val_loader   = get_dataloader(dataset, 'val',   splits, batch_size=self.batch_size, seed=self.train_seed)
         
         # Initialize Parallel State
         params, buffers = self._initialize_parallel_models(base_model)
@@ -83,10 +94,10 @@ class Trainer:
         
         # set random seed AFTER initialising weights. 
         # This ensures reproducibility in training loop  
-        torch.manual_seed(TRAIN_SEED)
-        np.random.seed(TRAIN_SEED)
+        torch.manual_seed(self.train_seed)
+        np.random.seed(self.train_seed)
         if torch.cuda.is_available():
-            torch.cuda.manual_seed(TRAIN_SEED)
+            torch.cuda.manual_seed_all(self.train_seed)
             
         optimizer = torch.optim.AdamW(params.values(), 
                                       lr=self.learning_rate,
@@ -96,7 +107,7 @@ class Trainer:
         best_val_losses = torch.full((self.num_models,), float('inf'), device=device)
         epochs_no_improve = torch.zeros(self.num_models, device=device)
         active_mask = torch.ones(self.num_models, device=device, dtype=torch.bool)
-        best_params = {k: v.clone() for k, v in params.items()}
+        best_params = {k: v.detach().clone() for k, v in params.items()}
 
         # Move lambda vectors to device
         s_vec = self.sparsity_vec.to(device)
@@ -149,28 +160,43 @@ class Trainer:
                 # We only want to backprop for models that haven't early-stopped
                 masked_loss = (sum(loss_dict.values()) * active_mask).sum()
                 masked_loss.backward()
+                # Adam momentum can update stopped slices even with zero gradients.
+                # Preserve their exact values while other candidates keep training.
+                with torch.no_grad():
+                    frozen_params = {k: p[~active_mask].clone() for k, p in params.items()}
                 optimizer.step()
+                with torch.no_grad():
+                    for k, p in params.items():
+                        p[~active_mask] = frozen_params[k]
 
             # --- Validation Step ---
             with torch.no_grad():
                 current_val_losses = torch.zeros(self.num_models, device=device)
+                total_free_choices = 0
                 for v_x, v_y, v_mask in val_loader:
+                    n_free_choices = (v_mask == 0).sum().item()
+                    if n_free_choices == 0:
+                        continue
                     v_x, v_y, v_mask = v_x.to(device), v_y.to(device), v_mask.to(device)
                     loss_dict = vectorized_loss_fn(params, buffers, v_x, v_y, v_mask, s_vec, e_vec, h_vec, c_vec)
-                    current_val_losses += loss_dict['prediction']
-                current_val_losses /= len(val_loader)
+                    # Prediction loss is already a mean over this batch's free choices.
+                    current_val_losses += loss_dict['prediction'] * n_free_choices
+                    total_free_choices += n_free_choices
+                if total_free_choices == 0:
+                    raise ValueError("Validation split contains no free-choice trials.")
+                current_val_losses /= total_free_choices
 
                 # Update best states and early stopping counters
-                improved = current_val_losses < best_val_losses
+                improved = active_mask & (current_val_losses < best_val_losses)
                 for k in params:
                     best_params[k][improved] = params[k][improved].clone()
                 
                 best_val_losses[improved] = current_val_losses[improved]
                 epochs_no_improve[improved] = 0
-                epochs_no_improve[~improved] += 1
+                epochs_no_improve[active_mask & ~improved] += 1
                 
                 # Early stopping mask
-                active_mask = epochs_no_improve < self.early_stop
+                active_mask &= epochs_no_improve < self.early_stop
 
         # Final Separation: Find the best index overall
         best_idx = torch.argmin(best_val_losses)

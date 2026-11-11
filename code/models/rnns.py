@@ -131,21 +131,24 @@ class TinyRNN(nn.Module):
     #initialise weights as small, uniformly distributed:
     stdv = 1e-3 #/ math.sqrt(self.H) #1e-3 
     for name, p in self.named_parameters():
-        if 'W' or 'decoder' in name:
+        if ('W' in name) or ('decoder' in name):
           p.data.uniform_(-stdv, stdv)
         if 'bias' in name:
           p.data.zero_()
+        # Reset learned initial states to their constructor defaults.
+        if ('hidden_0' in name) or ('z_0' in name):
+          p.data.fill_(1.0)
+        if name == 'batch_norm.weight':
+          p.data.fill_(1.0)
     #we initialise gate biases to be open at the start of training, similar to initialising LSTM forget_gates with a bias of 1.
     if 'monoGRU' in self.rnn_type:
        self.rnn.bias_z.data = torch.tensor(1.0) 
     elif self.rnn_type == 'lightGRU':
-        self.rnn.bias_z.data = torch.ones_like(self.rnn.bias_z.data)
+        self.rnn.bias_z.data = torch.ones_like(self.rnn.bias_z.data) #update gate bias, similar to forget gate LSTM initialisation trick
     elif self.rnn_type == "GRU":
-      self.rnn.bias_z.data = torch.ones_like(self.rnn.bias_z.data) #update gate bias
-      self.rnn.bias_r.data = torch.ones_like(self.rnn.bias_r.data) #reset gate bias
+      self.rnn.bias_z.data = torch.ones_like(self.rnn.bias_z.data) #update gate bias similar to forget gate LSTM initialisation trick
     elif self.rnn_type == "constGate":
       self.rnn.z.data = torch.tensor(1.0)
-      
     if self.init_decoder and self.H == 2: #option to rotate decoder to read out along y=-x
       self.decoder.weight.data = torch.tensor([[2.0,-2.0],
                                                [-2.0,2.0]])
@@ -543,7 +546,7 @@ class ManualLSTM(nn.Module):
         self.input_sz = input_sz
         self.hidden_size = hidden_sz
         self.W = nn.Parameter(torch.Tensor(input_sz, hidden_sz * 4))
-        self.U = nn.Parameter(torch.Tensor(hidden_sz, hidden_sz * 4))
+        self.Wu = nn.Parameter(torch.Tensor(hidden_sz, hidden_sz * 4))
         self.bias = nn.Parameter(torch.Tensor(hidden_sz * 4))
         if nonlinearity == 'tanh':
           self.activation = nn.Tanh()
@@ -576,7 +579,7 @@ class ManualLSTM(nn.Module):
         for t in range(seq_sz):
             x_t = x[:, t, :]
             # batch the computations into a single matrix multiplication
-            gates = x_t @ self.W + h_t @ self.U + self.bias
+            gates = x_t @ self.W + h_t @ self.Wu + self.bias
             i_t, f_t, g_t, o_t = (
                 torch.sigmoid(gates[:, :HS]), # input
                 torch.sigmoid(gates[:, HS:HS*2]), # forget

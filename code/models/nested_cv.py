@@ -23,11 +23,13 @@ CPU path  : joblib dispatches each inner fold to a separate subprocess.
 
 Determinism/Reproducibility
 -----------
-A global train_seed controls the randomisation of the data splitting.
-A local (per model within the hyperparameter stack) weight_seed controls initial weights.
-
-This means two identical calls with the same train_seed always produce the
-same result, even when joblib reorders subprocesses.
+Session folds are deterministic chunks of sorted session names; train_seed
+never changes these folds or the consecutive blocks made within each session.
+It supplies fold-specific training RNG / block-shuffle seeds to Trainer.
+In contrast, direct Trainer.fit also uses train_seed as dataset.seed_split
+for train/validation session assignment. See training.Trainer for details.
+Per-model weight_seeds control initial weights independently.
+Reproducibility assumes fixed data, configuration and execution environment.
 
 Saving
 ------
