@@ -1,0 +1,22 @@
+{
+  "models": 220,
+  "subjects": 11,
+  "configurations": [
+    "2_unit_GRU_tanh_unipolar_forced",
+    "2_unit_monoGRU_relu_unipolar_forced_ndb"
+  ],
+  "copied_files": 660,
+  "outer_folds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "all_winners_match_performance_select_best_outer": true
+}
