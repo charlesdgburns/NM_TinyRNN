@@ -89,7 +89,10 @@ class AB_Dataset(Dataset):
     """
 
     def __init__(self, subject_data_path, subject_ids=None, sequence_length=SEQUENCE_LENGTH, 
-                 input_encoding = 'unipolar', input_forced_choice = False, device=DEVICE):
+                 input_encoding = 'unipolar', input_forced_choice = False, device=DEVICE, latest_sessions=None):
+        if latest_sessions is not None and (isinstance(latest_sessions, bool) or not isinstance(latest_sessions, int) or latest_sessions < 1):
+            raise ValueError("latest_sessions must be a positive integer or None")
+        self.latest_sessions = latest_sessions
         self.device = device
         self.sequence_length = validate_sequence_length(sequence_length)
         self.subject_data_path = subject_data_path
@@ -122,7 +125,10 @@ class AB_Dataset(Dataset):
     
         session_dirs = []
         for subject_dir in subject_dirs:
-            session_dirs.extend([x for x in subject_dir.iterdir() if x.is_dir()])
+            subject_sessions = sorted(x for x in subject_dir.iterdir() if x.is_dir())
+            if self.latest_sessions is not None:
+                subject_sessions = subject_sessions[-self.latest_sessions:]
+            session_dirs.extend(subject_sessions)
 
         session_dirs.sort()
         if not session_dirs:

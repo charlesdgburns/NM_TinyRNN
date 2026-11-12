@@ -147,7 +147,7 @@ def save_inner_fold_results(
     for attr in (
         "sparsity_lambdas", "energy_lambdas", "hebbian_lambdas", "covariance_lambdas",
         "weight_seeds", "learning_rate", "batch_size",
-        "max_epochs", "early_stop",
+        "max_epochs", "early_stop", "shuffle_seed",
     ):
         if hasattr(trainer, attr):
             hparam_ranges[attr] = _json_safe(getattr(trainer, attr))

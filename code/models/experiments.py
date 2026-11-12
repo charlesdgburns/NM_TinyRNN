@@ -16,7 +16,7 @@ from NM_TinyRNN.code.models import datasets, nested_cv, training
 
 SAVE_PATH = Path('./NM_TinyRNN/data/rnns')
 PROCESSED_DATA_PATH = Path('./NM_TinyRNN/data/AB_behaviour/')
-
+DA_SUBJECT_LIST = ['WS01', 'WS02', 'WS05', 'WS08', 'WS09', 'WS10', 'WS13', 'WS14', 'WS16', 'WS20', 'WS22']
 
 def training_folder_name(sequence_length=datasets.SEQUENCE_LENGTH,
                          batch_size=training.BATCH_SIZE, prefix='nested_DA'):
@@ -56,11 +56,11 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
     elif folder_name == 'nested_DA_128': # legacy analysis notebook architecture set
         model_list = ['vanilla','GRU', 'lightGRU', 'monoGRU','constGate','monoGRU_abs','monoGRU_no_hidden','monoGRU_hidden_only']
     else:
-        model_list = ['GRU','monoGRU']
+        model_list = ['GRU','lightGRU','monoGRU'] # ['vanilla','GRU', 'lightGRU', 'monoGRU','constGate','monoGRU_abs','monoGRU_no_hidden','monoGRU_hidden_only']
 
     for subdir in processed_data_path.iterdir():
         subject_ID = subdir.stem
-        if not "WS" in subject_ID:
+        if subject_ID not in DA_SUBJECT_LIST:
             continue
         data_path = processed_data_path/subject_ID
         if not subdir.is_dir():
@@ -69,46 +69,31 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
         for outer_loop_n in range(1,nested_cv.N_OUTER_LOOPS+1): #10 loops is recommended
 
             for model_type in model_list:
-                #Default parameters
+                #Default parameters // all combinations with unipolar encodings
                 hidden_sizes = [1,2]
-                input_encodings = ['unipolar']
-                nonlinearities = ['relu']
+                input_encodings = ['unipolar'] #'encoder','onehot'
+                nonlinearities = ['relu','tanh']
                 input_forced_choices = [True]
-                decoder_biases = [True]
+                decoder_biases = [True, False]
                 nm_size = nm_dim = 1; nm_mode = 'row' # simply standard inputs which will get ignored
-
-                if model_type == 'GRU':
-                    nonlinearities = ['relu','tanh']
-                    input_encodings = ['unipolar'] #'encoder','onehot'
-                if model_type == 'vanilla':
-                    nonlinearities = ['relu','tanh']
-                    input_encodings = ['unipolar'] #'encoder','onehot'
-                if  model_type == 'monoGRU_abs':
+                # if we want specific configs for different model types
+                if  model_type == 'monoGRU_abs': #see rnns.py for details on this
                     nonlinearities = ['tanh']
                     hidden_sizes = [1]
-                if model_type in ['monoGRU_no_hidden','monoGRU_hidden_only']:
+                if model_type in ['monoGRU_no_hidden','monoGRU_hidden_only']: # see rnns.py for details on this
                     hidden_sizes = [2]
                     decoder_biases = [False]
-                if model_type == 'monoGRU':
-                    decoder_biases = [True,False]
 
                 for nonlinearity in nonlinearities:
                     for input_forced_choice in input_forced_choices:
                         for input_encoding in input_encodings:
                             for hidden_size in hidden_sizes:
-                                if input_encoding == 'unipolar' and nonlinearity =='relu' and model_type in ['vanilla', 'GRU','monoGRU']:
-                                    decoder_biases = [True,False]
-                                elif model_type in ['monoGRU_no_hidden','monoGRU_hidden_only']:
-                                    decoder_biases = [False]
-                                else:
-                                    decoder_biases = [True]
                                 for decoder_bias in decoder_biases:
                                     model_id =  f'{hidden_size}_unit_{model_type}_{nonlinearity}_{input_encoding}'
                                     if input_forced_choice:
                                         model_id+= '_forced'
                                     if decoder_bias == False:
                                         model_id+= '_ndb'
-
                                     constraint = 'energy' if nonlinearity == 'relu' else 'sparsity'
                                     model_save_path = Path(save_path)/folder_name/subject_ID/model_type/constraint
                                     completed = 1

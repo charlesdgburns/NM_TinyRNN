@@ -23,12 +23,11 @@ CPU path  : joblib dispatches each inner fold to a separate subprocess.
 
 Determinism/Reproducibility
 -----------
-Session folds are deterministic chunks of sorted session names; train_seed
-never changes these folds or the consecutive blocks made within each session.
-It supplies fold-specific training RNG / block-shuffle seeds to Trainer.
-In contrast, direct Trainer.fit also uses train_seed as dataset.seed_split
-for train/validation session assignment. See training.Trainer for details.
-Per-model weight_seeds control initial weights independently.
+Session folds are deterministic chunks of sorted session names. Sequence length
+controls blocks. Trainer uses the fold-derived train_seed for global RNGs and
+block shuffling; an explicit trainer shuffle_seed overrides block order only.
+Direct Trainer also uses train_seed as seed_split for session assignment.
+Candidate weight_seeds independently control initialization. See training.Trainer.
 Reproducibility assumes fixed data, configuration and execution environment.
 
 Saving

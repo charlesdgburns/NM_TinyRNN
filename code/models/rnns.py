@@ -131,22 +131,22 @@ class TinyRNN(nn.Module):
     #initialise weights as small, uniformly distributed:
     stdv = 1e-3 #/ math.sqrt(self.H) #1e-3 
     for name, p in self.named_parameters():
-        if ('W' in name) or ('decoder' in name):
+        if ('W' in name) or ('decoder' in name) or ('encoder' in name and 'weight' in name):
           p.data.uniform_(-stdv, stdv)
         if 'bias' in name:
           p.data.zero_()
-        # Reset learned initial states to their constructor defaults.
+        # Start each block from zero learned hidden/gate states.
         if ('hidden_0' in name) or ('z_0' in name):
-          p.data.fill_(1.0)
+          p.data.fill_(0.0)
         if name == 'batch_norm.weight':
           p.data.fill_(1.0)
     #we initialise gate biases to be open at the start of training, similar to initialising LSTM forget_gates with a bias of 1.
     if 'monoGRU' in self.rnn_type:
        self.rnn.bias_z.data = torch.tensor(1.0) 
     elif self.rnn_type == 'lightGRU':
-        self.rnn.bias_z.data = torch.ones_like(self.rnn.bias_z.data) #update gate bias, similar to forget gate LSTM initialisation trick
+        self.rnn.bias_z.data = torch.ones_like(self.rnn.bias_z.data)
     elif self.rnn_type == "GRU":
-      self.rnn.bias_z.data = torch.ones_like(self.rnn.bias_z.data) #update gate bias similar to forget gate LSTM initialisation trick
+      self.rnn.bias_z.data = torch.ones_like(self.rnn.bias_z.data)
     elif self.rnn_type == "constGate":
       self.rnn.z.data = torch.tensor(1.0)
     if self.init_decoder and self.H == 2: #option to rotate decoder to read out along y=-x
@@ -224,7 +224,8 @@ class TinyRNN(nn.Module):
     z = hidden_states - hidden_states.mean(dim=0, keepdim=True)  # centre
     cov = (z.T @ z) / (B*S - 1)                                    # [H, H]
     mask = ~torch.eye(H, dtype=torch.bool, device=hidden_states.device) # Off-diagonal squared terms only
-    losses['covariance'] = (cov[mask]**2).mean()*covariance_lambda #preventing correlated units.
+    # A one-unit model has no off-diagonal covariance pairs to penalise.
+    losses['covariance'] = ((cov[mask]**2).mean() if H > 1 else cov.new_zeros(()))*covariance_lambda
    
     # Silence: penalise norm below a minimum threshold, not reward large norms
     min_norm = 0.1
@@ -314,8 +315,8 @@ class MonoGated(nn.Module):
       
     self.bias_h = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
     self.bias_z = nn.Parameter(torch.Tensor(1))
-    self.hidden_0 = nn.Parameter(torch.ones(hidden_size)) #learnable initial hidden state, which we will tile across the batch dimension in forward()
-    self.z_0 = nn.Parameter(torch.ones(1)) #learnable initial gate activation, which we will tile across the batch dimension in forward()
+    self.hidden_0 = nn.Parameter(torch.zeros(hidden_size)) #learnable initial hidden state, which we will tile across the batch dimension in forward()
+    self.z_0 = nn.Parameter(torch.zeros(1)) #learnable initial gate activation, which we will tile across the batch dimension in forward()
   
   def forward(self, inputs, init_states = None,
               return_gate_activations = False,
@@ -493,6 +494,7 @@ class ManualGRU(nn.Module):
     self.bias_h = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
     self.bias_z = nn.Parameter(torch.Tensor(hidden_size))                # (H,)
     self.bias_r = nn.Parameter(torch.Tensor(hidden_size))
+    self.hidden_0 = nn.Parameter(torch.zeros(hidden_size)) # shared learned state at each block start
   
   def forward(self, inputs, init_states = None, 
               return_gate_activations=False,
@@ -508,7 +510,10 @@ class ManualGRU(nn.Module):
     if return_gate_activations:
       gate_activations = {'reset':[],'update':[]}
     if init_states is None:
-      h_past = torch.zeros(batch_size, self.hidden_size).to(inputs.device) #(n_hidden,batch_size)
+      # Historical pickled GRUs have no hidden_0; retain their fixed-zero behavior.
+      hidden_0 = getattr(self, 'hidden_0', None)
+      h_past = (inputs.new_zeros(batch_size, self.hidden_size) if hidden_0 is None
+                else hidden_0.unsqueeze(0).expand(batch_size, -1))
     else:
       h_past = init_states
 
@@ -851,6 +856,7 @@ class LightGRU(nn.Module):
         self.W_hz  = nn.Parameter(torch.Tensor(hidden_size, hidden_size))  # (H,H) gate recurrent
         self.bias_h = nn.Parameter(torch.Tensor(hidden_size))              # (H,)
         self.bias_z = nn.Parameter(torch.Tensor(hidden_size))              # (H,)
+        self.hidden_0 = nn.Parameter(torch.zeros(hidden_size))
 
     def forward(self, inputs, init_states=None,
                 return_gate_activations=False,
@@ -866,7 +872,10 @@ class LightGRU(nn.Module):
         if return_gate_activations:
             gate_activations = {'update': []}
         if init_states is None:
-            h_past = torch.zeros(batch_size, self.hidden_size).to(inputs.device)
+            # Preserve fixed-zero behavior of historical pickled LightGRUs.
+            hidden_0 = getattr(self, 'hidden_0', None)
+            h_past = (inputs.new_zeros(batch_size, self.hidden_size) if hidden_0 is None
+                      else hidden_0.unsqueeze(0).expand(batch_size, -1))
         else:
             h_past = init_states
 
