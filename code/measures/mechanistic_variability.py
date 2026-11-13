@@ -24,6 +24,8 @@ This script is structured as follows:
 """
 
 import os
+import io
+import pickle
 import warnings
 from pathlib import Path
 import numpy as np
@@ -40,7 +42,7 @@ from sklearn.metrics import silhouette_score
 # For finding optimal alignment
 import copy
 import itertools
-from scipy.optimize import linear_sum_assignment
+from scipy.optimize import linear_sum_assignment, least_squares
 
 ## local imports
 from NM_TinyRNN.code.models import experiments
@@ -60,10 +62,13 @@ def align_rnns(
     model_b: torch.nn.Module,
     nonlinearity: str | None = None,
     scale_steps: int = 5,
+    refine_scaling: bool = False,
+    scale_values: np.ndarray | None = None,
 ) -> tuple[torch.nn.Module, dict]:
-    """Aligns Model B to Model A by fully searching the symmetry group
+    """Align Model B to A using exhaustive permutations and sign/scale candidates.
 
-    (all permutations and sign/scale transformations) to minimize global parameter distance.
+    ReLU uses a scale grid, with optional continuous refinement of its winner.
+    The objective is Euclidean distance over the main network parameters.
 
     Parameters
     ----------
@@ -75,6 +80,12 @@ def align_rnns(
         'relu' or 'tanh'. If None, inferred from `model_a.nonlinearity`.
     scale_steps : int
         Number of candidate positive scale factors per unit for ReLU (default: 5).
+    refine_scaling : bool
+        For ReLU, continuously refine positive scales from the winning grid
+        candidate, keeping its permutation fixed. Tanh is unchanged. Opt-in
+        preserves existing discrete analyses and their caches.
+    scale_values : array-like, optional
+        Custom positive ReLU grid. Unit scale is always included.
 
     Returns
     -------
@@ -140,7 +151,12 @@ def align_rnns(
     else:
         # ReLU transformations: scaling factors D in R_>0^H
         # Grid around 1.0 (e.g., [0.5, 0.8, 1.0, 1.25, 2.0])
-        scales = np.linspace(0.5, 2.0, scale_steps)
+        # Include unit scale for every permutation, not only the identity fallback.
+        supplied_scales = (np.linspace(0.5, 2.0, scale_steps)
+                           if scale_values is None else np.asarray(scale_values, dtype=float))
+        if supplied_scales.ndim != 1 or supplied_scales.size == 0 or not np.all(np.isfinite(supplied_scales)) or np.any(supplied_scales <= 0):
+            raise ValueError("scale_values must be a nonempty finite positive one-dimensional grid")
+        scales = np.unique(np.r_[supplied_scales, 1.0])
         transform_candidates = list(itertools.product(scales, repeat=H))
 
     best_distance = float("inf")
@@ -184,6 +200,38 @@ def align_rnns(
     if unaligned_distance < np.sqrt(best_distance):
         best_perm = np.arange(H)
         best_transform_vec = np.ones(H, dtype=np.float32)
+
+    grid_transform_vec = best_transform_vec.copy()
+    grid_squared_distance = min(float(best_distance), float(unaligned_sq_dist))
+    refinement_success = None
+    refinement_nfev = 0
+    if refine_scaling and nonlinearity == "relu":
+        # h @ W_hh convention: scaling contributes x_j - x_i to W_hh[i,j].
+        eye = np.eye(H)
+        powers = np.concatenate([
+            np.repeat(eye, W_ih_B.shape[1], axis=0), eye,
+            np.array([eye[j] - eye[i] for i in range(H) for j in range(H)]),
+            np.tile(-eye, (W_dec_B.shape[0], 1)),
+        ])
+        def flatten_core(w_ih, bias, w_hh, decoder):
+            return np.concatenate([w_ih.ravel(), bias.ravel(), w_hh.ravel(), decoder.ravel()]).astype(np.float64)
+        target = flatten_core(W_ih_A, b_h_A, W_hh_A, W_dec_A)
+        coeff = flatten_core(W_ih_B[best_perm], b_h_B[best_perm],
+                             W_hh_B[np.ix_(best_perm, best_perm)], W_dec_B[:, best_perm])
+        def residual(x):
+            return coeff * np.exp(powers @ x) - target
+        def jacobian(x):
+            return (coeff * np.exp(powers @ x))[:, None] * powers
+        initial_log_scales = np.log(best_transform_vec.astype(np.float64))
+        fit = least_squares(residual, initial_log_scales, method="trf",
+                            jac=jacobian, bounds=(-20., 20.), ftol=1e-10,
+                            xtol=1e-10, gtol=1e-10, max_nfev=300)
+        refinement_success = bool(fit.success)
+        refinement_nfev = int(fit.nfev)
+        scales = np.exp(fit.x).astype(np.float32)
+        actual_residual = residual(np.log(scales.astype(np.float64)))
+        if fit.success and float(actual_residual @ actual_residual) < grid_squared_distance:
+            best_transform_vec = scales
 
     perm = best_perm
     transform_vec = best_transform_vec
@@ -257,7 +305,12 @@ def align_rnns(
         "perm": perm,
         "transform_vec": transform_vec,
         "unaligned_distance": unaligned_distance,
-        "aligned_distance": aligned_distance
+        "aligned_distance": aligned_distance,
+        "grid_distance": float(np.sqrt(grid_squared_distance)),
+        "grid_transform_vec": grid_transform_vec,
+        "refinement_success": refinement_success,
+        "refinement_nfev": refinement_nfev,
+        "refinement_method": "trf" if refine_scaling and nonlinearity == "relu" else None,
     }
 
     return model_b_aligned, info
@@ -403,6 +456,13 @@ def compute_activation_similarity(
         raise ValueError("Metric must be 'pearson' or 'cka'")
 
 # Computational functions #
+
+
+class CPUUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        if module == 'torch.storage' and name == '_load_from_bytes':
+            return lambda data: torch.load(io.BytesIO(data), map_location='cpu', weights_only=False)
+        return super().find_class(module, name)
 
 
 COMPONENTS = ['hidden', 'gate_update', 'gate_reset', 'logit_value']

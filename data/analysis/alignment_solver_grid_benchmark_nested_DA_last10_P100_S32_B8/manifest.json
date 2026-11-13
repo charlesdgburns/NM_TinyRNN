@@ -1,0 +1,91 @@
+{
+  "grids": {
+    "original_6": [
+      0.5,
+      0.875,
+      1.0,
+      1.25,
+      1.625,
+      2.0
+    ],
+    "fine_12": [
+      0.5,
+      0.65,
+      0.8,
+      0.95,
+      1.0,
+      1.1,
+      1.25,
+      1.4,
+      1.55,
+      1.7,
+      1.8499999999999999,
+      2.0
+    ],
+    "wide_9": [
+      0.25,
+      0.3535533905932738,
+      0.5,
+      0.7071067811865475,
+      1.0,
+      1.4142135623730951,
+      1.9999999999999998,
+      2.82842712474619,
+      4.0
+    ],
+    "wide_fine_17": [
+      0.25,
+      0.29730177875068026,
+      0.3535533905932738,
+      0.42044820762685725,
+      0.5,
+      0.5946035575013605,
+      0.7071067811865475,
+      0.8408964152537145,
+      1.0,
+      1.189207115002721,
+      1.4142135623730951,
+      1.6817928305074292,
+      1.9999999999999998,
+      2.378414230005442,
+      2.82842712474619,
+      3.363585661014858,
+      4.0
+    ],
+    "very_wide_17": [
+      0.1,
+      0.1333521432163324,
+      0.1778279410038923,
+      0.23713737056616552,
+      0.31622776601683794,
+      0.4216965034285822,
+      0.5623413251903491,
+      0.7498942093324559,
+      1.0,
+      1.333521432163324,
+      1.7782794100389228,
+      2.371373705661655,
+      3.1622776601683795,
+      4.216965034285822,
+      5.623413251903491,
+      7.498942093324558,
+      10.0
+    ]
+  },
+  "sample": "Same 720 fit pairs as prior benchmark: 60 per variant, 30 within/30 across, twelve ReLU variants (one/two units; three architectures; two decoder bias conditions).",
+  "repeats": 2,
+  "configs": 15,
+  "timed_calls": 21600,
+  "benchmark": "Actual production align_rnns; include deepcopy, parameter extraction, grid search, refinement and applying transformations; exclude loading, warm-up and quality reports. One CPU core and single-thread BLAS/PyTorch. Config order rotated/reversed.",
+  "solvers": {
+    "trf": "Analytic-Jacobian least squares; log bounds [-20,20], ftol/xtol/gtol 1e-10, max_nfev 300.",
+    "L-BFGS-B": "Analytic-gradient scalar objective 0.5*sum(residual**2) / (norm_target**2+norm_unit_scale_permuted_source**2); same log bounds; ftol1e-12, gtol1e-10, maxiter300/maxfun300/maxls50. Solver tolerances have different meanings, so achieved distances are compared directly."
+  },
+  "refinement": "Only winning grid permutation refined. Additional diagnostic refines both permutations from each branch best original-grid candidate; not a global-optimality proof.",
+  "cpu_affinity": 0,
+  "sha256": {
+    "/home/charlesdgburns/Coding/NM_TinyRNN/code/measures/benchmark_alignment_solvers_grids.py": "7427f550d7761d9fd3d29c26728624a3f3313f921d61c03cec95fc6052288016",
+    "/home/charlesdgburns/Coding/NM_TinyRNN/code/measures/mechanistic_variability.py": "70b5f1bb725b224732354c9a9dc1f768f2d7e42b3f331fb2465bd93183e76f25",
+    "/home/charlesdgburns/Coding/NM_TinyRNN/data/analysis/grid_refinement_runtime_nested_DA_last10_P100_S32_B8/selected_models.tsv": "b82f120ebb2f50e8369215beb39c1a62ae5c10bc2c38ccfc785ebd9fa8d18723"
+  }
+}

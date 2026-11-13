@@ -1,0 +1,59 @@
+{
+  "study": "weight_similarity_sensitivity",
+  "folder": "nested_DA_last10_P100_S32_B8",
+  "hidden_size": 2,
+  "settings": {
+    "selection": "minimum combined train_val_CE; lower inner index breaks ties",
+    "grid": [
+      0.5,
+      0.875,
+      1.0,
+      1.25,
+      1.625,
+      2.0
+    ],
+    "objective": "core Euclidean distance",
+    "score": "cosine over all trainable parameters",
+    "relu": "grid winner then analytical-Jacobian TRF refinement; winning permutation fixed",
+    "tanh": "permutations/signs without scaling versus continuous positive scaling in every sign/permutation branch, starting at unit scales",
+    "log_scale_bounds": [
+      -20.0,
+      20.0
+    ],
+    "ftol": 1e-10,
+    "xtol": 1e-10,
+    "gtol": 1e-10,
+    "max_nfev": 300,
+    "orientation": "A fixed, B aligned; endpoints sorted by subject then outer fold",
+    "no_balancing": true,
+    "no_bootstrap": true
+  },
+  "source_performance": "/home/charlesdgburns/Coding/NM_TinyRNN/data/analysis/performance_df_nested_DA_last10_P100_S32_B8_final.htsv",
+  "performance_sha256": "00e057aa2475a52275c753d10f5591a4845c7df2b31b93551b413e1ef72da015",
+  "config_sha256": "934967a391b964cd87fd258414e8ff5930a9bf74d2e0f226dfac19bad98d54f8",
+  "selected_sha256": "9b92d94cd077579ab80f01c77badfd1552d50ef3d9c629750a3bdb28b0bb3690",
+  "pairs_sha256": "476a30f8afcd49ddff510058851bf522db02fb93b19e71deb6921ee2ae883dd1",
+  "code_sha256": {
+    "/home/charlesdgburns/Coding/NM_TinyRNN/code/studies/weight_similarity_sensitivity.py": "8244a44a4fe4c5c8d75351aca426057ab55b081188bd2d85736146a0fb5e87c0",
+    "/home/charlesdgburns/Coding/NM_TinyRNN/code/measures/mechanistic_variability.py": "a06f3061ad987c6209364a21f888d9830bb4ffcd0032322523b4eda423afde53",
+    "/home/charlesdgburns/Coding/NM_TinyRNN/code/measures/scaling_sensitivity.py": "8a7d21c14f5fb64c029cd8d5a9d1269647b37d6f1a2f966584495fb6ab319e5d"
+  },
+  "group_fingerprints": {
+    "2_unit_GRU_relu_unipolar_forced": "a3a8854ce6a29326763a5c019a2d1f9ceb17b194e97e8ae1106d41faa2cea950",
+    "2_unit_GRU_relu_unipolar_forced_ndb": "77c5bef5ac554dc26e140dc2a2cc0c8602494a668ba5ed308142326a8fc5da5e",
+    "2_unit_GRU_tanh_unipolar_forced": "243dd9394e021f36a76859f9daf60f7a87f6fefaf30b60649c0b85b870acd71f",
+    "2_unit_GRU_tanh_unipolar_forced_ndb": "a95797cad05ad4cf49014c6ab6b1ff5c1217161933b8b33d91f7e5777df082e0",
+    "2_unit_lightGRU_relu_unipolar_forced": "7d789432e404120fd58b15ba68af6270ec352bfee8951ae907426bf7a1136929",
+    "2_unit_lightGRU_relu_unipolar_forced_ndb": "34b55cd7c08d1a1ba8c0ee0d233326a36d96e7262075089c4b671b1fea5e4732",
+    "2_unit_lightGRU_tanh_unipolar_forced": "7f9cea8583d34507c1db79bfa323a188fcddb1fae3f76320b0ce3088edb4d681",
+    "2_unit_lightGRU_tanh_unipolar_forced_ndb": "f8dc95f26980dbe4249c834b891f71581f14d2d93997b68d668ecee68f12baed",
+    "2_unit_monoGRU_relu_unipolar_forced": "fd86628521450965186e5be60afdb7491b5b88421ab69dbf5d85a29d7cf43732",
+    "2_unit_monoGRU_relu_unipolar_forced_ndb": "8034ab543238cbddc19d9e553b2b2d045a988a53468c1ad9db94df38f33141e9",
+    "2_unit_monoGRU_tanh_unipolar_forced": "f061bbf10f80031a9bf0cad662d65ebe9d5c5f4ce6f24e6f2f6592af4301ed04",
+    "2_unit_monoGRU_tanh_unipolar_forced_ndb": "7d3d5400784d2b1bbaca7e8bed848ff9c452830a73dd2eb5dc35b889c9f77cbc"
+  },
+  "fits": 1320,
+  "pairs": 71940,
+  "failed_branches": 0,
+  "scale_bound_hits": 0
+}
