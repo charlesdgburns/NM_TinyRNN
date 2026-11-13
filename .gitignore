@@ -223,4 +223,8 @@ __marimo__/
 .venv-aws/
 
 # Local scientific study runs
-code/studies/.local/
+code/analyses/.local/
+
+# Preliminary checks and historical analysis archives stay local
+code/analyses/preliminary/
+data/analysis/.local/

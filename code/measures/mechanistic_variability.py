@@ -467,6 +467,34 @@ class CPUUnpickler(pickle.Unpickler):
 
 COMPONENTS = ['hidden', 'gate_update', 'gate_reset', 'logit_value']
 
+def validate_similarity_cache_models(cached_df, analysis_df):
+    """Reject a cache from different model/subject/fold selections."""
+    keys = ['model_id', 'subject_id', 'outer_loop_n', 'inner_loop_idx']
+    missing = set(keys)-set(analysis_df.columns)
+    if missing:
+        raise ValueError(f'Cannot validate similarity cache: input is missing {sorted(missing)}')
+    counts = analysis_df.groupby('model_id').size()
+    expected_frame = analysis_df.loc[analysis_df.model_id.isin(counts[counts >= 2].index), keys]
+    expected = set(expected_frame.itertuples(index=False, name=None))
+    if len(expected) != len(expected_frame):
+        raise ValueError('Similarity input contains duplicate model/subject/fold rows')
+    observed = set()
+    for side in ['A', 'B']:
+        columns = ['model_id', f'subject_{side}', f'model_{side}_outer_n', f'model_{side}_inner_n']
+        if not set(columns).issubset(cached_df.columns):
+            raise ValueError('Similarity cache lacks model endpoint identifiers; rebuild it before loading')
+        observed.update(cached_df[columns].itertuples(index=False, name=None))
+    pair_counts = cached_df.groupby('model_id').size().to_dict()
+    expected_counts = {key: int(n*(n-1)//2) for key, n in counts.items() if n >= 2}
+    if observed != expected or pair_counts != expected_counts:
+        raise ValueError(
+            'Similarity cache does not match the supplied model selection '
+            f'({len(expected-observed)} selected endpoints missing, '
+            f'{len(observed-expected)} unexpected endpoints). '
+            'Rebuild the cache for this selection or use a separate cache_path.'
+        )
+
+
 def compute_similarities(
     analysis_df,
     n_jobs=-1,
@@ -479,18 +507,26 @@ def compute_similarities(
         raise ValueError(
             "similarity_measure must be 'pearson', 'cosine', or 'cka'"
         )
-    folder_name = Path(analysis_df.iloc[0]['save_path']).parts[3]
+    default_cache = cache_path is None
     if cache_path is None:
-        cache_path = Path(
-            f"NM_TinyRNN/data/analysis/mechanistic_variability_"
-            f"{similarity_measure}_similarities_{folder_name}.htsv"
-        )
+        cache_path = Path("NM_TinyRNN/data/analysis/mechanistic_variability") / (
+            'pairwise_similarities.htsv' if similarity_measure == 'pearson'
+            else f'pairwise_similarities_{similarity_measure}.htsv')
     else:
         cache_path = Path(cache_path)
 
     if use_cache and cache_path.exists():
+        if default_cache:
+            selected_path = cache_path.parent/'selected_models.htsv'
+            if not selected_path.is_file():
+                raise ValueError('Default similarity cache lacks selected-model provenance; rerun the analysis.')
+            saved = pd.read_csv(selected_path, sep='\t')
+            from NM_TinyRNN.code.measures.analysis import cache_matches_models
+            if not cache_matches_models(saved, analysis_df):
+                raise ValueError('Similarity cache uses different model paths or selection; rerun the analysis.')
         cached_df = pd.read_csv(cache_path, sep="\t")
-        print(f"Loaded similarity dataframe from cache: {cache_path}")
+        validate_similarity_cache_models(cached_df, analysis_df)
+        print(f"Loaded similarity dataframe from cache: {cache_path} (model selection verified)")
         return cached_df
 
     groups = list(analysis_df.groupby('model_id'))
@@ -511,6 +547,8 @@ def compute_similarities(
     )
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     similarity_df.to_csv(cache_path, sep="\t", index=False)
+    if default_cache:
+        analysis_df.to_csv(cache_path.parent/'selected_models.htsv', sep="\t", index=False)
     print(f"Saved similarity dataframe to cache: {cache_path}")
     return similarity_df
 
@@ -974,10 +1012,10 @@ def run_across_subject_similarity_analysis(
     ].copy()
     select_models['model_id'] = select_models.model_type2
 
-    output_dir = Path('NM_TinyRNN/data/analysis')
+    output_dir = Path('NM_TinyRNN/data/analysis/mechanistic_variability')
     output_dir.mkdir(parents=True, exist_ok=True)
-    selected_path = output_dir / 'mechanistic_variability_selected_models.htsv'
-    similarity_path = output_dir / 'mechanistic_variability_pearson_similarities_v2.htsv'
+    selected_path = output_dir / 'selected_models.htsv'
+    similarity_path = output_dir / 'pairwise_similarities.htsv'
     select_models.to_csv(selected_path, sep='\t', index=False)
     print(f'Saved selected model dataframe to {selected_path}')
 

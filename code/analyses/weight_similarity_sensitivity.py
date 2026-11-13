@@ -1,7 +1,7 @@
 """Reproduce pairwise weight-scaling sensitivity tables and empirical figures.
 
-    .venv/bin/python code/studies/weight_similarity_sensitivity.py
-    .venv/bin/python code/studies/weight_similarity_sensitivity.py --stage plots
+    .venv/bin/python code/analyses/weight_similarity_sensitivity.py
+    .venv/bin/python code/analyses/weight_similarity_sensitivity.py --stage plots
 
 Uses saved fits; does not train models, balance weights, or resample subjects.
 """
@@ -157,7 +157,7 @@ def write_table(frame, path):
 def paths_for(folder, hidden_size):
     if Path(folder).name != folder or folder in ('', '.', '..'):
         raise ValueError('--folder must name one run under data/rnns')
-    tables = REPO/'data/analysis/weight_similarity_sensitivity'/folder/f'h{hidden_size}'
+    tables = REPO/'data/analysis/weight_similarity_sensitivity'
     figures = REPO/'results/figures'/f'weight_similarity_sensitivity_{folder}_h{hidden_size}'
     return tables, figures
 
@@ -286,7 +286,7 @@ def compute_group(rows, tables, identity, recompute=False):
 def compute(folder, hidden_size, tables, jobs=6, recompute=False, performance_table=None):
     config_path = REPO/'data/rnns'/folder/'_aws/run-config.json'
     config = json.loads(config_path.read_text())
-    source = Path(performance_table).resolve() if performance_table else REPO/'data/analysis'/f'performance_df_{folder}_final.htsv'
+    source = Path(performance_table).resolve() if performance_table else REPO/'data/analysis/performance/performance_df.htsv'
     if not source.is_file():
         raise FileNotFoundError(f'Performance table missing: {source}. Build it with analysis.get_analysis_df and performance.get_performance_df, or supply --performance-table.')
     frame = pd.read_csv(source, sep='\t')
@@ -371,7 +371,9 @@ def report(pairs, tables, manifest):
     for r in summary.itertuples():
         label = r.architecture + ('+BC' if r.activation == 'relu' else '') + ('-DB' if not r.decoder_bias else '')
         lines.append(f'| {label} | {r.comparison} | {r.baseline_similarity:.5f} | {r.scaled_similarity:.5f} | {r.delta_similarity:+.5f} | {r.percent_change:+.2f}% |')
-    (tables/'REPORT.md').write_text('\n'.join(lines) + '\n')
+    reports = REPO/'results/appendix/weight_similarity_sensitivity'
+    reports.mkdir(parents=True, exist_ok=True)
+    (reports/'REPORT.md').write_text('\n'.join(lines) + '\n')
     return blocks, contrasts
 
 
@@ -503,6 +505,8 @@ def main(argv=None):
         _, pairs, manifest = compute(args.folder, args.hidden_size, tables, args.jobs, args.recompute, args.performance_table)
     else:
         _, pairs, manifest = load_computation(tables)
+        if manifest.get('folder', args.folder) != args.folder or manifest.get('hidden_size', args.hidden_size) != args.hidden_size:
+            raise ValueError('Cached analysis uses a different training run or hidden size; rerun --stage compute.')
     if args.stage in ['all', 'report']:
         report(pairs, tables, manifest)
     if args.stage in ['all', 'plots']:

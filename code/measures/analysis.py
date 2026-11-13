@@ -2,6 +2,7 @@
 
 from joblib import Parallel, delayed
 import json
+import hashlib
 import pickle
 import pandas as pd
 from pathlib import Path
@@ -28,15 +29,23 @@ def get_analysis_df(experiment_df=None, mode='all', n_jobs=-1, use_cache=True, *
         raise TypeError("Pass experiment_df or the legacy info_df keyword, not both")
     if experiment_df is None:
         raise TypeError("An experiment_df manifest is required")
+    if experiment_df.empty:
+        raise ValueError('Experiment dataframe is empty; check the data directory and requested subjects.')
+    if 'save_path' not in experiment_df or 'completed' not in experiment_df:
+        raise ValueError('Experiment dataframe must contain save_path and completed columns.')
+    if not experiment_df['completed'].any():
+        raise FileNotFoundError(
+            f"No completed models found under {experiment_df.iloc[0]['save_path']}. "
+            'Check folder_name against data/rnns and the working directory.')
     if mode != 'all':
         raise ValueError("Path discovery only supports mode='all'; select best models from a performance dataframe.")
-    folder_name = Path(experiment_df.iloc[0]['save_path']).parts[3]
-    cache_path = DATA_PATH / 'analysis' / f'analysis_df_{folder_name}_final.htsv'
+    cache_path = DATA_PATH / 'analysis' / 'performance' / 'analysis_df.htsv'
     if use_cache and cache_path.exists():
         try:
             expanded_df = pd.read_csv(cache_path, sep='\t')
             path_columns = _path_columns(expanded_df)
-            if path_columns:
+            requested = experiment_df.loc[experiment_df.completed.eq(True)]
+            if path_columns and cache_matches_models(expanded_df, requested, inner=False):
                 print(f"Loaded analysis paths from cache: {cache_path}")
                 return expanded_df[path_columns]
         except Exception as error:
@@ -47,12 +56,45 @@ def get_analysis_df(experiment_df=None, mode='all', n_jobs=-1, use_cache=True, *
     )
     expanded_df = pd.DataFrame([row for result in results for row in result])
 
+    if expanded_df.empty:
+        raise FileNotFoundError(
+            f"No saved inner-fold models found under {experiment_df.iloc[0]['save_path']}. "
+            'Check folder_name and model artifact paths.')
     if not expanded_df.empty:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         expanded_df.to_csv(cache_path, sep='\t', index=False)
+        write_cache_provenance(cache_path, expanded_df)
         print(f"Saved analysis paths to cache: {cache_path}")
 
     return expanded_df
+
+
+def write_cache_provenance(path, frame):
+    """Keep the dataset in metadata rather than in the directory or filename."""
+    path = Path(path)
+    metadata = dict(rows=len(frame), sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                    source_save_paths=sorted(set(frame.save_path.map(str))))
+    path.with_suffix('.json').write_text(json.dumps(metadata, indent=2)+'\n')
+
+
+def cache_matches_models(cached, requested, *, inner=True):
+    """A dataset-free cache filename must still match the requested model paths.
+
+    Compare source locations and fold identities, not just model labels (which
+    repeat across training runs). Outer manifests expand to multiple inner rows.
+    """
+    keys = ['save_path', 'model_id', 'outer_loop_n']
+    if inner:
+        keys += ['inner_loop_idx', 'info_path']
+    if not set(keys).issubset(cached.columns) or not set(keys).issubset(requested.columns):
+        return False
+    def identities(frame):
+        frame = frame[keys].copy()
+        for key in ['save_path', 'info_path']:
+            if key in frame:
+                frame[key] = frame[key].map(lambda value: str(Path(str(value)).resolve()))
+        return set(frame.itertuples(index=False, name=None))
+    return identities(cached) == identities(requested) and (not inner or len(cached) == len(requested))
 
 
 def get_model_paths(each_model):
