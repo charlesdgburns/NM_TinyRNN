@@ -9,17 +9,14 @@ import numpy as np
 import pandas as pd
 import torch
 
-from NM_TinyRNN.code.measures.analysis import DATA_PATH, cache_matches_models, write_cache_provenance
+from NM_TinyRNN.code.measures.analysis import DATA_PATH
 
 
 def get_performance_df(analysis_df, n_jobs=-1, use_cache=True):
     '''Add saved performance values and trial-level metrics to path rows.'''
 
-    if analysis_df.empty:
-        raise ValueError('Analysis dataframe is empty; no saved models were found. Check folder_name and data/rnns.')
-    if 'save_path' not in analysis_df:
-        raise ValueError('Analysis dataframe must contain save_path; build it with analysis.get_analysis_df first.')
-    cache_path = DATA_PATH / 'analysis' / 'performance' / 'performance_df.htsv'
+    folder_name = Path(analysis_df.save_path.iloc[0]).parts[3]
+    cache_path = DATA_PATH / 'analysis' / f'performance_df_{folder_name}_final.htsv'
     required_columns = {
         'eval_CE', 'best_val_CE', 'train_CE', 'val_CE', 'eval_CE_computed',
         'train_n_free', 'val_n_free', 'eval_n_free'
@@ -28,7 +25,7 @@ def get_performance_df(analysis_df, n_jobs=-1, use_cache=True):
     if use_cache and cache_path.exists():
         try:
             performance_df = pd.read_csv(cache_path, sep='\t')
-            if required_columns.issubset(performance_df.columns) and cache_matches_models(performance_df, analysis_df):
+            if required_columns.issubset(performance_df.columns):
                 print(f"Loaded performance dataframe from cache: {cache_path}")
                 return performance_df
         except Exception as error:
@@ -45,7 +42,6 @@ def get_performance_df(analysis_df, n_jobs=-1, use_cache=True):
     if not performance_df.empty:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         performance_df.to_csv(cache_path, sep='\t', index=False)
-        write_cache_provenance(cache_path, performance_df)
         print(f"Saved performance dataframe to cache: {cache_path}")
 
     return performance_df

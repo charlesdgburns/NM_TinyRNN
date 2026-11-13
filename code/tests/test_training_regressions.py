@@ -1,6 +1,5 @@
 """Run from the repository root: .venv/bin/python code/tests/test_training_regressions.py."""
 import sys
-import itertools
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -118,7 +117,7 @@ class TrainingRegressions(unittest.TestCase):
         self.assertEqual(config[-1], 0)
         self.assertTrue(torch.equal(state['weight'], snapshots[0][0].cpu()))
 
-    def test_shuffle_seed_reaches_loader_and_controls_order(self):
+    def test_train_seed_reaches_loader_and_controls_order(self):
         orders = []
         for seed in [17, 17, 18]:
             seen = []
@@ -132,31 +131,12 @@ class TrainingRegressions(unittest.TestCase):
 
             trainer = training.Trainer(weight_seeds=[0], sparsity_lambdas=[0],
                                        energy_lambdas=[0], max_epochs=1,
-                                       batch_size=2, train_seed=99, shuffle_seed=seed)
+                                       batch_size=2, train_seed=seed)
             with patch.object(training, 'get_dataloader', loader):
                 trainer.fit(ToyModel(), ToyDataset())
             orders.append(seen)
         self.assertEqual(orders[0], orders[1])
         self.assertNotEqual(orders[0], orders[2])
-
-    def test_default_shuffle_and_global_rng_use_train_seed(self):
-        orders = []
-        for fold_seed in [42, 420008]:
-            seen = []
-            def loader(*args, **kwargs):
-                self.assertEqual(kwargs['seed'], fold_seed)
-                result = get_dataloader(*args, **kwargs)
-                if args[1] == 'train':
-                    seen.extend(torch.cat([x.flatten() for x, _, _ in result]).tolist())
-                return result
-            trainer = training.Trainer(weight_seeds=[0], sparsity_lambdas=[0], energy_lambdas=[0],
-                max_epochs=1, batch_size=2, train_seed=fold_seed)
-            self.assertEqual(trainer.early_stop, 100)
-            with patch.object(training, 'get_dataloader', loader):
-                trainer.fit(ToyModel(), ToyDataset())
-            self.assertEqual(torch.initial_seed(), fold_seed)
-            orders.append(seen)
-        self.assertNotEqual(orders[0], orders[1])
 
     def test_loader_default_seed_is_reproducible_despite_global_rng_changes(self):
         # This explains why the original code could pass reproducibility checks:
@@ -184,90 +164,6 @@ class TrainingRegressions(unittest.TestCase):
         for key in results[0][0]:
             self.assertTrue(torch.equal(results[0][0][key], results[1][0][key]))
 
-    def test_parallel_training_matches_independent_adam_updates(self):
-        # Check actual GRU/monoGRU updates independently of the vmap trainer.
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        x = torch.tensor([[[1., 0., 1.], [0., 1., 0.], [1., 1., 0.], [0., 0., 1.]],
-                          [[0., 1., 1.], [1., 0., 0.], [0., 0., 1.], [1., 1., 1.]],
-                          [[1., 1., 0.], [0., 0., 1.], [1., 0., 1.], [0., 1., 0.]]])
-        y = torch.tensor([[0, 1, 0, 1], [1, 0, 1, 0], [0, 1, 1, 0]])
-        mask = torch.tensor([[0., 1., 0., 0.], [0., 0., 1., 0.], [1., 0., 0., 0.]])
-        dataset = TensorDataset(x, y, mask)
-        splits = {'train': [0, 1], 'val': [2]}
-        dataset._session_split = lambda **kwargs: splits
-        for architecture, activation in [('GRU', 'tanh'), ('monoGRU', 'relu'), ('lightGRU', 'relu')]:
-            configs = list(itertools.product([0., 1e-4], [0., 1e-3], [0, 1]))
-            manual = [TinyRNN(rnn_type=architecture, input_size=3, hidden_size=2,
-                              nonlinearity=activation, weight_seed=seed).to(device) for _, _, seed in configs]
-            optimizers = [torch.optim.AdamW(m.parameters(), lr=.01, weight_decay=0.) for m in manual]
-            independent_steps = []
-            for bx, by, bm in get_dataloader(dataset, 'train', splits, batch_size=1, seed=17):
-                bx, by, bm = bx.to(device), by.to(device), bm.to(device)
-                candidates = []
-                for model, optimizer, (sparsity, energy, _) in zip(manual, optimizers, configs):
-                    optimizer.zero_grad()
-                    prediction, hidden = model(bx)
-                    losses = model.compute_losses(prediction, by, bm, dict(model.named_parameters()),
-                        hidden, sparsity, energy, 0., 0.)
-                    sum(losses.values()).backward()
-                    candidates.append(dict(losses={k: v.detach().clone() for k, v in losses.items()},
-                        gradients={k: p.grad.detach().clone() for k, p in model.named_parameters()}))
-                    optimizer.step()
-                independent_steps.append(candidates)
-            snapshots = []
-            parallel_steps = []
-            real_vmap = training.vmap
-            def capture(*args, **kwargs):
-                fn = real_vmap(*args, **kwargs)
-                def evaluate(params, *rest):
-                    result = fn(params, *rest)
-                    if torch.is_grad_enabled():
-                        gradients = torch.autograd.grad(sum(v.sum() for v in result.values()),
-                            tuple(params.values()), retain_graph=True)
-                        parallel_steps.append(dict(losses={k: v.detach().clone() for k, v in result.items()},
-                            gradients={k: g.detach().clone() for k, g in zip(params, gradients)}))
-                    else:
-                        snapshots.append({k: v.detach().clone() for k, v in params.items()})
-                    return result
-                return evaluate
-            trainer = training.Trainer(weight_seeds=[0, 1], sparsity_lambdas=[0., 1e-4],
-                energy_lambdas=[0., 1e-3], batch_size=1, max_epochs=1, learning_rate=.01, train_seed=99, shuffle_seed=17)
-            base = TinyRNN(rnn_type=architecture, input_size=3, hidden_size=2, nonlinearity=activation)
-            with patch.object(training, 'vmap', capture):
-                trainer.fit(base, dataset)
-            self.assertEqual(len(snapshots), 1)
-            self.assertEqual(len(parallel_steps), len(independent_steps))
-            for actual, expected in zip(parallel_steps, independent_steps):
-                for i, candidate in enumerate(expected):
-                    for name, loss in candidate['losses'].items():
-                        tolerance = 1e-7 if name == 'prediction' else 1e-11
-                        self.assertTrue(torch.allclose(loss, actual['losses'][name][i], atol=tolerance, rtol=1e-5),
-                                        (architecture, configs[i], name, 'loss'))
-                    for name, gradient in candidate['gradients'].items():
-                        self.assertTrue(torch.allclose(gradient, actual['gradients'][name][i], atol=2e-7, rtol=1e-4),
-                                        (architecture, configs[i], name, 'gradient'))
-            for i, model in enumerate(manual):
-                for name, parameter in model.named_parameters():
-                    self.assertTrue(torch.allclose(parameter, snapshots[0][name][i], atol=2e-6, rtol=1e-4),
-                                    (architecture, i, name))
-
-    def test_one_unit_covariance_is_zero_and_preserves_existing_gradients(self):
-        model = TinyRNN(input_size=2, hidden_size=1)
-        predictions, hidden = model(torch.ones(2, 4, 2))
-        losses = model.compute_losses(predictions, torch.zeros(2, 4, dtype=torch.long),
-            torch.zeros(2, 4), dict(model.named_parameters()), hidden, 0., 0., 0., 0.)
-        self.assertEqual(float(losses['covariance']), 0.)
-        total = sum(losses.values())
-        self.assertTrue(torch.isfinite(total))
-        # The old empty mean had a NaN value but zero parameter derivatives.
-        centered = hidden.reshape(-1, 1) - hidden.reshape(-1, 1).mean(0)
-        cov = centered.T @ centered / (hidden.numel()-1)
-        old_covariance = cov[~torch.eye(1, dtype=torch.bool)].square().mean() * 0.
-        before = torch.autograd.grad(total + old_covariance, tuple(model.parameters()), retain_graph=True)
-        after = torch.autograd.grad(total, tuple(model.parameters()))
-        for previous, current in zip(before, after):
-            self.assertTrue(torch.equal(previous, current))
-
     def test_lstm_recurrent_weight_name_and_backward(self):
         model = TinyRNN(rnn_type='LSTM', input_size=3, hidden_size=2)
         self.assertIn('rnn.Wu', model.state_dict())
@@ -277,63 +173,15 @@ class TrainingRegressions(unittest.TestCase):
         self.assertIsNotNone(model.rnn.Wu.grad)
         self.assertTrue(torch.isfinite(model.rnn.Wu.grad).all())
 
-    def test_gru_and_lightgru_initial_state_is_learned_shared_and_can_be_overridden(self):
-        for architecture in ['GRU', 'lightGRU']:
-            model = TinyRNN(rnn_type=architecture, input_size=3, hidden_size=2)
-            self.assertIn('rnn.hidden_0', dict(model.named_parameters()))
-            self.assertTrue(torch.equal(model.rnn.hidden_0, torch.zeros(2)))
-            x = torch.ones(3, 4, 3)
-            initial, _ = model.rnn(x)
-            predictions, _ = model(x)
-            loss = torch.nn.functional.cross_entropy(predictions.reshape(-1, 2), torch.zeros(12, dtype=torch.long))
-            loss.backward()
-            self.assertIsNotNone(model.rnn.hidden_0.grad)
-            self.assertTrue(torch.isfinite(model.rnn.hidden_0.grad).all())
-            self.assertGreater(float(model.rnn.hidden_0.grad.abs().sum()), 0.)
-            with torch.no_grad():
-                model.rnn.hidden_0.fill_(.5)
-            changed, _ = model.rnn(x)
-            self.assertFalse(torch.allclose(changed, initial))
-            self.assertTrue(torch.equal(changed[0], changed[1]))
-            overridden, _ = model.rnn(x, init_states=torch.zeros(3, 2))
-            self.assertTrue(torch.equal(initial, overridden))
-            model.init_weights()
-            self.assertTrue(torch.equal(model.rnn.hidden_0, torch.zeros(2)))
-            del model.rnn.hidden_0
-            historical, _ = model.rnn(x)
-            self.assertTrue(torch.equal(initial, historical))
-
-
-    def test_encoder_small_initialization_and_existing_sparsity_gradient(self):
-        model = TinyRNN(rnn_type='monoGRU', hidden_size=2, input_size=3,
-                        input_encoding='encoder', nonlinearity='relu')
-        expected = model.encoder[0].weight.detach().clone()
-        self.assertLessEqual(float(expected.abs().max()), .001001)
-        self.assertTrue(torch.equal(model.encoder[0].bias, torch.zeros(3)))
-        with torch.no_grad():
-            model.encoder[0].weight.fill_(7)
-            model.encoder[0].bias.fill_(7)
-        model.init_weights()
-        self.assertTrue(torch.equal(model.encoder[0].weight, expected))
-        self.assertTrue(torch.equal(model.encoder[0].bias, torch.zeros(3)))
-        predictions, hidden = model(torch.ones(2, 4, 3))
-        losses = model.compute_losses(predictions, torch.zeros(2, 4, dtype=torch.long),
-            torch.zeros(2, 4), dict(model.named_parameters()), hidden,
-            sparsity_lambda=.1, energy_lambda=0., hebbian_lambda=0., covariance_lambda=0.)
-        weight_grad, bias_grad = torch.autograd.grad(losses['sparsity'],
-            (model.encoder[0].weight, model.encoder[0].bias), allow_unused=True)
-        self.assertTrue(torch.allclose(weight_grad, .1 * model.encoder[0].weight.sign()))
-        self.assertIsNone(bias_grad)
-
     def test_initial_states_and_weights_are_explicitly_reinitialised(self):
         model = TinyRNN(rnn_type='monoGRU', hidden_size=2)
         for name in ['hidden_0', 'z_0']:
             self.assertTrue(torch.equal(getattr(model.rnn, name),
-                                        torch.zeros_like(getattr(model.rnn, name))))
+                                        torch.ones_like(getattr(model.rnn, name))))
         with torch.no_grad():
             model.rnn.hidden_0.fill_(7)
         model.init_weights()
-        self.assertTrue(torch.equal(model.rnn.hidden_0, torch.zeros(2)))
+        self.assertTrue(torch.equal(model.rnn.hidden_0, torch.ones(2)))
         for architecture in ['vanilla', 'GRU', 'LSTM', 'monoGRU', 'stereoGRU',
                              'stereoGRU2', 'stereoGRUx', 'lightGRU', 'NMRNN']:
             model = TinyRNN(rnn_type=architecture, hidden_size=2)

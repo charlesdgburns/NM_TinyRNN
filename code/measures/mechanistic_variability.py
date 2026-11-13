@@ -1,18 +1,29 @@
-"""Reusable mechanistic-variability computations and statistics.
+""" 
+OUTDATED AFTER TRAINING REFACTOR.
 
-The maintained post-training workflow is code/analyses/mechanistic_variability.py;
-plot functions live in code/figures/mechanistic_variability.py. This module owns
-canonical alignment, activation/parameter similarity, balanced block probes,
-cache-selection validation, and subject-level reference contrasts.
+The following script contains code to perform an analysis of mechanistic variability.
+This is written for the 2-armed bandit reversal task modelled trial-by-trial.
 
-compute_similarities retains the notebook cache API. Its legacy uncached path
-uses continuous subject trials; the maintained study now uses that same
-subject-B reference protocol. Historical shared-block helpers remain available
-for explicit comparisons only.
+1. train models on a subjects with multiple train seeds and weight seeds.
+2. compare evaluation performance as across train and weight seeds.
+3. compare similarity of activations (hidden units and gates).
+4. compare the parameters (weights) of models.
+
+Refactored to utilize a canonical structural alignment and 
+similarity metrics to be completely self-sufficient.
+
+
+
+This script is structured as follows:
+
+1. Code to align two models
+
+2. Code to compue similarity metrics between models
+
+3. Code to run the analysis across all models in parallel and save results
 """
 
 import os
-import hashlib
 import io
 import pickle
 import warnings
@@ -447,10 +458,6 @@ def compute_activation_similarity(
 # Computational functions #
 
 
-def sha256(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
-
 class CPUUnpickler(pickle.Unpickler):
     def find_class(self, module, name):
         if module == 'torch.storage' and name == '_load_from_bytes':
@@ -458,310 +465,7 @@ class CPUUnpickler(pickle.Unpickler):
         return super().find_class(module, name)
 
 
-def extract_block_activations(model, inputs):
-    model.eval()
-    with torch.no_grad():
-        if model.input_encoding == 'encoder':
-            inputs = model.encoder(inputs)
-        hidden, gates = model.rnn(inputs, return_gate_activations=True)
-        logits = model.decoder(hidden)
-    return dict(hidden=hidden.reshape(-1, hidden.shape[-1]).cpu().numpy(),
-                logit=(logits[..., 0]-logits[..., 1]).flatten().cpu().numpy(),
-                **{'gate_'+name: values.reshape(-1, values.shape[-1]).cpu().numpy() for name, values in gates.items()})
-
-
-def component_pearson(a, b):
-    # Same component score as mv._process_group; float64 avoids long-vector rounding.
-    return float(_similarity(np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64), 'pearson'))
-
-
-def unitwise_pearson(a, b):
-    """Equal-weight mean of nonconstant corresponding unit correlations."""
-    a, b = np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64)
-    valid = (a.std(0) > 1e-5) & (b.std(0) > 1e-5)
-    scores = [component_pearson(a[:, i], b[:, i]) if valid[i] else float('nan')
-              for i in range(a.shape[1])]
-    return (float(np.mean(np.asarray(scores)[valid])) if valid.any() else float('nan'), scores)
-
-
-def normalized_rows(values):
-    values=np.asarray(values,dtype=np.float64)
-    centered=values-values.mean(axis=1,keepdims=True)
-    norms=np.linalg.norm(centered,axis=1,keepdims=True)
-    return np.divide(centered,norms,out=np.full_like(centered,np.nan),where=norms>0)
-
-
-def extract_subject_activations(models, raw):
-    """Run every model on every complete subject sequence, without pooling trials.
-
-    Subject sequences are padded only for batched evaluation. Real prefixes are
-    kept; their state is initialized once, matching the original notebook.
-    """
-    subjects = sorted(raw)
-    if models[0].input_encoding == 'encoder':
-        return {subject: [extract_block_activations(model, raw[subject]) for model in models]
-                for subject in subjects}, 0.
-    lengths = [raw[subject].shape[1] for subject in subjects]
-    encoded = [ds.input_encoder(raw[subject], models[0].input_encoding,
-                               models[0].input_forced_choice)[0] for subject in subjects]
-    padded = torch.nn.utils.rnn.pad_sequence(encoded, batch_first=True)
-    params, buffers = torch.func.stack_module_state([model.rnn for model in models])
-    template = copy.deepcopy(models[0].rnn).to('meta')
-    def forward(parameters, state):
-        return torch.func.functional_call(template, (parameters, state), (padded,),
-                                         dict(return_gate_activations=True))
-    with torch.no_grad():
-        hidden, gates = torch.vmap(forward, in_dims=(0, 0))(params, buffers)
-        weights = torch.stack([model.decoder.weight for model in models])
-        logits = torch.einsum('mbth,moh->mbto', hidden, weights)
-        if models[0].decoder.bias is not None:
-            logits += torch.stack([model.decoder.bias for model in models])[:, None, None, :]
-    cached = {subject: [dict(hidden=hidden[i, j, :lengths[j]].numpy(),
-        logit=(logits[i, j, :lengths[j], 0]-logits[i, j, :lengths[j], 1]).numpy(),
-        **{'gate_'+key: values[i, j, :lengths[j]].numpy() for key, values in gates.items()})
-        for i in range(len(models))] for j, subject in enumerate(subjects)}
-    drift = 0.
-    for i, j in [(0, 0), (len(models)-1, len(subjects)-1), (0, len(subjects)-1)]:
-        subject = subjects[j]
-        inputs = ds.input_encoder(raw[subject], models[i].input_encoding, models[i].input_forced_choice)
-        actual = extract_block_activations(models[i], inputs)
-        drift = max(drift, float(np.max(np.abs(actual['logit']-cached[subject][i]['logit']))))
-        if not np.allclose(actual['logit'], cached[subject][i]['logit'], atol=2e-4, rtol=2e-4):
-            raise ValueError('Batched subject evaluation changed model predictions')
-    return cached, drift
-
-
-def build_subject_trial_inputs(selected):
-    """Recover each subject's actual saved trial order, as in the notebook."""
-    inputs, records = {}, []
-    for subject, rows in selected.sort_values(['subject_id', 'outer_loop_n']).groupby('subject_id'):
-        path = Path(rows.iloc[0].trials_data_path)
-        trials = pd.read_csv(path, sep='\t')
-        inputs[subject] = torch.tensor(trials[['forced_choice', 'choice', 'outcome']].to_numpy(),
-                                       dtype=torch.float32).unsqueeze(0)
-        records.append(dict(subject_id=subject, n_trials=len(trials),
-                            n_sessions=int(trials.session_folder_name.nunique()), source_trials_path=str(path)))
-    return inputs, pd.DataFrame(records)
-
-
-def _reference_correlations(cached, hidden_size):
-    n = len(cached)
-    hidden = np.stack([values['hidden'] for values in cached])
-    normalized = normalized_rows(hidden.transpose(0, 2, 1).reshape(n*hidden_size, -1))
-    logit = normalized_rows(np.stack([values['logit'] for values in cached]))
-    permutations = list(itertools.permutations(range(hidden_size)))
-    gates = {}
-    for gate in ['update', 'reset']:
-        key = 'gate_'+gate
-        if key not in cached[0]:
-            continue
-        width = cached[0][key].shape[1]
-        gate_perms = permutations if width == hidden_size else [tuple(range(width))]
-        vectors = np.stack([values[key][:, perm].ravel() for values in cached for perm in gate_perms])
-        norm = normalized_rows(vectors)
-        gates[gate] = (norm@norm.T, len(gate_perms))
-    return dict(hidden=hidden, std=hidden.std(axis=1), hidden_corr=normalized@normalized.T,
-                logit_corr=logit@logit.T, gate_corr=gates)
-
-
-def compute_reference_group(rows, inputs, output):
-    """Score pairs on B's own trial sequence; tensor inputs retain legacy probe support."""
-    torch.set_num_threads(1)
-    rows = rows.sort_values(['subject_id', 'outer_loop_n']).reset_index(drop=True)
-    model_id = rows.model_id.iloc[0]
-    path = Path(output)/'groups'/f'{model_id}.htsv'
-    models = []
-    for row in rows.itertuples():
-        with open(row.model_pickle_path, 'rb') as handle:
-            models.append(CPUUnpickler(handle).load().cpu().eval())
-    h = models[0].H
-    permutations = list(itertools.permutations(range(h)))
-    if isinstance(inputs, dict):
-        cached_by_reference, batching_drift = extract_subject_activations(models, inputs)
-    else:
-        cached_by_reference = {'balanced_shared_reference': [extract_block_activations(model, inputs) for model in models]}
-        batching_drift = 0.
-    correlations = {reference: _reference_correlations(values, h)
-                    for reference, values in cached_by_reference.items()}
-    results, validated = [], set()
-    max_drift = 0.
-    for ia, ib in itertools.combinations(range(len(models)), 2):
-        a, b = models[ia], models[ib]
-        ra, rb = rows.iloc[ia], rows.iloc[ib]
-        reference = rb.subject_id if isinstance(inputs, dict) else 'balanced_shared_reference'
-        cached = cached_by_reference[reference]
-        stats = correlations[reference]
-        aligned, info = align_rnns(a, b)
-        perm = tuple(int(value) for value in info['perm'])
-        scale = np.asarray(info['transform_vec'])
-        valid = (stats['std'][ia] > 1e-5) & (stats['std'][ib, list(perm)]*np.abs(scale) > 1e-5)
-        unit_corr = np.array([stats['hidden_corr'][ia*h+u, ib*h+perm[u]]*np.sign(scale[u]) for u in range(h)])
-        record = dict(model_id=model_id, model_type=ra.model_type, model_type2=ra.model_type2,
-            hidden_size=h, nonlinearity=ra.nonlinearity, decoder_bias=bool(ra.decoder_bias),
-            subject_A=ra.subject_id, model_A_outer_n=int(ra.outer_loop_n), model_A_inner_n=int(ra.inner_loop_idx),
-            subject_B=rb.subject_id, model_B_outer_n=int(rb.outer_loop_n), model_B_inner_n=int(rb.inner_loop_idx),
-            within_subject=ra.subject_id == rb.subject_id, trial_subject=reference,
-            n_reference_steps=len(cached[0]['logit']),
-            unaligned_param_dist=info['unaligned_distance'], aligned_param_dist=info['aligned_distance'],
-            weight_similarity=compute_weight_similarity(a, aligned), valid_hidden_units=int(valid.sum()),
-            hidden_similarity=float(unit_corr[valid].mean()) if valid.any() else np.nan,
-            logit_value_similarity=float(stats['logit_corr'][ia, ib]))
-        for gate in ['update', 'reset']:
-            if gate not in stats['gate_corr']:
-                record['gate_'+gate+'_similarity'] = np.nan
-                continue
-            matrix, count = stats['gate_corr'][gate]
-            permutation_index = permutations.index(perm) if count > 1 else 0
-            record['gate_'+gate+'_similarity'] = float(matrix[ia*count, ib*count+permutation_index])
-        category = record['within_subject']
-        if category not in validated:
-            reference_inputs = (ds.input_encoder(inputs[reference], a.input_encoding, a.input_forced_choice)
-                                if isinstance(inputs, dict) else inputs)
-            actual = extract_block_activations(aligned, reference_inputs)
-            drift = float(np.max(np.abs(actual['logit']-cached[ib]['logit'])))
-            max_drift = max(max_drift, drift)
-            if not np.allclose(actual['logit'], cached[ib]['logit'], atol=2e-4, rtol=2e-4):
-                raise ValueError('Alignment changed logits')
-            if not np.allclose(actual['hidden'], stats['hidden'][ib][:, perm]*scale, atol=2e-4, rtol=2e-4):
-                raise ValueError('Hidden transform mismatch')
-            score, _ = unitwise_pearson(cached[ia]['hidden'], actual['hidden'])
-            if not np.isclose(score, record['hidden_similarity'], atol=2e-5, equal_nan=True):
-                raise ValueError('Hidden correlation mismatch')
-            for gate in stats['gate_corr']:
-                direct = component_pearson(cached[ia]['gate_'+gate].ravel(), actual['gate_'+gate].ravel())
-                if not np.isclose(direct, record['gate_'+gate+'_similarity'], atol=2e-5, equal_nan=True):
-                    raise ValueError('Gate correlation mismatch')
-            validated.add(category)
-        results.append(record)
-    result = pd.DataFrame(results)
-    path.parent.mkdir(exist_ok=True, parents=True)
-    result.to_csv(path, sep='\t', index=False)
-    print(f'{model_id}: {len(result)} subject-reference pairs complete', flush=True)
-    return dict(model_id=model_id, pairs=len(result), validated_pair_types=len(validated),
-                max_validated_logit_drift=max_drift, batching_logit_drift=batching_drift)
-
-
-def build_reference_probes(selected,config,data_root=None):
-    from NM_TinyRNN.code.analyses import baseline
-    from NM_TinyRNN.code.models import nested_cv
-    data_root = Path(data_root) if data_root is not None else Path(__file__).resolve().parents[2]/'data/AB_behaviour'
-    datasets={}
-    for subject,rows in selected.groupby('subject_id'):
-        row=rows.iloc[0].to_dict()
-        datasets[subject]=baseline.load_dataset(data_root,subject,row,config['sequence_length'],config['sessions_per_subject'])
-    count=min(len(d.inputs) for d in datasets.values());inputs=[];records=[];block_counts=[]
-    for subject,dataset in datasets.items():
-        indices=np.linspace(0,len(dataset.inputs)-1,count,dtype=int)
-        inputs.append(dataset.inputs[indices])
-        mapping=dataset.subject_df.dropna(subset=['sequence_block_idx']).groupby('sequence_block_idx').first()
-        for i in indices:
-            row=mapping.loc[i]
-            records.append(dict(subject_id=subject,block_index=int(i),session=row.session_folder_name,first_trial=int(row.session_trial_idx)))
-        splits={outer:nested_cv.nested_cv_splits(dataset,10,outer)['outer_eval'] for outer in range(1,11)}
-        for outer,indices_ in splits.items():
-            block_counts.append(dict(subject_id=subject,outer_loop_n=outer,eval_block_n_free=int((dataset.forced_choice_mask[indices_]==0).sum())))
-    return torch.cat(inputs).cpu(),pd.DataFrame(records),pd.DataFrame(block_counts)
-
-
-def holm(pvalues):
-    p=np.asarray(pvalues,dtype=float);order=np.argsort(p)
-    adjusted=np.maximum.accumulate(p[order]*(len(p)-np.arange(len(p))))
-    result=np.empty_like(p);result[order]=np.minimum(adjusted,1)
-    return result
-
-
-def contrast(frame):
-    """Matching subject/dyad means; return paired effect and node-jackknife SE."""
-    from scipy.stats import t
-    frame=frame.dropna(subset=['reference','model']).copy()
-    subjects=sorted(set(frame.subject_A)|set(frame.subject_B));n=len(subjects)
-    differences=frame.model-frame.reference;mean=float(differences.mean())
-    by_subject=np.array([differences[frame.subject_A.eq(s)|frame.subject_B.eq(s)].mean() for s in subjects])
-    sd=float(by_subject.std(ddof=1))
-    dz=mean/sd if sd>0 else (0. if mean==0 else np.nan)
-    replicate=np.array([differences[~(frame.subject_A.eq(s)|frame.subject_B.eq(s))].mean() for s in subjects])
-    se=float(np.sqrt((n-1)/n*np.sum((replicate-replicate.mean())**2)))
-    p=float(2*t.sf(abs(mean/se),n-1)) if se>0 else (1. if mean==0 else 0.)
-    margin=float(t.ppf(.975,n-1)*se)
-    return dict(mean_similarity=float(frame.model.mean()),reference_mean=float(frame.reference.mean()),
-        delta_similarity=mean,cohens_dz=dz,n_subjects=n,n_subject_pairs=len(frame),
-        jackknife_se=se,delta_ci95_low=mean-margin,delta_ci95_high=mean+margin,p_raw=p)
-
-
-
-SIMILARITY_METRICS = ['weight_similarity', 'hidden_similarity', 'gate_update_similarity',
-                      'gate_reset_similarity', 'logit_value_similarity']
-STANDARD_GRU_REFERENCE = '2_unit_GRU_tanh_unipolar_forced'
-
-
-def summarize_reference_pairs(pairs):
-    """Average overlapping fold pairs within each subject or unordered subject pair."""
-    long = pairs.melt(id_vars=['model_id', 'within_subject', 'subject_A', 'subject_B'],
-                      value_vars=SIMILARITY_METRICS, var_name='metric', value_name='similarity')
-    subject = long.groupby(['model_id', 'within_subject', 'subject_A', 'subject_B', 'metric'],
-                          as_index=False).agg(mean_similarity=('similarity', 'mean'),
-                                              n_pairs=('similarity', 'count'))
-    summary = subject.groupby(['model_id', 'within_subject', 'metric']).mean_similarity.agg(
-        ['mean', 'std', 'min', 'max', 'count']).reset_index()
-    return subject, summary
-
-
-def compare_similarity_to_reference(subject_pairs, reference=STANDARD_GRU_REFERENCE):
-    """Paired subject-level dz and subject-deletion inference, globally Holm corrected."""
-    if reference not in set(subject_pairs.model_id):
-        raise ValueError(f'Reference model missing: {reference}')
-    rows = []
-    for scope, metric in itertools.product([True, False], SIMILARITY_METRICS):
-        subset = subject_pairs[subject_pairs.within_subject.eq(scope) & subject_pairs.metric.eq(metric)]
-        baseline = subset[subset.model_id.eq(reference)][['subject_A', 'subject_B', 'mean_similarity']].rename(
-            columns={'mean_similarity': 'reference'})
-        for key, group in subset.groupby('model_id'):
-            if group.mean_similarity.notna().sum() == 0:
-                rows.append(dict(model_id=key, within_subject=scope, metric=metric, available=False))
-                continue
-            merged = baseline.merge(group[['subject_A', 'subject_B', 'mean_similarity']],
-                on=['subject_A', 'subject_B'], validate='one_to_one').rename(columns={'mean_similarity': 'model'})
-            rows.append(dict(model_id=key, within_subject=scope, metric=metric,
-                             available=True, **contrast(merged)))
-    table = pd.DataFrame(rows)
-    tests = table.available & table.model_id.ne(reference)
-    table['p_holm'] = np.nan
-    table.loc[tests, 'p_holm'] = holm(table.loc[tests, 'p_raw'])
-    table['significance'] = ''
-    for cutoff, mark in [(0.05, '*'), (.01, '**'), (.001, '***')]:
-        table.loc[table.p_holm.lt(cutoff), 'significance'] = mark
-    return table
-
-
 COMPONENTS = ['hidden', 'gate_update', 'gate_reset', 'logit_value']
-
-def validate_similarity_cache_models(cached_df, analysis_df):
-    """Reject a cache from different model/subject/fold selections."""
-    keys = ['model_id', 'subject_id', 'outer_loop_n', 'inner_loop_idx']
-    missing = set(keys)-set(analysis_df.columns)
-    if missing:
-        raise ValueError(f'Cannot validate similarity cache: input is missing {sorted(missing)}')
-    counts = analysis_df.groupby('model_id').size()
-    expected_frame = analysis_df.loc[analysis_df.model_id.isin(counts[counts >= 2].index), keys]
-    expected = set(expected_frame.itertuples(index=False, name=None))
-    if len(expected) != len(expected_frame):
-        raise ValueError('Similarity input contains duplicate model/subject/fold rows')
-    observed = set()
-    for side in ['A', 'B']:
-        columns = ['model_id', f'subject_{side}', f'model_{side}_outer_n', f'model_{side}_inner_n']
-        if not set(columns).issubset(cached_df.columns):
-            raise ValueError('Similarity cache lacks model endpoint identifiers; rebuild it before loading')
-        observed.update(cached_df[columns].itertuples(index=False, name=None))
-    pair_counts = cached_df.groupby('model_id').size().to_dict()
-    expected_counts = {key: int(n*(n-1)//2) for key, n in counts.items() if n >= 2}
-    if observed != expected or pair_counts != expected_counts:
-        raise ValueError(
-            'Similarity cache does not match the supplied model selection '
-            f'({len(expected-observed)} selected endpoints missing, '
-            f'{len(observed-expected)} unexpected endpoints). '
-            'Rebuild the cache for this selection or use a separate cache_path.'
-        )
-
 
 def compute_similarities(
     analysis_df,
@@ -775,26 +479,18 @@ def compute_similarities(
         raise ValueError(
             "similarity_measure must be 'pearson', 'cosine', or 'cka'"
         )
-    default_cache = cache_path is None
+    folder_name = Path(analysis_df.iloc[0]['save_path']).parts[3]
     if cache_path is None:
-        cache_path = Path("NM_TinyRNN/data/analysis/mechanistic_variability") / (
-            'pairwise_similarities.htsv' if similarity_measure == 'pearson'
-            else f'pairwise_similarities_{similarity_measure}.htsv')
+        cache_path = Path(
+            f"NM_TinyRNN/data/analysis/mechanistic_variability_"
+            f"{similarity_measure}_similarities_{folder_name}.htsv"
+        )
     else:
         cache_path = Path(cache_path)
 
     if use_cache and cache_path.exists():
-        if default_cache:
-            selected_path = cache_path.parent/'selected_models.htsv'
-            if not selected_path.is_file():
-                raise ValueError('Default similarity cache lacks selected-model provenance; rerun the analysis.')
-            saved = pd.read_csv(selected_path, sep='\t')
-            from NM_TinyRNN.code.measures.analysis import cache_matches_models
-            if not cache_matches_models(saved, analysis_df):
-                raise ValueError('Similarity cache uses different model paths or selection; rerun the analysis.')
         cached_df = pd.read_csv(cache_path, sep="\t")
-        validate_similarity_cache_models(cached_df, analysis_df)
-        print(f"Loaded similarity dataframe from cache: {cache_path} (model selection verified)")
+        print(f"Loaded similarity dataframe from cache: {cache_path}")
         return cached_df
 
     groups = list(analysis_df.groupby('model_id'))
@@ -815,8 +511,6 @@ def compute_similarities(
     )
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     similarity_df.to_csv(cache_path, sep="\t", index=False)
-    if default_cache:
-        analysis_df.to_csv(cache_path.parent/'selected_models.htsv', sep="\t", index=False)
     print(f"Saved similarity dataframe to cache: {cache_path}")
     return similarity_df
 
@@ -1280,10 +974,10 @@ def run_across_subject_similarity_analysis(
     ].copy()
     select_models['model_id'] = select_models.model_type2
 
-    output_dir = Path('NM_TinyRNN/data/analysis/mechanistic_variability')
+    output_dir = Path('NM_TinyRNN/data/analysis')
     output_dir.mkdir(parents=True, exist_ok=True)
-    selected_path = output_dir / 'selected_models.htsv'
-    similarity_path = output_dir / 'pairwise_similarities.htsv'
+    selected_path = output_dir / 'mechanistic_variability_selected_models.htsv'
+    similarity_path = output_dir / 'mechanistic_variability_pearson_similarities_v2.htsv'
     select_models.to_csv(selected_path, sep='\t', index=False)
     print(f'Saved selected model dataframe to {selected_path}')
 

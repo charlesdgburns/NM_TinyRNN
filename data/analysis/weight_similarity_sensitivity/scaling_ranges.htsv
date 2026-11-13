@@ -1,5 +1,0 @@
-activation	comparison	min_percent_change	max_percent_change
-relu	across_subject	0.0980833644598447	2.130482934602563
-relu	within_subject	0.1434246207604429	1.1444140881559153
-tanh	across_subject	-0.116965730026277	2.0797268874650214
-tanh	within_subject	-0.47129048565434706	1.354473605610546
