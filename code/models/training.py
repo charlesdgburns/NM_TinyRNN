@@ -14,19 +14,17 @@ from NM_TinyRNN.code.models.datasets import get_dataloader
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 BATCH_SIZE = 8 # default number of sequences per training minibatch
-TRAIN_SEED = 42 #seed to use for ordering to ensure reproducibility
+TRAIN_SEED = 42 # default base training seed
+EARLY_STOP = 100 # epochs without validation improvement
 
 class Trainer:
-    """Train candidates with independent weight seeds.
+    """Train candidates with independent weight-initialization seeds.
 
-    Seed semantics depend on the entry point (AB_Dataset sequence path):
-    - Direct fit: train_seed controls train/validation session assignment via
-      dataset._session_split(seed_split=...), block shuffling, and training RNGs.
-      Evaluation-session selection has its own dataset seed_eval policy.
-    - Nested CV: session folds are predefined; train_seed controls training RNGs
-      and block shuffling only (nested_cv derives a seed for each inner fold).
-    Neither path randomizes block construction: sequence_length controls that.
-    The loader's private generator seeds shuffle order, not session assignment.
+    train_seed controls global training RNGs and, by default, block shuffling.
+    Nested CV supplies a fold-derived train_seed; session folds stay fixed.
+    Direct dataset splitting also uses train_seed as seed_split. An explicit
+    shuffle_seed overrides only block order for diagnostics. Neither seed
+    changes consecutive sequence-block construction.
     """
     def __init__(
         self,
@@ -38,14 +36,18 @@ class Trainer:
         learning_rate: float = 1e-2,
         batch_size: int = BATCH_SIZE,
         max_epochs: int = 10000,
-        early_stop: int = 20,
+        early_stop: int = EARLY_STOP,
         train_seed: int = 42,
+        shuffle_seed: int = None,
     ):
         self.learning_rate = learning_rate
         self.batch_size = batch_size
         self.max_epochs = max_epochs
         self.early_stop = early_stop
         self.train_seed = train_seed
+        if shuffle_seed is not None and (isinstance(shuffle_seed, bool) or not isinstance(shuffle_seed, int) or shuffle_seed < 0):
+            raise ValueError("shuffle_seed must be a nonnegative integer or None")
+        self.shuffle_seed = shuffle_seed
         self.weight_seeds = weight_seeds
         self.sparsity_lambdas = sparsity_lambdas
         self.energy_lambdas = energy_lambdas
@@ -84,8 +86,9 @@ class Trainer:
 
         # Prepare Data
         splits = dataset._session_split(seed_split=self.train_seed)
-        train_loader = get_dataloader(dataset, 'train', splits, batch_size=self.batch_size, seed=self.train_seed)
-        val_loader   = get_dataloader(dataset, 'val',   splits, batch_size=self.batch_size, seed=self.train_seed)
+        shuffle_seed = self.train_seed if self.shuffle_seed is None else self.shuffle_seed
+        train_loader = get_dataloader(dataset, 'train', splits, batch_size=self.batch_size, seed=shuffle_seed)
+        val_loader   = get_dataloader(dataset, 'val',   splits, batch_size=self.batch_size, seed=shuffle_seed)
         
         # Initialize Parallel State
         params, buffers = self._initialize_parallel_models(base_model)

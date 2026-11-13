@@ -1,0 +1,256 @@
+{
+  "fingerprint": "364fdfe09c2e01b1ca03ff3f5bae62e3fee614bf3791fd5fc30395abc6e930a8",
+  "selection": "performance.select_best_outer: minimum combined train_val_CE",
+  "n_models": 2640,
+  "n_variants": 24,
+  "n_pairs": 143880,
+  "input_shape": {
+    "WS01": [
+      1,
+      3830,
+      3
+    ],
+    "WS02": [
+      1,
+      4012,
+      3
+    ],
+    "WS05": [
+      1,
+      2982,
+      3
+    ],
+    "WS08": [
+      1,
+      4749,
+      3
+    ],
+    "WS09": [
+      1,
+      3452,
+      3
+    ],
+    "WS10": [
+      1,
+      4683,
+      3
+    ],
+    "WS13": [
+      1,
+      5810,
+      3
+    ],
+    "WS14": [
+      1,
+      5370,
+      3
+    ],
+    "WS16": [
+      1,
+      4248,
+      3
+    ],
+    "WS20": [
+      1,
+      5930,
+      3
+    ],
+    "WS22": [
+      1,
+      4278,
+      3
+    ]
+  },
+  "input_protocol": "Subject B complete saved trial sequence; within subject uses own data; continuous state as in original notebook",
+  "pair_direction": "Original sorted subject/outer ordering; B supplies trials, without averaging the reverse direction",
+  "inputs_sha256": {
+    "WS01": "d4e43716ab12ca1f963fbe02a675b72ce6ba582e945d0d96199ba3b48c8757d2",
+    "WS02": "7bfa9daf7ff9a665bc1efe4d1df56d2dc379783942298e0140a5713e68da0825",
+    "WS05": "789ad69200fb4648c97387b01479ba348641f710c25b4eb9c19630bfd7f19bed",
+    "WS08": "93f5967aa4ff69cbbc2003a0cbb1a7e68c4dd61ee05e0c01fa32c90fa431377d",
+    "WS09": "127e9bc4d7d72062b6698437c0eb2fd310589c0a6af9e182431d5ed1bd55c7f8",
+    "WS10": "feaa44d1e1acc17c419eddbfb98249fcddafe042493b89a77a3119610c33f0fa",
+    "WS13": "68301ed368778eeabc847974ba295ac07c8ce63690fea8432d4ddeaff536350d",
+    "WS14": "7f3113054b49dbdd80d3c49265a5819f53832e7de247c8fbf4681e79724599e8",
+    "WS16": "2eaeef4559eb754596e02b277d04ec07095e056060b0eb14761b92f96c3eab8d",
+    "WS20": "c3b97cd99a2d779f2616c403cc3ea2c6edf33eda75007e759e2321426e6607f7",
+    "WS22": "94b15c060022aa0eec19d632d7565c696b45be8962ed101164c4fda55c986e95"
+  },
+  "cache_sha256": "2425a2f0385f986f86b66a905c67f653bf9ce6290f6ad93c25d5b4c708dabcb4",
+  "selected_sha256": "b0fd6c4dbdd02c2e281166a2032cbffacb2aade1c6b7fa8d7501994a4f419488",
+  "validation": [
+    {
+      "model_id": "1_unit_GRU_relu_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 1.430511474609375e-06,
+      "batching_logit_drift": 7.748603820800781e-07
+    },
+    {
+      "model_id": "1_unit_GRU_relu_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 7.152557373046875e-07,
+      "batching_logit_drift": 4.76837158203125e-07
+    },
+    {
+      "model_id": "1_unit_GRU_tanh_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 4.76837158203125e-07,
+      "batching_logit_drift": 9.5367431640625e-07
+    },
+    {
+      "model_id": "1_unit_GRU_tanh_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 5.960464477539062e-07,
+      "batching_logit_drift": 7.152557373046875e-07
+    },
+    {
+      "model_id": "1_unit_lightGRU_relu_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 1.6689300537109375e-06,
+      "batching_logit_drift": 4.76837158203125e-07
+    },
+    {
+      "model_id": "1_unit_lightGRU_relu_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 4.76837158203125e-07,
+      "batching_logit_drift": 4.76837158203125e-07
+    },
+    {
+      "model_id": "1_unit_lightGRU_tanh_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 4.76837158203125e-07,
+      "batching_logit_drift": 4.76837158203125e-07
+    },
+    {
+      "model_id": "1_unit_lightGRU_tanh_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 3.203749656677246e-07,
+      "batching_logit_drift": 3.5762786865234375e-07
+    },
+    {
+      "model_id": "1_unit_monoGRU_relu_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 1.6689300537109375e-06,
+      "batching_logit_drift": 4.76837158203125e-07
+    },
+    {
+      "model_id": "1_unit_monoGRU_relu_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 4.76837158203125e-07,
+      "batching_logit_drift": 4.76837158203125e-07
+    },
+    {
+      "model_id": "1_unit_monoGRU_tanh_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 4.76837158203125e-07,
+      "batching_logit_drift": 4.76837158203125e-07
+    },
+    {
+      "model_id": "1_unit_monoGRU_tanh_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 3.203749656677246e-07,
+      "batching_logit_drift": 3.5762786865234375e-07
+    },
+    {
+      "model_id": "2_unit_GRU_relu_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 5.125999450683594e-06,
+      "batching_logit_drift": 7.152557373046875e-07
+    },
+    {
+      "model_id": "2_unit_GRU_relu_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 2.86102294921875e-06,
+      "batching_logit_drift": 1.3113021850585938e-06
+    },
+    {
+      "model_id": "2_unit_GRU_tanh_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 2.9206275939941406e-06,
+      "batching_logit_drift": 6.556510925292969e-06
+    },
+    {
+      "model_id": "2_unit_GRU_tanh_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 2.3245811462402344e-06,
+      "batching_logit_drift": 1.1324882507324219e-06
+    },
+    {
+      "model_id": "2_unit_lightGRU_relu_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 1.430511474609375e-06,
+      "batching_logit_drift": 9.5367431640625e-07
+    },
+    {
+      "model_id": "2_unit_lightGRU_relu_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 2.1457672119140625e-06,
+      "batching_logit_drift": 9.5367431640625e-07
+    },
+    {
+      "model_id": "2_unit_lightGRU_tanh_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 1.1920928955078125e-06,
+      "batching_logit_drift": 9.238719940185547e-07
+    },
+    {
+      "model_id": "2_unit_lightGRU_tanh_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 7.152557373046875e-07,
+      "batching_logit_drift": 9.834766387939453e-07
+    },
+    {
+      "model_id": "2_unit_monoGRU_relu_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 9.5367431640625e-07,
+      "batching_logit_drift": 8.344650268554688e-07
+    },
+    {
+      "model_id": "2_unit_monoGRU_relu_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 2.1457672119140625e-06,
+      "batching_logit_drift": 9.5367431640625e-07
+    },
+    {
+      "model_id": "2_unit_monoGRU_tanh_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 7.152557373046875e-07,
+      "batching_logit_drift": 8.344650268554688e-07
+    },
+    {
+      "model_id": "2_unit_monoGRU_tanh_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 7.152557373046875e-07,
+      "batching_logit_drift": 8.344650268554688e-07
+    }
+  ],
+  "metrics": "Canonical parameter alignment/cosine; hidden per-unit mean Pearson; flattened gate/readout Pearson",
+  "source_code_sha256": "a06f3061ad987c6209364a21f888d9830bb4ffcd0032322523b4eda423afde53",
+  "study": "code/studies/mechanistic_variability.py",
+  "tables": "/home/charlesdgburns/Coding/NM_TinyRNN/data/analysis/mechanistic_variability",
+  "layout": "one folder per analysis; pair table is the notebook cache"
+}

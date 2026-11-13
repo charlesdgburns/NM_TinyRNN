@@ -8,3 +8,8 @@ SLURM submission tools live in [code/servers/SLURM](code/servers/README.md).
 
 Shared training/analysis experiment dataframes are defined in
 [code/models/experiments.py](code/models/experiments.py).
+
+Named scientific workflows are documented in [code/analyses/README.md](code/analyses/README.md).
+
+Intermediate analysis dataframes and caches live in `data/analysis/`; final figures
+and tables live in `results/` (including `main/` and `appendix/`).

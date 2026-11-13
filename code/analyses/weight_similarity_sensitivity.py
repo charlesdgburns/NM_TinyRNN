@@ -1,7 +1,7 @@
 """Reproduce pairwise weight-scaling sensitivity tables and empirical figures.
 
-    .venv/bin/python code/studies/weight_similarity_sensitivity.py
-    .venv/bin/python code/studies/weight_similarity_sensitivity.py --stage plots
+    .venv/bin/python code/analyses/weight_similarity_sensitivity.py
+    .venv/bin/python code/analyses/weight_similarity_sensitivity.py --stage plots
 
 Uses saved fits; does not train models, balance weights, or resample subjects.
 """
@@ -157,7 +157,7 @@ def write_table(frame, path):
 def paths_for(folder, hidden_size):
     if Path(folder).name != folder or folder in ('', '.', '..'):
         raise ValueError('--folder must name one run under data/rnns')
-    tables = REPO/'data/analysis/weight_similarity_sensitivity'/folder/f'h{hidden_size}'
+    tables = REPO/'data/analysis/weight_similarity_sensitivity'
     figures = REPO/'results/figures'/f'weight_similarity_sensitivity_{folder}_h{hidden_size}'
     return tables, figures
 
@@ -286,7 +286,7 @@ def compute_group(rows, tables, identity, recompute=False):
 def compute(folder, hidden_size, tables, jobs=6, recompute=False, performance_table=None):
     config_path = REPO/'data/rnns'/folder/'_aws/run-config.json'
     config = json.loads(config_path.read_text())
-    source = Path(performance_table).resolve() if performance_table else REPO/'data/analysis'/f'performance_df_{folder}_final.htsv'
+    source = Path(performance_table).resolve() if performance_table else REPO/'data/analysis/performance/performance_df.htsv'
     if not source.is_file():
         raise FileNotFoundError(f'Performance table missing: {source}. Build it with analysis.get_analysis_df and performance.get_performance_df, or supply --performance-table.')
     frame = pd.read_csv(source, sep='\t')
@@ -347,6 +347,99 @@ def aggregate(pairs):
     return blocks, summary, ranges, contrasts
 
 
+def _variance_components(relu, tanh):
+    """Nested fixed-effect sums of squares for a balanced block × config × activation table.
+
+    Reduced: block + configuration. Main: reduced + activation.
+    Full: reduced + configuration-specific activation effects.
+    This is an in-sample descriptive decomposition, not a significance test.
+    """
+    relu, tanh = np.asarray(relu, dtype=float), np.asarray(tanh, dtype=float)
+    if relu.shape != tanh.shape or relu.ndim != 2 or not np.isfinite([relu, tanh]).all():
+        raise ValueError('Need complete finite matched block-by-configuration matrices')
+    n_blocks, n_configs = relu.shape
+    midpoint, half_difference = (relu + tanh)/2, (relu - tanh)/2
+    grand_mean = midpoint.mean()
+    mean_residual = midpoint - midpoint.mean(axis=0) - midpoint.mean(axis=1)[:, None] + grand_mean
+    sst = float(np.sum((relu-grand_mean)**2 + (tanh-grand_mean)**2))
+    sse_reduced = float(2*np.sum(mean_residual**2 + half_difference**2))
+    overall_ss = float(2*n_blocks*n_configs*half_difference.mean()**2)
+    all_activation_ss = float(2*n_blocks*np.sum(half_difference.mean(axis=0)**2))
+    interaction_ss = max(0., all_activation_ss-overall_ss)
+    def fraction(numerator, denominator):
+        return numerator/denominator if denominator > 1e-15 else float('nan')
+    return dict(n_blocks=n_blocks, n_configurations=n_configs, n_observations=2*n_blocks*n_configs,
+        mean_relu_minus_tanh=float(2*half_difference.mean()), total_sum_squares=sst,
+        reduced_residual_sum_squares=sse_reduced, overall_activation_sum_squares=overall_ss,
+        configuration_specific_activation_sum_squares=interaction_ss,
+        all_activation_sum_squares=all_activation_ss,
+        overall_activation_percent_total=100*fraction(overall_ss, sst),
+        interaction_percent_total=100*fraction(interaction_ss, sst),
+        all_activation_percent_total=100*fraction(all_activation_ss, sst),
+        all_activation_partial_r2_percent=100*fraction(all_activation_ss, sse_reduced),
+        reduced_model_r2=1-fraction(sse_reduced, sst))
+
+
+def _matched_variance(data, mode):
+    keys = ['subject_A', 'subject_B', 'architecture', 'decoder_bias']
+    relu_column = 'scaled_similarity' if mode == 'continuous' else 'baseline_similarity'
+    relu = data[data.activation.eq('relu')][keys + [relu_column]].rename(columns={relu_column: 'relu'})
+    tanh = data[data.activation.eq('tanh')][keys + ['baseline_similarity']].rename(columns={'baseline_similarity': 'tanh'})
+    matched = relu.merge(tanh, on=keys, how='outer', validate='one_to_one', indicator=True)
+    if not matched['_merge'].eq('both').all():
+        raise ValueError('Unmatched activation observations in variance decomposition')
+    relu_matrix = matched.pivot(index=['subject_A', 'subject_B'], columns=['architecture', 'decoder_bias'], values='relu')
+    tanh_matrix = matched.pivot(index=['subject_A', 'subject_B'], columns=['architecture', 'decoder_bias'], values='tanh').reindex(index=relu_matrix.index, columns=relu_matrix.columns)
+    return _variance_components(relu_matrix.to_numpy(), tanh_matrix.to_numpy())
+
+
+def activation_variance(pairs, tables):
+    """Descriptive activation-associated variance, with subject-deletion stability."""
+    blocks, _, _, _ = aggregate(pairs)
+    summaries, deletions = [], []
+    for scope, data in blocks.groupby('comparison'):
+        subjects = sorted(set(data.subject_A) | set(data.subject_B))
+        for mode in ['continuous', 'discrete']:
+            result = _matched_variance(data, mode)
+            summaries.append(dict(comparison=scope, relu_scaling=mode, n_subjects=len(subjects), **result))
+            for subject in subjects:
+                keep = data[~(data.subject_A.eq(subject) | data.subject_B.eq(subject))]
+                if keep.empty:
+                    continue
+                deletions.append(dict(comparison=scope, relu_scaling=mode, omitted_subject=subject,
+                    **_matched_variance(keep, mode)))
+    summary, stability = pd.DataFrame(summaries), pd.DataFrame(deletions)
+    for index, row in summary.iterrows():
+        g = stability[stability.comparison.eq(row.comparison) & stability.relu_scaling.eq(row.relu_scaling)]
+        for metric in ['overall_activation_percent_total', 'all_activation_percent_total']:
+            summary.loc[index, metric+'_loo_min'] = g[metric].min()
+            summary.loc[index, metric+'_loo_max'] = g[metric].max()
+    write_table(summary, tables/'activation_associated_variance.htsv')
+    write_table(stability, tables/'activation_variance_subject_deletion.htsv')
+    lines = ['# Activation-associated variance in aligned weight similarity', '',
+        'Primary scores: continuously refined ReLU alignment and permutation/sign-only tanh alignment. No balancing. The discrete-ReLU version is saved as a sensitivity comparison.', '',
+        '## Estimand and model', '',
+        'Observations are cosine scores averaged over fold pairs, for each architecture × decoder-bias × activation × subject or subject-pair block. Six architecture/bias configurations are matched across activations. Within-subject analysis has 132 observations (11 subjects × 6 configurations × 2 activations); across-subject analysis has 660 (55 dyads × 6 × 2). These are not 132 or 660 independent subjects.',
+        'The reduced fixed-effect model includes configuration and subject/dyad intercepts. The next model adds one overall activation contrast. The full model allows a separate activation contrast in each architecture/bias configuration. “Overall activation” is the reduction in residual sum of squares after adding the single activation contrast, divided by the TOTAL observed sum of squares. “Additional configuration-specific” is the further reduction when allowing those six contrasts to differ. Their sum is the combined activation-associated share of total variance. Full data are balanced, so the activation terms are orthogonal to configuration and block intercepts.',
+        'The separate partial-R² column in the data file divides the combined reduction by the reduced model’s residual variance instead of total variance. It therefore answers a different question and is larger. These descriptive sample R² increments are not causal effects, bias corrections, measurement-equivalence tests or estimates of population variance components. Adding interactions can fit sample noise; the numbers should not be read as significance tests.', '',
+        '| Scope | Overall activation (% total variance) | Additional configuration-specific (% total) | Combined (% total) | Combined leave-one-subject-out range |',
+        '|---|---:|---:|---:|---|']
+    primary = summary[summary.relu_scaling.eq('continuous')]
+    for r in primary.itertuples():
+        lines.append(f'| {r.comparison} | {r.overall_activation_percent_total:.3f}% | {r.interaction_percent_total:.3f}% | {r.all_activation_percent_total:.3f}% | {r.all_activation_percent_total_loo_min:.3f}–{r.all_activation_percent_total_loo_max:.3f}% |')
+    lines += ['', '## Dependence and stability', '',
+        'No inferential p-values or bootstrap confidence intervals are calculated. Instead, remove each of the 11 subjects in turn and recompute the decomposition. For across-subject analysis, deletion removes every dyad involving that subject. The displayed range is a stability check, NOT a confidence interval; it does not assume dyads or folds are independent.', '',
+        '## Interpretation', '',
+        'A small overall activation term can coexist with stronger activation-by-configuration differences of opposing signs. Neither a small nor a large association establishes score comparability: observed differences may reflect fitted parameter patterns, training/selection differences or properties of the measurement procedure. Conversely, absence of a large association is not evidence of equivalence. The existing function-preserving reference-rescaling sensitivity remains a separate diagnostic.', '',
+        'Files: `activation_associated_variance.htsv` contains both ReLU alignment versions and both denominators; `activation_variance_subject_deletion.htsv` contains all deletion results.', '',
+        '```bash', '.venv/bin/python code/analyses/weight_similarity_sensitivity.py --stage variance', '```', '']
+    reports = REPO/'results/appendix/weight_similarity_sensitivity'
+    reports.mkdir(parents=True, exist_ok=True)
+    (reports/'activation_associated_variance.md').write_text('\n'.join(lines))
+    print(primary[['comparison', 'overall_activation_percent_total', 'interaction_percent_total', 'all_activation_percent_total', 'all_activation_partial_r2_percent']].to_string(index=False))
+    return summary
+
+
 def report(pairs, tables, manifest):
     blocks, summary, ranges, contrasts = aggregate(pairs)
     for frame, name in [(blocks, 'subject_pair_scaling'), (summary, 'per_variant_summary'), (ranges, 'scaling_ranges')]:
@@ -371,7 +464,9 @@ def report(pairs, tables, manifest):
     for r in summary.itertuples():
         label = r.architecture + ('+BC' if r.activation == 'relu' else '') + ('-DB' if not r.decoder_bias else '')
         lines.append(f'| {label} | {r.comparison} | {r.baseline_similarity:.5f} | {r.scaled_similarity:.5f} | {r.delta_similarity:+.5f} | {r.percent_change:+.2f}% |')
-    (tables/'REPORT.md').write_text('\n'.join(lines) + '\n')
+    reports = REPO/'results/appendix/weight_similarity_sensitivity'
+    reports.mkdir(parents=True, exist_ok=True)
+    (reports/'REPORT.md').write_text('\n'.join(lines) + '\n')
     return blocks, contrasts
 
 
@@ -486,7 +581,7 @@ def main(argv=None):
     parser.add_argument('--folder', default=DEFAULT_RUN)
     parser.add_argument('--hidden-size', type=int, choices=[1, 2], default=2)
     parser.add_argument('--jobs', type=int, default=6)
-    parser.add_argument('--stage', choices=['all', 'compute', 'report', 'plots'], default='all')
+    parser.add_argument('--stage', choices=['all', 'compute', 'report', 'plots', 'variance'], default='all')
     parser.add_argument('--performance-table', type=Path)
     parser.add_argument('--recompute', action='store_true')
     args = parser.parse_args(argv)
@@ -503,8 +598,12 @@ def main(argv=None):
         _, pairs, manifest = compute(args.folder, args.hidden_size, tables, args.jobs, args.recompute, args.performance_table)
     else:
         _, pairs, manifest = load_computation(tables)
+        if manifest.get('folder', args.folder) != args.folder or manifest.get('hidden_size', args.hidden_size) != args.hidden_size:
+            raise ValueError('Cached analysis uses a different training run or hidden size; rerun --stage compute.')
     if args.stage in ['all', 'report']:
         report(pairs, tables, manifest)
+    if args.stage in ['all', 'report', 'variance']:
+        activation_variance(pairs, tables)
     if args.stage in ['all', 'plots']:
         plots(pairs, figures, args.hidden_size)
     if args.folder == DEFAULT_RUN and args.hidden_size == 2 and args.stage in ['all', 'report', 'plots']:

@@ -222,5 +222,9 @@ __marimo__/
 # Optional CPU-only environment for AWS source packaging
 .venv-aws/
 
-# Local scientific study runs
-code/studies/.local/
+# Local scientific analysis runs
+code/analyses/.local/
+
+# Preliminary scientific checks and local analysis archives
+code/analyses/preliminary/
+data/analysis/.local/
