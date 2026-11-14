@@ -126,8 +126,11 @@ the blocks already constructed in its dataset. Neither reconstructs sequences.
 An explicitly supplied `save_path` is used unchanged.
 
 Seed semantics differ by entry point: direct `Trainer.fit` uses `train_seed`
-for train/validation session assignment and training randomness. Nested CV uses
-predefined session folds and derives per-fold training RNG/shuffle seeds.
+for train/validation session assignment. Nested CV uses predefined session folds;
+its fold-derived seeds do not change Trainer's batch order or training RNGs.
+Trainer resets global training RNGs to 42 after weight initialization, and its
+training loader uses the default private shuffle seed 0. Early-stopping patience
+defaults to 20 epochs without validation improvement.
 `seed_split` is the dataset's session-assignment argument; the loader's generator
 seed controls block order, not block construction.
 

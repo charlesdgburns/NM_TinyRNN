@@ -39,7 +39,7 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
                     save_path = SAVE_PATH, folder_name = None,
                     sequence_length=datasets.SEQUENCE_LENGTH,
                     batch_size=training.BATCH_SIZE, model_types=None):
-    '''Organise the architecture information in a large dataframe.
+    '''Organise 2-unit architecture information in a large dataframe.
     Key arguments here are 'model_id', 'data_path','save_path' and 'outer_loop_n'
     '''
     default_folder = training_folder_name(sequence_length, batch_size)
@@ -107,7 +107,7 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
                                         model_id,model_save_path,data_path,completed]): #NaN all the nm stuff
                                         df_dict[k].append(v)
 
-    return _finish_experiment_df(df_dict, sequence_length, batch_size)
+    return _finish_experiment_df(df_dict, sequence_length, batch_size).query('hidden_size == 2').reset_index(drop=True)
 
 def get_job_info_df(processed_data_path = PROCESSED_DATA_PATH,
                     save_path = SAVE_PATH, folder_name=None,

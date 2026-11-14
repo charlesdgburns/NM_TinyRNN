@@ -14,19 +14,20 @@ from NM_TinyRNN.code.models.datasets import get_dataloader
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 BATCH_SIZE = 8 # default number of sequences per training minibatch
-TRAIN_SEED = 42 #seed to use for ordering to ensure reproducibility
+TRAIN_SEED = 42 # fixed global training RNG seed; loader shuffle uses its default seed 0
 
 class Trainer:
     """Train candidates with independent weight seeds.
 
     Seed semantics depend on the entry point (AB_Dataset sequence path):
     - Direct fit: train_seed controls train/validation session assignment via
-      dataset._session_split(seed_split=...), block shuffling, and training RNGs.
+      dataset._session_split(seed_split=...).
       Evaluation-session selection has its own dataset seed_eval policy.
-    - Nested CV: session folds are predefined; train_seed controls training RNGs
-      and block shuffling only (nested_cv derives a seed for each inner fold).
+    - Nested CV: session folds are predefined; the fold-derived train_seed does
+      not change batch order or training RNGs.
     Neither path randomizes block construction: sequence_length controls that.
-    The loader's private generator seeds shuffle order, not session assignment.
+    The loader's private generator uses seed 0 for block shuffling; global
+    training RNGs are reset to TRAIN_SEED (42) after weight initialization.
     """
     def __init__(
         self,
@@ -84,8 +85,8 @@ class Trainer:
 
         # Prepare Data
         splits = dataset._session_split(seed_split=self.train_seed)
-        train_loader = get_dataloader(dataset, 'train', splits, batch_size=self.batch_size, seed=self.train_seed)
-        val_loader   = get_dataloader(dataset, 'val',   splits, batch_size=self.batch_size, seed=self.train_seed)
+        train_loader = get_dataloader(dataset, 'train', splits, batch_size=self.batch_size)
+        val_loader   = get_dataloader(dataset, 'val',   splits, batch_size=self.batch_size)
         
         # Initialize Parallel State
         params, buffers = self._initialize_parallel_models(base_model)
@@ -95,10 +96,10 @@ class Trainer:
         
         # set random seed AFTER initialising weights. 
         # This ensures reproducibility in training loop  
-        torch.manual_seed(self.train_seed)
-        np.random.seed(self.train_seed)
+        torch.manual_seed(TRAIN_SEED)
+        np.random.seed(TRAIN_SEED)
         if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(self.train_seed)
+            torch.cuda.manual_seed(TRAIN_SEED)
             
         optimizer = torch.optim.AdamW(params.values(), 
                                       lr=self.learning_rate,

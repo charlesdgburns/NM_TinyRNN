@@ -117,13 +117,13 @@ class TrainingRegressions(unittest.TestCase):
         self.assertEqual(config[-1], 0)
         self.assertTrue(torch.equal(state['weight'], snapshots[0][0].cpu()))
 
-    def test_train_seed_reaches_loader_and_controls_order(self):
+    def test_legacy_seeds_keep_batch_order_and_training_rngs_fixed(self):
         orders = []
         for seed in [17, 17, 18]:
             seen = []
 
             def loader(*args, **kwargs):
-                self.assertEqual(kwargs.get('seed', 0), seed)
+                self.assertEqual(kwargs.get('seed', 0), 0)
                 result = get_dataloader(*args, **kwargs)
                 if args[1] == 'train':
                     seen.extend(torch.cat([x.flatten() for x, _, _ in result]).tolist())
@@ -132,11 +132,16 @@ class TrainingRegressions(unittest.TestCase):
             trainer = training.Trainer(weight_seeds=[0], sparsity_lambdas=[0],
                                        energy_lambdas=[0], max_epochs=1,
                                        batch_size=2, train_seed=seed)
-            with patch.object(training, 'get_dataloader', loader):
+            with patch.object(training, 'get_dataloader', loader), \
+                 patch.object(training.torch, 'manual_seed', wraps=torch.manual_seed) as torch_seed, \
+                 patch.object(training.np.random, 'seed', wraps=training.np.random.seed) as numpy_seed:
                 trainer.fit(ToyModel(), ToyDataset())
+                torch_seed.assert_called_with(42)
+                numpy_seed.assert_called_with(42)
+            self.assertEqual(trainer.early_stop, 20)
             orders.append(seen)
         self.assertEqual(orders[0], orders[1])
-        self.assertNotEqual(orders[0], orders[2])
+        self.assertEqual(orders[0], orders[2])
 
     def test_loader_default_seed_is_reproducible_despite_global_rng_changes(self):
         # This explains why the original code could pass reproducibility checks:
