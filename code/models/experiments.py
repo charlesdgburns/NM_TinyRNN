@@ -56,7 +56,7 @@ def get_DA_info_df(processed_data_path = PROCESSED_DATA_PATH,
     elif folder_name == 'nested_DA_128': # legacy analysis notebook architecture set
         model_list = ['vanilla','GRU', 'lightGRU', 'monoGRU','constGate','monoGRU_abs','monoGRU_no_hidden','monoGRU_hidden_only']
     else:
-        model_list = ['monoGRU']
+        model_list = ['GRU']
 
     for subdir in processed_data_path.iterdir():
         subject_ID = subdir.stem
