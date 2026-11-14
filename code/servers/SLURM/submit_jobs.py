@@ -18,7 +18,8 @@ JOBS_PATH = Path("./Jobs/NM_TinyRNN")
 
 def run_training(experiment_df=None, *, overwrite=False, test=True, ws_all=False,
                  sequence_length=datasets.SEQUENCE_LENGTH,
-                 batch_size=training.BATCH_SIZE, folder_name=None):
+                 batch_size=training.BATCH_SIZE, folder_name=None,
+                 partitions=None, cpu_only=False):
     """Submit an experiment manifest, or build a legacy preset if omitted.
 
     A supplied experiment_df is used as provided: no preset is rebuilt and
@@ -26,7 +27,8 @@ def run_training(experiment_df=None, *, overwrite=False, test=True, ws_all=False
     overwrite controls whether completed configurations are submitted again.
     Each generated job trains all outer folds, so dispatch uses outer-fold-1
     rows, preserving the existing whole-experiment submission behavior.
-    SLURM resources remain arguments to get_NM_TinyRNN_SLURM_script.
+    partitions is an optional comma-separated SLURM partition list.
+    cpu_only hides CUDA devices so training uses CPUs even on GPU nodes.
     """
     if experiment_df is None:
         settings = dict(sequence_length=sequence_length, batch_size=batch_size,
@@ -42,17 +44,26 @@ def run_training(experiment_df=None, *, overwrite=False, test=True, ws_all=False
     experiment_df = experiment_df.query('outer_loop_n == 1')
     for experiment in experiment_df.itertuples():
         print(f"Submitting model training for {experiment.subject_id} to HPC")
-        script_path = get_NM_TinyRNN_SLURM_script(experiment)
+        script_path = get_NM_TinyRNN_SLURM_script(
+            experiment, partitions=partitions, cpu_only=cpu_only)
         os.system(f"sbatch {shlex.quote(str(script_path))}")
     print("All NM_TinyRNN jobs submitted to HPC. Check progress with 'squeue -u <username>'")
 
 
-def get_NM_TinyRNN_SLURM_script(train_info, RAM="64GB", time_limit="23:59:00"):
+def get_NM_TinyRNN_SLURM_script(train_info, RAM="32GB", time_limit="23:59:00",
+                              *, partitions=None, cpu_only=False):
     """
     Writes a SLURM script with explicit sequence length and minibatch size.
     Input: train_info: pd.Series
     Output: script_path: str, path to the SLURM script (saved in /jobs/slurm/)
     """
+    if partitions is not None and (
+            not isinstance(partitions, str) or not partitions
+            or any(not name or not all(c.isalnum() or c in '_-.' for c in name)
+                   for name in partitions.split(','))):
+        raise ValueError("partitions must be a comma-separated list of partition names")
+    partition_directive = f"#SBATCH --partition={partitions}\n" if partitions else ""
+    cpu_environment = 'export CUDA_VISIBLE_DEVICES=""\n' if cpu_only else ""
     sequence_length = getattr(train_info, 'sequence_length', datasets.SEQUENCE_LENGTH)
     batch_size = getattr(train_info, 'batch_size', training.BATCH_SIZE)
     training_folder_name(sequence_length, batch_size) # validate before writing scripts
@@ -78,7 +89,8 @@ def get_NM_TinyRNN_SLURM_script(train_info, RAM="64GB", time_limit="23:59:00"):
 #SBATCH --cpus-per-task=10
 #SBATCH --mem={RAM}
 #SBATCH --time={time_limit}
-set -euo pipefail
+{partition_directive}set -euo pipefail
+{cpu_environment}
 
 echo "Node: $SLURMD_NODENAME"
 
