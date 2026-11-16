@@ -1,22 +1,22 @@
 {
   "outer_loop_number": 2,
   "sequence_length": 32,
-  "inner_fold_idx": 1,
+  "inner_fold_idx": 5,
   "winning_config": {
     "sparsity_lambda": 0.0001,
     "energy_lambda": 0.001,
     "hebbian_lambda": 0.0,
     "covariance_lambda": 0.0,
-    "weight_seed": 0
+    "weight_seed": 10
   },
-  "val_loss": 0.567327618598938,
-  "eval_pred_loss": 0.6458214521408081,
+  "val_loss": 0.6046421527862549,
+  "eval_pred_loss": 0.7003484964370728,
   "split_sizes": {
-    "train": 78,
-    "val": 10,
-    "eval": 12
+    "train": 141,
+    "val": 14,
+    "eval": 20
   },
-  "n_outer_eval_blocks": 12,
+  "n_outer_eval_blocks": 20,
   "hparam_ranges": {
     "sparsity_lambdas": [
       0.1,
@@ -52,8 +52,7 @@
     "learning_rate": 0.01,
     "batch_size": 8,
     "max_epochs": 10000,
-    "early_stop": 100,
-    "shuffle_seed": null
+    "early_stop": 20
   },
   "model_options": {
     "rnn_type": "monoGRU",
@@ -64,7 +63,7 @@
     "energy_lambda": 0.001,
     "hebbian_lamba": 0.0,
     "covariance_lambda": 0.0,
-    "weight_seed": 0,
+    "weight_seed": 10,
     "nonlinearity": "relu",
     "input_encoding": "unipolar",
     "input_forced_choice": true,

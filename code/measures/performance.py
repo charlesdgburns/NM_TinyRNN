@@ -22,7 +22,8 @@ def get_performance_df(analysis_df, n_jobs=-1, use_cache=True):
     cache_path = DATA_PATH / 'analysis' / 'performance' / 'performance_df.htsv'
     required_columns = {
         'eval_CE', 'best_val_CE', 'train_CE', 'val_CE', 'eval_CE_computed',
-        'train_n_free', 'val_n_free', 'eval_n_free'
+        'train_n_free', 'val_n_free', 'eval_n_free', 'block_train_val_CE',
+        'block_val_CE', 'block_train_val_n_free'
     }
 
     if use_cache and cache_path.exists():
@@ -43,6 +44,7 @@ def get_performance_df(analysis_df, n_jobs=-1, use_cache=True):
         performance_df = pd.concat([performance_df, metrics_df], axis=1)
 
     if not performance_df.empty:
+        performance_df = add_block_scores(performance_df, n_jobs=n_jobs)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         performance_df.to_csv(cache_path, sep='\t', index=False)
         write_cache_provenance(cache_path, performance_df)
@@ -126,11 +128,39 @@ def cross_entropy_from_trials_df(trials_df: pd.DataFrame, split: str) -> tuple[f
     return loss, n_free
 
 
-def select_best_outer(performance_df):
-    '''Select the lowest train-plus-validation CE model per outer fold.'''
+def add_block_scores(performance_df, n_jobs=1):
+    """Add actual saved-block prediction losses without changing source models."""
+    from joblib import parallel_config
+    from NM_TinyRNN.code.measures.block_performance import score_group
+    with parallel_config(backend='loky', inner_max_num_threads=1):
+        results = Parallel(n_jobs=n_jobs)(delayed(score_group)(group.copy())
+            for _, group in performance_df.groupby(['save_path','subject_id','model_id']))
+    scores = pd.concat(results, ignore_index=True)
+    columns = [c for c in scores if c != 'info_path']
+    base = performance_df.drop(columns=columns, errors='ignore')
+    return base.merge(scores, on='info_path', validate='one_to_one')
+
+
+def select_best_outer(performance_df, selection='block_reset'):
+    """Select one inner winner per outer fold; block-reset train+val CE by default.
+
+    ``selection='continuous'`` explicitly reproduces the historical continuous
+    saved-trial score. Neither criterion uses outer-test loss or regularizers.
+    """
+    criteria = {'block_reset':'block_train_val_CE', 'continuous':'train_val_CE'}
+    if selection not in criteria:
+        raise ValueError(f'selection must be one of {list(criteria)}')
+    score = criteria[selection]
+    if score not in performance_df:
+        raise ValueError(f'Missing {score}; rebuild with get_performance_df or add_block_scores')
     group_columns = ['model_id', 'hidden_size', 'subject_id', 'outer_loop_n']
-    selected_indices = performance_df.groupby(group_columns)['train_val_CE'].idxmin()
-    return performance_df.loc[selected_indices].drop(columns=['train_val_CE'])
+    if not np.isfinite(performance_df[score]).all():
+        raise ValueError(f'Nonfinite model-selection scores in {score}')
+    selected_indices = performance_df.groupby(group_columns)[score].idxmin()
+    selected = performance_df.loc[selected_indices].copy()
+    selected['selection_method'] = selection
+    selected['selection_score'] = selected[score]
+    return selected.drop(columns=['train_val_CE'], errors='ignore')
 
 
 def compute_outer_mean(performance_df):

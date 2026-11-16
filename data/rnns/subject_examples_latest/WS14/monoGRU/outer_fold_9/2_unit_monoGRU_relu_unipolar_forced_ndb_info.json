@@ -1,7 +1,7 @@
 {
   "outer_loop_number": 9,
   "sequence_length": 32,
-  "inner_fold_idx": 7,
+  "inner_fold_idx": 5,
   "winning_config": {
     "sparsity_lambda": 1e-05,
     "energy_lambda": 0.001,
@@ -9,14 +9,14 @@
     "covariance_lambda": 0.0,
     "weight_seed": 10
   },
-  "val_loss": 0.45976319909095764,
-  "eval_pred_loss": 0.4500257968902588,
+  "val_loss": 0.4831407070159912,
+  "eval_pred_loss": 0.465583860874176,
   "split_sizes": {
-    "train": 123,
-    "val": 17,
-    "eval": 17
+    "train": 216,
+    "val": 32,
+    "eval": 34
   },
-  "n_outer_eval_blocks": 17,
+  "n_outer_eval_blocks": 34,
   "hparam_ranges": {
     "sparsity_lambdas": [
       0.1,
@@ -52,8 +52,7 @@
     "learning_rate": 0.01,
     "batch_size": 8,
     "max_epochs": 10000,
-    "early_stop": 100,
-    "shuffle_seed": null
+    "early_stop": 20
   },
   "model_options": {
     "rnn_type": "monoGRU",

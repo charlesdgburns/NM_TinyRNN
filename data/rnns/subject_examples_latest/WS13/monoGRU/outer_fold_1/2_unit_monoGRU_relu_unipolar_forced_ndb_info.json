@@ -9,14 +9,14 @@
     "covariance_lambda": 0.0,
     "weight_seed": 7
   },
-  "val_loss": 0.5204091668128967,
-  "eval_pred_loss": 0.46662437915802,
+  "val_loss": 0.4438539743423462,
+  "eval_pred_loss": 0.5811288952827454,
   "split_sizes": {
-    "train": 141,
-    "val": 15,
-    "eval": 16
+    "train": 251,
+    "val": 28,
+    "eval": 24
   },
-  "n_outer_eval_blocks": 16,
+  "n_outer_eval_blocks": 24,
   "hparam_ranges": {
     "sparsity_lambdas": [
       0.1,
@@ -52,8 +52,7 @@
     "learning_rate": 0.01,
     "batch_size": 8,
     "max_epochs": 10000,
-    "early_stop": 100,
-    "shuffle_seed": null
+    "early_stop": 20
   },
   "model_options": {
     "rnn_type": "monoGRU",

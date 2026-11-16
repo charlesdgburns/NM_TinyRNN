@@ -1,0 +1,25 @@
+{
+  "source_run": "nested_DA_S32_B8",
+  "selection": "block_reset",
+  "within": "Median paired subject differences; exact two-sided sign",
+  "across": "Mean paired dyad differences; subject-deletion jackknife t; approximate",
+  "main_correction": "BH over eight sign-within/jackknife-across comparisons",
+  "script_sha256": "8703e1605ff1e1982118ec632fd4ad1aeee48913c270e5513433489eb2859b30",
+  "plotting_sha256": "bd8426f82aa500f6a02af8fbbebcae4ebe0067f7bd9e4a1bad672c79b6b328ce",
+  "pairwise_source_sha256": "d6f9714c0f4b86e214256c1c7b0a29b2054c00920ae09725892c9a29b03cf876",
+  "outputs_sha256": {
+    "results/main/table_1.svg": "82a0083f3881572b24a8120f3c0a25dbc7b86ed4870c6168cf254e9d270b61d0",
+    "results/main/table_1.csv": "eb47c570de18790dd4cf006fc3b443b57b178002ad37215b24341c6a5ceaee35",
+    "results/appendix/gru_monogru/table_within.svg": "15767bad6f292b00fe7f5510389ca06dd39181c230d86b9167fda69c7f22cd19",
+    "results/appendix/gru_monogru/table_within.csv": "cd9c6d14c8e730722819c7186778cb1f6a01250cda511f21f3ec0e9be5ed7054",
+    "results/appendix/gru_monogru/table_across.svg": "f3e204a6a78b7a2abcf72d6641d0b19375329c8451dccabc9b194deaba8cf23b",
+    "results/appendix/gru_monogru/table_across.csv": "e8c44eb04227cd0ddc4c9d443f1373cbd041bedd9ae093d702f7b4e5b9378ead",
+    "results/appendix/gru_monogru/figure_paired_logit_value_similarity.svg": "76b64be19f74b8ba6d1d0bb4b5fb3918856faec48ce3f194bd0a842909a83648",
+    "results/appendix/gru_monogru/figure_paired_weight_similarity.svg": "cf2ebc4f9fe0ae40abdaa8d7f5d5c225a7d2aadd461dc60b6531102323c953c9",
+    "results/appendix/gru_monogru/figure_paired_hidden_similarity.svg": "8956d36c0b5b5a803ed53f96b3eeaa39c2491b6066b2d9a10cc00c3dc0b50199",
+    "results/appendix/gru_monogru/figure_paired_gate_update_similarity.svg": "b45eb44b91c702351935356687d2c26537f66a4500d757df0fa06364dbcd1acf",
+    "results/appendix/gru_monogru/paired_subject_data.csv": "6ece8e53fa261b54e45e58db0eaafcb2f18389a1b9f04c7cdbbd4e030f19eda9",
+    "results/appendix/gru_monogru/methods.json": "a7b06bd0b80c0643ede2e8f34802dab65769b57da44422acb3fd826726e12ca0",
+    "results/appendix/gru_monogru/README.md": "ce429244993d419bbc09be191b7065f5502f7b9c6e1b6d5afe5ed64a4374be97"
+  }
+}

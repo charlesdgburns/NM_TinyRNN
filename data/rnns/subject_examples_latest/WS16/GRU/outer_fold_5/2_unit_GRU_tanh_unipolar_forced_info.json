@@ -1,22 +1,22 @@
 {
   "outer_loop_number": 5,
   "sequence_length": 32,
-  "inner_fold_idx": 0,
+  "inner_fold_idx": 6,
   "winning_config": {
-    "sparsity_lambda": 0.001,
+    "sparsity_lambda": 1e-05,
     "energy_lambda": 0,
     "hebbian_lambda": 0.0,
     "covariance_lambda": 0.0,
-    "weight_seed": 4
+    "weight_seed": 10
   },
-  "val_loss": 0.4240272343158722,
-  "eval_pred_loss": 0.4766276776790619,
+  "val_loss": 0.4785774350166321,
+  "eval_pred_loss": 0.4520394504070282,
   "split_sizes": {
-    "train": 103,
-    "val": 13,
-    "eval": 8
+    "train": 173,
+    "val": 28,
+    "eval": 27
   },
-  "n_outer_eval_blocks": 8,
+  "n_outer_eval_blocks": 27,
   "hparam_ranges": {
     "sparsity_lambdas": [
       0.1,
@@ -50,19 +50,18 @@
     "learning_rate": 0.01,
     "batch_size": 8,
     "max_epochs": 10000,
-    "early_stop": 100,
-    "shuffle_seed": null
+    "early_stop": 20
   },
   "model_options": {
     "rnn_type": "GRU",
     "input_size": 3,
     "hidden_size": 2,
     "out_size": 2,
-    "sparsity_lambda": 0.001,
+    "sparsity_lambda": 1e-05,
     "energy_lambda": 0,
     "hebbian_lamba": 0.0,
     "covariance_lambda": 0.0,
-    "weight_seed": 4,
+    "weight_seed": 10,
     "nonlinearity": "tanh",
     "input_encoding": "unipolar",
     "input_forced_choice": true,
