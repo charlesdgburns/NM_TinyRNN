@@ -19,7 +19,7 @@ def get_performance_df(analysis_df, n_jobs=-1, use_cache=True):
         raise ValueError('Analysis dataframe is empty; no saved models were found. Check folder_name and data/rnns.')
     if 'save_path' not in analysis_df:
         raise ValueError('Analysis dataframe must contain save_path; build it with analysis.get_analysis_df first.')
-    cache_path = DATA_PATH / 'analysis' / 'performance' / 'performance_df.htsv'
+    cache_path = DATA_PATH / 'analyses' / 'performance' / 'performance_df.htsv'
     required_columns = {
         'eval_CE', 'best_val_CE', 'train_CE', 'val_CE', 'eval_CE_computed',
         'train_n_free', 'val_n_free', 'eval_n_free', 'block_train_val_CE',
