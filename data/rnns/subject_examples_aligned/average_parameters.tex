@@ -1,0 +1,7 @@
+% Mean of 110 reference-fitted monoGRU +BC-DB models, equally weighted by subject.
+\begin{align*}
+\mathbf{n}_t &= \operatorname{ReLU}\!\left(\begin{bmatrix}-0.083 & 0.79 & 0.84 \\ -0.17 & -1 & 0.88\end{bmatrix}\begin{bmatrix}c_t \\ a_t \\ o_t\end{bmatrix} + \begin{bmatrix}0.16 & -0.4 \\ -0.21 & 0.27\end{bmatrix}\begin{bmatrix}h_{1,t-1} \\ h_{2,t-1}\end{bmatrix} + \begin{bmatrix}-0.68 \\ 0.073\end{bmatrix}\right), \\
+z_t &= \sigma\!\left(\begin{bmatrix}0.25 & -0.0072 & -0.9\end{bmatrix}\begin{bmatrix}c_t \\ a_t \\ o_t\end{bmatrix} + \begin{bmatrix}-1.5 & -0.73\end{bmatrix}\begin{bmatrix}h_{1,t-1} \\ h_{2,t-1}\end{bmatrix} + 0.2\right), \\
+\mathbf{h}_t &= (1-z_t)\mathbf{n}_t + z_t\mathbf{h}_{t-1}, \\
+\hat{\mathbf{a}}_{t+1} &= \operatorname{Softmax}\!\left(\begin{bmatrix}-0.99 & 1 \\ 0.99 & -1\end{bmatrix}\begin{bmatrix}h_{1,t} \\ h_{2,t}\end{bmatrix}\right).
+\end{align*}

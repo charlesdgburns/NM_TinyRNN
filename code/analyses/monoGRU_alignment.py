@@ -107,11 +107,29 @@ def align_balanced_model(model, reference):
                          refine_scaling=False, allowed_permutations=[label_permutation(model)])
 
 
+def fit_to_reference(model, reference):
+    """Fit positive unit scales to the fixed medoid, preserving semantic roles."""
+    validate_model(reference)
+    aligned, info = mv.align_rnns(reference, model, nonlinearity='relu',
+        refine_scaling=True, allowed_permutations=[label_permutation(model)])
+    if info['aligned_distance'] > info['unaligned_distance'] + 1e-5:
+        raise RuntimeError('Reference fitting increased parameter distance')
+    if np.any(np.abs(np.log(info['transform_vec'])) >= 19.99):
+        raise RuntimeError('Reference fit reached scale bounds; inspect this model')
+    return aligned, info
+
+
 def align_model(model, reference):
-    """Public notebook API: balance a new model then align it to a frozen reference."""
+    """Balance a new model, then optimize its scales against a frozen reference.
+
+    Top-level perm/scales map original hidden states directly to final ones.
+    The reference is never re-estimated or rescaled by this function.
+    """
     balanced, balancing = balance_model(model)
-    aligned, alignment = align_balanced_model(balanced, reference)
-    return aligned, dict(balancing=balancing, alignment=alignment)
+    aligned, info = fit_to_reference(balanced, reference)
+    perm = np.asarray(info['perm'])
+    scales = np.exp([balancing['log_scale_1'], balancing['log_scale_2']])[perm] * info['transform_vec']
+    return aligned, dict(balancing=balancing, alignment=info, perm=perm, scales=scales)
 
 
 def probes(model):
@@ -229,12 +247,22 @@ def main():
                                 decoder_bias=bool(rows.iloc[chosen].decoder_bias),
                                 outer_loop_n=int(rows.iloc[chosen].outer_loop_n)))
     for i, (model, b) in enumerate(zip(models, balanced)):
-        aligned, info = align_balanced_model(b, reference)
-        # Already labeled: further swaps/scaling must be unnecessary.
+        aligned, info = fit_to_reference(b, reference)
         if list(info['perm']) != [0, 1]: raise RuntimeError('Semantic labels were not stable')
         a = audit[i]
+        a['balanced_perm'] = a['perm'].copy()
+        a['balanced_scales'] = a['scales'].copy()
+        reference_perm = np.asarray(info['perm'])
+        a['perm'] = np.asarray(a['balanced_perm'])[reference_perm].tolist()
+        a['scales'] = (np.asarray(a['balanced_scales'])[reference_perm] * info['transform_vec']).tolist()
+        a.update(reference_perm=reference_perm.tolist(),reference_scales=info['transform_vec'].tolist(),
+                 reference_refinement_success=info['refinement_success'],
+                 distance_before_reference_fit=info['unaligned_distance'],
+                 distance_after_grid=info['grid_distance'])
         a.update(check_equivalence(model, aligned, probes(model), a['perm'], a['scales']))
-        a.update(population_medoid_objective=float(scores[i]), distance_to_reference=info['aligned_distance'])
+        contrast = aligned.decoder.weight.detach().numpy()[1]-aligned.decoder.weight.detach().numpy()[0]
+        a.update(contrast_1=float(contrast[0]),contrast_2=float(contrast[1]),
+                 population_medoid_objective=float(scores[i]), distance_to_reference=info['aligned_distance'])
         row = rows.iloc[i]
         relative = Path('aligned')/row.subject_id/row.model_id/f'outer_fold_{row.outer_loop_n}.pickle'
         (out/relative).parent.mkdir(parents=True, exist_ok=True)
@@ -246,7 +274,8 @@ def main():
     np.savez_compressed(out/'balanced_core_parameters.npz', parameters=vectors)
     plot_reference(reference, rows.iloc[winner], out)
     manifest = dict(folder=args.folder, model_type='monoGRU +BC-DB', decoder_bias=False, n_models=len(rows), n_subjects=rows.subject_id.nunique(),
-        label_rule=LABEL_RULE, scale_rule='Independent minimum FULL trainable-parameter L2 norm on positive ReLU scaling orbit; unanchored units use flagged [-8,8] log-scale approximation',
+        alignment_protocol='balanced_medoid_reference_fit_v2',
+        label_rule=LABEL_RULE, final_alignment='Positive unit scales fitted to the frozen balanced medoid with grid search and continuous TRF refinement; decoder-based unit roles constrained; original-to-final composed transforms recorded', scale_rule='Independent minimum FULL trainable-parameter L2 norm on positive ReLU scaling orbit; unanchored units use flagged [-8,8] log-scale approximation',
         reference_rule='Actual balanced model minimizing subject-weighted mean Euclidean core distance to ALL cohort models, among finite opponent two-active-unit candidates; stable row ordering breaks exact ties',
         objective_blocks=['rnn.W_ih', 'rnn.bias_h', 'rnn.W_hh', 'decoder.weight'],
         reference_index=winner, reference_source=rows.iloc[winner].to_dict(),

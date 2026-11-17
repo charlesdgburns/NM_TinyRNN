@@ -80,8 +80,8 @@
       0
     ],
     "scales": [
-      1.5474214571551634,
-      1.047829043428639
+      1.09488144797405,
+      0.9972034449487905
     ],
     "label_rule": "h1 has the larger decoder[1]-decoder[0] contrast; opponent models: h1 favors choice 1, h2 favors choice 0",
     "original_training_metrics": "Retained from source; no retraining. Scale-dependent penalties have not been recomputed."

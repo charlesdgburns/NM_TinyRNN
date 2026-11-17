@@ -33,7 +33,7 @@ class ExportAlignedMonoGRU(unittest.TestCase):
         pd.testing.assert_frame_equal(same,saved,check_dtype=False,atol=1e-6,rtol=1e-6)
         aligned,info=alignment.align_model(self.model,self.model)
         regenerated=export.regenerate_trials(aligned,self.data,saved)
-        perm=info['alignment']['perm'];scales=np.exp([info['balancing']['log_scale_1'],info['balancing']['log_scale_2']])[perm]
+        perm=info['perm'];scales=info['scales']
         np.testing.assert_allclose(regenerated[['hidden_1','hidden_2']],saved[['hidden_1','hidden_2']].to_numpy()[:,perm]*scales,atol=1e-6)
         np.testing.assert_allclose(regenerated[['prob_A','prob_B']],saved[['prob_A','prob_B']],atol=1e-6)
         self.assertEqual(regenerated.split.tolist(),saved.split.tolist())

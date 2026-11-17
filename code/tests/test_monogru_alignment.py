@@ -49,6 +49,22 @@ class MonoGRUAlignment(unittest.TestCase):
         ma.check_equivalence(self.model,aligned,ma.probes(self.model),(1,0),[1.,1.])
         with self.assertRaises(ValueError):mv.align_rnns(self.model,self.model,allowed_permutations=[(0,0)])
 
+    def test_reference_fit_recovers_known_scale_and_preserves_function(self):
+        reference=ma.write_parameters(self.model,transform(parameters(self.model),(0,1),np.array([2.7,.35])))
+        aligned,info=ma.fit_to_reference(self.model,reference)
+        self.assertLess(info['aligned_distance'],1e-5)
+        self.assertLess(info['aligned_distance'],info['unaligned_distance'])
+        np.testing.assert_allclose(info['transform_vec'],[2.7,.35],rtol=1e-5)
+        ma.check_equivalence(self.model,aligned,ma.probes(self.model),info['perm'],info['transform_vec'])
+
+    def test_total_transform_includes_balancing_and_reference_fit(self):
+        reference=ma.write_parameters(self.model,transform(parameters(self.model),(0,1),np.array([2.7,.35])))
+        original_reference={k:v.clone() for k,v in reference.state_dict().items()}
+        aligned,info=ma.align_model(self.model,reference)
+        self.assertLess(info['alignment']['aligned_distance'],1e-5)
+        ma.check_equivalence(self.model,aligned,ma.probes(self.model),info['perm'],info['scales'])
+        for key,value in original_reference.items():self.assertTrue(torch.equal(value,reference.state_dict()[key]))
+
     def test_decoder_bias_on_is_rejected(self):
         wrong=TinyRNN(rnn_type='monoGRU',input_size=3,hidden_size=2,nonlinearity='relu',decoder_bias=True)
         with self.assertRaisesRegex(ValueError,'decoder bias off'):ma.balance_model(wrong)

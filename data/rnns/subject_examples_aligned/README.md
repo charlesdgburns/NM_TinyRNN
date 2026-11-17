@@ -2,7 +2,7 @@
 
 110 two-unit monoGRU ReLU models **without decoder bias**, selected from `nested_DA_S32_B8` by block-reset train+validation NLL (11 subjects × ten outer folds). No outer-test loss was used for selection.
 
-Each model is independently minimum-norm balanced under positive ReLU scaling and labeled so h1 favors choice 1 and h2 favors choice 0. The population medoid is WS14, outer fold 3, inner fold 4. These are function-preserving transformations of fitted models, not newly trained networks.
+Each model is initially minimum-norm balanced under positive ReLU scaling and labeled so h1 favors choice 1 and h2 favors choice 0. After medoid selection, its positive hidden-unit scales are numerically optimized to minimize core-parameter distance to the fixed balanced medoid, with unit roles preserved. These reference-fitted models are averaged and exported (protocol `balanced_medoid_reference_fit_v2`). The population medoid is WS14, outer fold 3, inner fold 4. These are function-preserving transformations of fitted models, not newly trained networks.
 
 The layout matches `subject_examples_latest`:
 
