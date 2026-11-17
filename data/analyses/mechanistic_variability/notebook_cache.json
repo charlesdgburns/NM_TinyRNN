@@ -1,0 +1,220 @@
+{
+  "fingerprint": "ad1bfefefb5ada3221551ad6ad8927ce8dba6d7c35544a0c1e4bdecaf99be4ab",
+  "alignment_protocol": "relu_grid_winner_then_continuous_trf_v1;tanh_permutation_sign_v1",
+  "selection": "performance.select_best_outer: minimum block-reset train+validation free-choice CE",
+  "n_models": 1320,
+  "n_variants": 12,
+  "n_pairs": 71940,
+  "input_shape": {
+    "WS01": [
+      1,
+      5967,
+      3
+    ],
+    "WS02": [
+      1,
+      6586,
+      3
+    ],
+    "WS05": [
+      1,
+      4575,
+      3
+    ],
+    "WS08": [
+      1,
+      7387,
+      3
+    ],
+    "WS09": [
+      1,
+      6034,
+      3
+    ],
+    "WS10": [
+      1,
+      8148,
+      3
+    ],
+    "WS13": [
+      1,
+      10296,
+      3
+    ],
+    "WS14": [
+      1,
+      9629,
+      3
+    ],
+    "WS16": [
+      1,
+      7840,
+      3
+    ],
+    "WS20": [
+      1,
+      10566,
+      3
+    ],
+    "WS22": [
+      1,
+      7833,
+      3
+    ]
+  },
+  "input_protocol": "Subject A complete saved trial sequence; within subject uses own data; continuous state as in original notebook",
+  "pair_direction": "Original sorted subject/outer ordering; A supplies trials, without averaging the reverse direction",
+  "inputs_sha256": {
+    "WS01": "3f363dff45b67273a4b89899a1ef4b3768a0db211c9c89421a076d7d37284ba8",
+    "WS02": "80a35c09fa91c207c5c8f7f946bde80678bcef56ce3bd74bf58e3d61fe75e36d",
+    "WS05": "10a07b8f84b5e98c8df6d9f3a389758e040d7de6a0734376f7bbbab32e7660e3",
+    "WS08": "91e540290c826aa1205121954e1d586ed145d3732263040de94ba9b29635441a",
+    "WS09": "a4b2d91501447d04f3df3d1ed7cfd97494457b61cbaded51565b5c931c1afd4f",
+    "WS10": "2492b5504e56a1656b8cfe88e6c601c32c34d3e4a498c621eafbdfb80a5b14cd",
+    "WS13": "4b247f2460f9d94854a902ebe6e8e753f2e43a637fecaef15769837f3f6c19ea",
+    "WS14": "e122186fe68d1728506c86f891d1942d0afb80c472bcd952bad2a6f9c5ff3333",
+    "WS16": "0ad44232600a44a75a37dd7056820e3d878ea3f64dde9f909004159e3e207bc3",
+    "WS20": "efba12c768c1d19bfdd3b5b5d9992b0ccd792cab7bf8a5504ac872ed0958c39a",
+    "WS22": "e14d6105ba5d79f6d7174b0d41bbf35b211dcea25e243a547f1ffe0e48aed5ca"
+  },
+  "cache_sha256": "d6f9714c0f4b86e214256c1c7b0a29b2054c00920ae09725892c9a29b03cf876",
+  "selected_sha256": "45e8e2eb4be942affb0fc31a67b55cc803ddb0f37cc5fe9297fc7193e8ec6063",
+  "validation": [
+    {
+      "model_id": "2_unit_GRU_relu_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 1.6689300537109375e-06,
+      "batching_logit_drift": 9.5367431640625e-07,
+      "alignment_protocol": "relu_grid_winner_then_continuous_trf_v1;tanh_permutation_sign_v1",
+      "refinement_attempts": 5995,
+      "refinement_successes": 5995,
+      "max_refinement_nfev": 30
+    },
+    {
+      "model_id": "2_unit_GRU_relu_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 9.5367431640625e-07,
+      "batching_logit_drift": 9.5367431640625e-07,
+      "alignment_protocol": "relu_grid_winner_then_continuous_trf_v1;tanh_permutation_sign_v1",
+      "refinement_attempts": 5995,
+      "refinement_successes": 5995,
+      "max_refinement_nfev": 32
+    },
+    {
+      "model_id": "2_unit_GRU_tanh_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 8.940696716308594e-07,
+      "batching_logit_drift": 7.152557373046875e-07,
+      "alignment_protocol": "relu_grid_winner_then_continuous_trf_v1;tanh_permutation_sign_v1",
+      "refinement_attempts": 0,
+      "refinement_successes": 0,
+      "max_refinement_nfev": 0
+    },
+    {
+      "model_id": "2_unit_GRU_tanh_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 7.152557373046875e-07,
+      "batching_logit_drift": 8.642673492431641e-07,
+      "alignment_protocol": "relu_grid_winner_then_continuous_trf_v1;tanh_permutation_sign_v1",
+      "refinement_attempts": 0,
+      "refinement_successes": 0,
+      "max_refinement_nfev": 0
+    },
+    {
+      "model_id": "2_unit_lightGRU_relu_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 1.430511474609375e-06,
+      "batching_logit_drift": 9.5367431640625e-07,
+      "alignment_protocol": "relu_grid_winner_then_continuous_trf_v1;tanh_permutation_sign_v1",
+      "refinement_attempts": 5995,
+      "refinement_successes": 5995,
+      "max_refinement_nfev": 31
+    },
+    {
+      "model_id": "2_unit_lightGRU_relu_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 9.5367431640625e-07,
+      "batching_logit_drift": 2.384185791015625e-06,
+      "alignment_protocol": "relu_grid_winner_then_continuous_trf_v1;tanh_permutation_sign_v1",
+      "refinement_attempts": 5995,
+      "refinement_successes": 5995,
+      "max_refinement_nfev": 36
+    },
+    {
+      "model_id": "2_unit_lightGRU_tanh_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 4.917383193969727e-07,
+      "batching_logit_drift": 8.642673492431641e-07,
+      "alignment_protocol": "relu_grid_winner_then_continuous_trf_v1;tanh_permutation_sign_v1",
+      "refinement_attempts": 0,
+      "refinement_successes": 0,
+      "max_refinement_nfev": 0
+    },
+    {
+      "model_id": "2_unit_lightGRU_tanh_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 8.344650268554688e-07,
+      "batching_logit_drift": 9.5367431640625e-07,
+      "alignment_protocol": "relu_grid_winner_then_continuous_trf_v1;tanh_permutation_sign_v1",
+      "refinement_attempts": 0,
+      "refinement_successes": 0,
+      "max_refinement_nfev": 0
+    },
+    {
+      "model_id": "2_unit_monoGRU_relu_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 1.1920928955078125e-06,
+      "batching_logit_drift": 7.152557373046875e-07,
+      "alignment_protocol": "relu_grid_winner_then_continuous_trf_v1;tanh_permutation_sign_v1",
+      "refinement_attempts": 5995,
+      "refinement_successes": 5995,
+      "max_refinement_nfev": 42
+    },
+    {
+      "model_id": "2_unit_monoGRU_relu_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 1.1920928955078125e-06,
+      "batching_logit_drift": 9.5367431640625e-07,
+      "alignment_protocol": "relu_grid_winner_then_continuous_trf_v1;tanh_permutation_sign_v1",
+      "refinement_attempts": 5995,
+      "refinement_successes": 5995,
+      "max_refinement_nfev": 38
+    },
+    {
+      "model_id": "2_unit_monoGRU_tanh_unipolar_forced",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 8.344650268554688e-07,
+      "batching_logit_drift": 7.152557373046875e-07,
+      "alignment_protocol": "relu_grid_winner_then_continuous_trf_v1;tanh_permutation_sign_v1",
+      "refinement_attempts": 0,
+      "refinement_successes": 0,
+      "max_refinement_nfev": 0
+    },
+    {
+      "model_id": "2_unit_monoGRU_tanh_unipolar_forced_ndb",
+      "pairs": 5995,
+      "validated_pair_types": 2,
+      "max_validated_logit_drift": 5.960464477539062e-07,
+      "batching_logit_drift": 6.556510925292969e-07,
+      "alignment_protocol": "relu_grid_winner_then_continuous_trf_v1;tanh_permutation_sign_v1",
+      "refinement_attempts": 0,
+      "refinement_successes": 0,
+      "max_refinement_nfev": 0
+    }
+  ],
+  "metrics": "Canonical parameter alignment/cosine; hidden per-unit mean Pearson; flattened gate/readout Pearson",
+  "source_code_sha256": "5ff0ed2da1cb282d63eee816262a4e9b46bc78e69145dd2a2f03dd2fafda8726",
+  "study": "code/analyses/mechanistic_variability.py",
+  "tables": "/home/charlesdgburns/Coding/NM_TinyRNN/data/analysis/mechanistic_variability"
+}

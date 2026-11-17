@@ -10,4 +10,4 @@ Shared training/analysis experiment dataframes are defined in
 [code/models/experiments.py](code/models/experiments.py).
 
 Intermediate dataframes and caches are organised by analysis under
-[`data/analysis`](data/analysis/README.md); final figures and tables go in `results/`.
+[`data/analyses`](data/analyses/README.md); final figures and tables go in `results/`.

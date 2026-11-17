@@ -1,6 +1,6 @@
 """Reusable mechanistic-variability computations and statistics.
 
-The maintained post-training workflow is code/analyses/mechanistic_variability.py;
+The maintained post-training workflow is code/analyses/mechanistic_variability_main.py;
 plot functions live in code/figures/mechanistic_variability.py. This module owns
 canonical alignment, activation/parameter similarity, balanced block probes,
 cache-selection validation, and subject-level reference contrasts.
@@ -802,7 +802,7 @@ def compute_similarities(
         )
     default_cache = cache_path is None
     if cache_path is None:
-        cache_path = Path("NM_TinyRNN/data/analysis/mechanistic_variability") / (
+        cache_path = Path("NM_TinyRNN/data/analyses/mechanistic_variability") / (
             'pairwise_similarities.htsv' if similarity_measure == 'pearson'
             else f'pairwise_similarities_{similarity_measure}.htsv')
     else:
@@ -813,7 +813,7 @@ def compute_similarities(
             metadata_path = cache_path.parent/'notebook_cache.json'
             metadata = json.loads(metadata_path.read_text()) if metadata_path.is_file() else {}
             if metadata.get('alignment_protocol') != DEFAULT_ALIGNMENT_PROTOCOL:
-                raise ValueError('Similarity cache uses an older alignment protocol; rerun code/analyses/mechanistic_variability.py --recompute.')
+                raise ValueError('Similarity cache uses an older alignment protocol; rerun code/analyses/mechanistic_variability_main.py --recompute.')
             selected_path = cache_path.parent/'selected_models.htsv'
             if not selected_path.is_file():
                 raise ValueError('Default similarity cache lacks selected-model provenance; rerun the analysis.')
@@ -1312,7 +1312,7 @@ def run_across_subject_similarity_analysis(
     ].copy()
     select_models['model_id'] = select_models.model_type2
 
-    output_dir = Path('NM_TinyRNN/data/analysis/mechanistic_variability')
+    output_dir = Path('NM_TinyRNN/data/analyses/mechanistic_variability')
     output_dir.mkdir(parents=True, exist_ok=True)
     selected_path = output_dir / 'selected_models.htsv'
     similarity_path = output_dir / 'pairwise_similarities.htsv'
