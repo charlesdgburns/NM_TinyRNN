@@ -1,0 +1,792 @@
+{
+  "n_models": 110,
+  "n_subjects": 11,
+  "artifacts_verified": 336,
+  "all_source_hashes_unchanged": true,
+  "all_action_labels_valid": true,
+  "min_A1_h1_contrast": 0.8928394317626953,
+  "max_A1_h2_contrast": -0.2369944155216217,
+  "trial_rows_across_separate_fits": 848610,
+  "unique_trial_rows": 84861,
+  "parameter_entries": 44,
+  "maxima": {
+    "max_hidden_error": 1.3453501129245815e-06,
+    "max_update_gate_error": 8.987426757811612e-07,
+    "max_reset_gate_error": 3.8180084227512623e-07,
+    "max_logit_error": 2.0346038818175316e-06,
+    "max_probability_error": 4.2680587764021283e-07
+  },
+  "export_manifest_sha256": "aeced9af9d649bee6fced28759026e455305243563809950653e3ca1725f31e4",
+  "fit_counts": [
+    {
+      "subject_id": "WS01",
+      "outer_loop_n": 1,
+      "inner_loop_idx": 6,
+      "n_trials": 5967,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS01",
+      "outer_loop_n": 2,
+      "inner_loop_idx": 8,
+      "n_trials": 5967,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS01",
+      "outer_loop_n": 3,
+      "inner_loop_idx": 3,
+      "n_trials": 5967,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS01",
+      "outer_loop_n": 4,
+      "inner_loop_idx": 3,
+      "n_trials": 5967,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS01",
+      "outer_loop_n": 5,
+      "inner_loop_idx": 5,
+      "n_trials": 5967,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS01",
+      "outer_loop_n": 6,
+      "inner_loop_idx": 8,
+      "n_trials": 5967,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS01",
+      "outer_loop_n": 7,
+      "inner_loop_idx": 5,
+      "n_trials": 5967,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS01",
+      "outer_loop_n": 8,
+      "inner_loop_idx": 6,
+      "n_trials": 5967,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS01",
+      "outer_loop_n": 9,
+      "inner_loop_idx": 2,
+      "n_trials": 5967,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS01",
+      "outer_loop_n": 10,
+      "inner_loop_idx": 7,
+      "n_trials": 5967,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS02",
+      "outer_loop_n": 1,
+      "inner_loop_idx": 4,
+      "n_trials": 6586,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS02",
+      "outer_loop_n": 2,
+      "inner_loop_idx": 8,
+      "n_trials": 6586,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS02",
+      "outer_loop_n": 3,
+      "inner_loop_idx": 6,
+      "n_trials": 6586,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS02",
+      "outer_loop_n": 4,
+      "inner_loop_idx": 5,
+      "n_trials": 6586,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS02",
+      "outer_loop_n": 5,
+      "inner_loop_idx": 4,
+      "n_trials": 6586,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS02",
+      "outer_loop_n": 6,
+      "inner_loop_idx": 4,
+      "n_trials": 6586,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS02",
+      "outer_loop_n": 7,
+      "inner_loop_idx": 8,
+      "n_trials": 6586,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS02",
+      "outer_loop_n": 8,
+      "inner_loop_idx": 8,
+      "n_trials": 6586,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS02",
+      "outer_loop_n": 9,
+      "inner_loop_idx": 5,
+      "n_trials": 6586,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS02",
+      "outer_loop_n": 10,
+      "inner_loop_idx": 6,
+      "n_trials": 6586,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS05",
+      "outer_loop_n": 1,
+      "inner_loop_idx": 6,
+      "n_trials": 4575,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS05",
+      "outer_loop_n": 2,
+      "inner_loop_idx": 8,
+      "n_trials": 4575,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS05",
+      "outer_loop_n": 3,
+      "inner_loop_idx": 6,
+      "n_trials": 4575,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS05",
+      "outer_loop_n": 4,
+      "inner_loop_idx": 7,
+      "n_trials": 4575,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS05",
+      "outer_loop_n": 5,
+      "inner_loop_idx": 8,
+      "n_trials": 4575,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS05",
+      "outer_loop_n": 6,
+      "inner_loop_idx": 6,
+      "n_trials": 4575,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS05",
+      "outer_loop_n": 7,
+      "inner_loop_idx": 6,
+      "n_trials": 4575,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS05",
+      "outer_loop_n": 8,
+      "inner_loop_idx": 5,
+      "n_trials": 4575,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS05",
+      "outer_loop_n": 9,
+      "inner_loop_idx": 3,
+      "n_trials": 4575,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS05",
+      "outer_loop_n": 10,
+      "inner_loop_idx": 4,
+      "n_trials": 4575,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS08",
+      "outer_loop_n": 1,
+      "inner_loop_idx": 8,
+      "n_trials": 7387,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS08",
+      "outer_loop_n": 2,
+      "inner_loop_idx": 3,
+      "n_trials": 7387,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS08",
+      "outer_loop_n": 3,
+      "inner_loop_idx": 6,
+      "n_trials": 7387,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS08",
+      "outer_loop_n": 4,
+      "inner_loop_idx": 5,
+      "n_trials": 7387,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS08",
+      "outer_loop_n": 5,
+      "inner_loop_idx": 6,
+      "n_trials": 7387,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS08",
+      "outer_loop_n": 6,
+      "inner_loop_idx": 8,
+      "n_trials": 7387,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS08",
+      "outer_loop_n": 7,
+      "inner_loop_idx": 5,
+      "n_trials": 7387,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS08",
+      "outer_loop_n": 8,
+      "inner_loop_idx": 4,
+      "n_trials": 7387,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS08",
+      "outer_loop_n": 9,
+      "inner_loop_idx": 4,
+      "n_trials": 7387,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS08",
+      "outer_loop_n": 10,
+      "inner_loop_idx": 3,
+      "n_trials": 7387,
+      "n_sessions": 17
+    },
+    {
+      "subject_id": "WS09",
+      "outer_loop_n": 1,
+      "inner_loop_idx": 5,
+      "n_trials": 6034,
+      "n_sessions": 18
+    },
+    {
+      "subject_id": "WS09",
+      "outer_loop_n": 2,
+      "inner_loop_idx": 4,
+      "n_trials": 6034,
+      "n_sessions": 18
+    },
+    {
+      "subject_id": "WS09",
+      "outer_loop_n": 3,
+      "inner_loop_idx": 5,
+      "n_trials": 6034,
+      "n_sessions": 18
+    },
+    {
+      "subject_id": "WS09",
+      "outer_loop_n": 4,
+      "inner_loop_idx": 5,
+      "n_trials": 6034,
+      "n_sessions": 18
+    },
+    {
+      "subject_id": "WS09",
+      "outer_loop_n": 5,
+      "inner_loop_idx": 5,
+      "n_trials": 6034,
+      "n_sessions": 18
+    },
+    {
+      "subject_id": "WS09",
+      "outer_loop_n": 6,
+      "inner_loop_idx": 5,
+      "n_trials": 6034,
+      "n_sessions": 18
+    },
+    {
+      "subject_id": "WS09",
+      "outer_loop_n": 7,
+      "inner_loop_idx": 3,
+      "n_trials": 6034,
+      "n_sessions": 18
+    },
+    {
+      "subject_id": "WS09",
+      "outer_loop_n": 8,
+      "inner_loop_idx": 6,
+      "n_trials": 6034,
+      "n_sessions": 18
+    },
+    {
+      "subject_id": "WS09",
+      "outer_loop_n": 9,
+      "inner_loop_idx": 6,
+      "n_trials": 6034,
+      "n_sessions": 18
+    },
+    {
+      "subject_id": "WS09",
+      "outer_loop_n": 10,
+      "inner_loop_idx": 6,
+      "n_trials": 6034,
+      "n_sessions": 18
+    },
+    {
+      "subject_id": "WS10",
+      "outer_loop_n": 1,
+      "inner_loop_idx": 7,
+      "n_trials": 8148,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS10",
+      "outer_loop_n": 2,
+      "inner_loop_idx": 8,
+      "n_trials": 8148,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS10",
+      "outer_loop_n": 3,
+      "inner_loop_idx": 1,
+      "n_trials": 8148,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS10",
+      "outer_loop_n": 4,
+      "inner_loop_idx": 7,
+      "n_trials": 8148,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS10",
+      "outer_loop_n": 5,
+      "inner_loop_idx": 1,
+      "n_trials": 8148,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS10",
+      "outer_loop_n": 6,
+      "inner_loop_idx": 1,
+      "n_trials": 8148,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS10",
+      "outer_loop_n": 7,
+      "inner_loop_idx": 8,
+      "n_trials": 8148,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS10",
+      "outer_loop_n": 8,
+      "inner_loop_idx": 4,
+      "n_trials": 8148,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS10",
+      "outer_loop_n": 9,
+      "inner_loop_idx": 4,
+      "n_trials": 8148,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS10",
+      "outer_loop_n": 10,
+      "inner_loop_idx": 1,
+      "n_trials": 8148,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS13",
+      "outer_loop_n": 1,
+      "inner_loop_idx": 1,
+      "n_trials": 10296,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS13",
+      "outer_loop_n": 2,
+      "inner_loop_idx": 5,
+      "n_trials": 10296,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS13",
+      "outer_loop_n": 3,
+      "inner_loop_idx": 5,
+      "n_trials": 10296,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS13",
+      "outer_loop_n": 4,
+      "inner_loop_idx": 5,
+      "n_trials": 10296,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS13",
+      "outer_loop_n": 5,
+      "inner_loop_idx": 3,
+      "n_trials": 10296,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS13",
+      "outer_loop_n": 6,
+      "inner_loop_idx": 3,
+      "n_trials": 10296,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS13",
+      "outer_loop_n": 7,
+      "inner_loop_idx": 5,
+      "n_trials": 10296,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS13",
+      "outer_loop_n": 8,
+      "inner_loop_idx": 6,
+      "n_trials": 10296,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS13",
+      "outer_loop_n": 9,
+      "inner_loop_idx": 0,
+      "n_trials": 10296,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS13",
+      "outer_loop_n": 10,
+      "inner_loop_idx": 7,
+      "n_trials": 10296,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS14",
+      "outer_loop_n": 1,
+      "inner_loop_idx": 4,
+      "n_trials": 9629,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS14",
+      "outer_loop_n": 2,
+      "inner_loop_idx": 4,
+      "n_trials": 9629,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS14",
+      "outer_loop_n": 3,
+      "inner_loop_idx": 7,
+      "n_trials": 9629,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS14",
+      "outer_loop_n": 4,
+      "inner_loop_idx": 6,
+      "n_trials": 9629,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS14",
+      "outer_loop_n": 5,
+      "inner_loop_idx": 7,
+      "n_trials": 9629,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS14",
+      "outer_loop_n": 6,
+      "inner_loop_idx": 6,
+      "n_trials": 9629,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS14",
+      "outer_loop_n": 7,
+      "inner_loop_idx": 5,
+      "n_trials": 9629,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS14",
+      "outer_loop_n": 8,
+      "inner_loop_idx": 5,
+      "n_trials": 9629,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS14",
+      "outer_loop_n": 9,
+      "inner_loop_idx": 7,
+      "n_trials": 9629,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS14",
+      "outer_loop_n": 10,
+      "inner_loop_idx": 5,
+      "n_trials": 9629,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS16",
+      "outer_loop_n": 1,
+      "inner_loop_idx": 8,
+      "n_trials": 7840,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS16",
+      "outer_loop_n": 2,
+      "inner_loop_idx": 8,
+      "n_trials": 7840,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS16",
+      "outer_loop_n": 3,
+      "inner_loop_idx": 3,
+      "n_trials": 7840,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS16",
+      "outer_loop_n": 4,
+      "inner_loop_idx": 8,
+      "n_trials": 7840,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS16",
+      "outer_loop_n": 5,
+      "inner_loop_idx": 6,
+      "n_trials": 7840,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS16",
+      "outer_loop_n": 6,
+      "inner_loop_idx": 2,
+      "n_trials": 7840,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS16",
+      "outer_loop_n": 7,
+      "inner_loop_idx": 2,
+      "n_trials": 7840,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS16",
+      "outer_loop_n": 8,
+      "inner_loop_idx": 8,
+      "n_trials": 7840,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS16",
+      "outer_loop_n": 9,
+      "inner_loop_idx": 8,
+      "n_trials": 7840,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS16",
+      "outer_loop_n": 10,
+      "inner_loop_idx": 2,
+      "n_trials": 7840,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS20",
+      "outer_loop_n": 1,
+      "inner_loop_idx": 6,
+      "n_trials": 10566,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS20",
+      "outer_loop_n": 2,
+      "inner_loop_idx": 6,
+      "n_trials": 10566,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS20",
+      "outer_loop_n": 3,
+      "inner_loop_idx": 3,
+      "n_trials": 10566,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS20",
+      "outer_loop_n": 4,
+      "inner_loop_idx": 3,
+      "n_trials": 10566,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS20",
+      "outer_loop_n": 5,
+      "inner_loop_idx": 6,
+      "n_trials": 10566,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS20",
+      "outer_loop_n": 6,
+      "inner_loop_idx": 6,
+      "n_trials": 10566,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS20",
+      "outer_loop_n": 7,
+      "inner_loop_idx": 6,
+      "n_trials": 10566,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS20",
+      "outer_loop_n": 8,
+      "inner_loop_idx": 5,
+      "n_trials": 10566,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS20",
+      "outer_loop_n": 9,
+      "inner_loop_idx": 5,
+      "n_trials": 10566,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS20",
+      "outer_loop_n": 10,
+      "inner_loop_idx": 4,
+      "n_trials": 10566,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS22",
+      "outer_loop_n": 1,
+      "inner_loop_idx": 5,
+      "n_trials": 7833,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS22",
+      "outer_loop_n": 2,
+      "inner_loop_idx": 5,
+      "n_trials": 7833,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS22",
+      "outer_loop_n": 3,
+      "inner_loop_idx": 5,
+      "n_trials": 7833,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS22",
+      "outer_loop_n": 4,
+      "inner_loop_idx": 8,
+      "n_trials": 7833,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS22",
+      "outer_loop_n": 5,
+      "inner_loop_idx": 6,
+      "n_trials": 7833,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS22",
+      "outer_loop_n": 6,
+      "inner_loop_idx": 2,
+      "n_trials": 7833,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS22",
+      "outer_loop_n": 7,
+      "inner_loop_idx": 2,
+      "n_trials": 7833,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS22",
+      "outer_loop_n": 8,
+      "inner_loop_idx": 4,
+      "n_trials": 7833,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS22",
+      "outer_loop_n": 9,
+      "inner_loop_idx": 6,
+      "n_trials": 7833,
+      "n_sessions": 19
+    },
+    {
+      "subject_id": "WS22",
+      "outer_loop_n": 10,
+      "inner_loop_idx": 4,
+      "n_trials": 7833,
+      "n_sessions": 19
+    }
+  ]
+}
