@@ -1,0 +1,88 @@
+{
+  "outer_loop_number": 5,
+  "sequence_length": 32,
+  "inner_fold_idx": 6,
+  "winning_config": {
+    "sparsity_lambda": 0.0001,
+    "energy_lambda": 0,
+    "hebbian_lambda": 0.0,
+    "covariance_lambda": 0.0,
+    "weight_seed": 6
+  },
+  "val_loss": 0.547406792640686,
+  "eval_pred_loss": 0.5209984183311462,
+  "split_sizes": {
+    "train": 241,
+    "val": 38,
+    "eval": 32
+  },
+  "n_outer_eval_blocks": 32,
+  "hparam_ranges": {
+    "sparsity_lambdas": [
+      0.1,
+      0.01,
+      0.001,
+      0.0001,
+      1e-05
+    ],
+    "energy_lambdas": [
+      0
+    ],
+    "hebbian_lambdas": [
+      0.0
+    ],
+    "covariance_lambdas": [
+      0.0
+    ],
+    "weight_seeds": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "learning_rate": 0.01,
+    "batch_size": 8,
+    "max_epochs": 10000,
+    "early_stop": 20
+  },
+  "model_options": {
+    "rnn_type": "GRU",
+    "input_size": 3,
+    "hidden_size": 2,
+    "out_size": 2,
+    "sparsity_lambda": 0.0001,
+    "energy_lambda": 0,
+    "hebbian_lamba": 0.0,
+    "covariance_lambda": 0.0,
+    "weight_seed": 6,
+    "nonlinearity": "tanh",
+    "input_encoding": "unipolar",
+    "input_forced_choice": true,
+    "batch_norm": false,
+    "init_decoder": false,
+    "decoder_bias": true
+  },
+  "alignment": {
+    "reference_model": "GRU_population_medoid_model.pickle",
+    "source_run": "nested_DA_S32_B8",
+    "source_example_model": "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_model.pickle",
+    "source_example_sha256": "bdb277d7de8853d2a56aa69cae645a9803d71de49e6c1e8f9a5da1074bf9737b",
+    "perm": [
+      0,
+      1
+    ],
+    "signs": [
+      1.0,
+      -1.0
+    ],
+    "label_rule": "decoder[0,h1]-decoder[1,h1] > 1e-7 (A1/left/0); decoder[0,h2]-decoder[1,h2] < -1e-7 (A2/right/1)",
+    "original_training_metrics": "Retained from source; no retraining. Signed permutations preserve parameter L1/L2 norms and squared hidden-state energy."
+  }
+}

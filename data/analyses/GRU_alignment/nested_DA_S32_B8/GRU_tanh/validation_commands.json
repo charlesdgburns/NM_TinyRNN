@@ -1,0 +1,37 @@
+[
+  {
+    "command": [
+      "/Users/silv-dawg/miniconda3/envs/cortical_photometry_1/bin/python",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "code/tests",
+      "-v"
+    ],
+    "returncode": 0
+  },
+  {
+    "command": [
+      "/Users/silv-dawg/miniconda3/envs/cortical_photometry_1/bin/python",
+      "code/analyses/GRU_alignment.py"
+    ],
+    "returncode": 0
+  },
+  {
+    "command": [
+      "/Users/silv-dawg/miniconda3/envs/cortical_photometry_1/bin/python",
+      "code/analyses/export_aligned_GRU.py",
+      "--jobs",
+      "4"
+    ],
+    "returncode": 0
+  },
+  {
+    "command": [
+      "/Users/silv-dawg/miniconda3/envs/cortical_photometry_1/bin/python",
+      "code/tests/verify_gru_release.py"
+    ],
+    "returncode": 0
+  }
+]

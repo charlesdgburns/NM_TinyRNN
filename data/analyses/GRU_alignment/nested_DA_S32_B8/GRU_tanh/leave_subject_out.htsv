@@ -1,0 +1,12 @@
+omitted_subject	subject_id	outer_loop_n	inner_loop_idx	distance_to_full_reference
+WS01	WS10	8	4	0.0
+WS02	WS10	8	4	0.0
+WS05	WS10	8	4	0.0
+WS08	WS10	8	4	0.0
+WS09	WS10	8	4	0.0
+WS10	WS13	2	5	0.8442882936320185
+WS13	WS10	8	4	0.0
+WS14	WS10	8	4	0.0
+WS16	WS10	8	4	0.0
+WS20	WS10	8	4	0.0
+WS22	WS10	8	4	0.0

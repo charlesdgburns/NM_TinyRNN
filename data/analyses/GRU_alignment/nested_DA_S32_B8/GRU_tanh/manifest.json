@@ -1,0 +1,1002 @@
+{
+  "source_run": "nested_DA_S32_B8",
+  "source_dir": "data/rnns/subject_examples_latest",
+  "n_models": 110,
+  "subjects": [
+    "WS01",
+    "WS02",
+    "WS05",
+    "WS08",
+    "WS09",
+    "WS10",
+    "WS13",
+    "WS14",
+    "WS16",
+    "WS20",
+    "WS22"
+  ],
+  "model_type": "GRU",
+  "nonlinearity": "tanh",
+  "decoder_bias": true,
+  "label_rule": "decoder[0,h1]-decoder[1,h1] > 1e-7 (A1/left/0); decoder[0,h2]-decoder[1,h2] < -1e-7 (A2/right/1)",
+  "transformation": "Signed permutation only; all gain magnitudes are one; GRU-only constrained extension of native align_rnns",
+  "reference_rule": "Actual two-active-unit model minimizing equal-subject mean Euclidean core distance after constrained signed-permutation alignment to every cohort model",
+  "reference_orientation": "Fewest source-unit sign flips among the two valid action-labeled variants; stable permutation order breaks ties. Global orientation is a coordinate convention, not biological evidence.",
+  "tie_rule": "Stable subject/outer-fold row order breaks exact medoid-score ties",
+  "objective_blocks": [
+    "rnn.W_ih",
+    "rnn.bias_h",
+    "rnn.W_hh",
+    "decoder.weight"
+  ],
+  "objective_exclusions": [
+    "gate parameters",
+    "initial state",
+    "decoder bias"
+  ],
+  "reference_index": 57,
+  "reference_source": {
+    "Index": 690,
+    "subject_id": "WS10",
+    "outer_loop_n": 8,
+    "model_type": "GRU",
+    "hidden_size": 2,
+    "nonlinearity": "tanh",
+    "constraint": "sparsity",
+    "decoder_bias": true,
+    "input_encoding": "unipolar",
+    "input_forced_choice": true,
+    "nm_size": 1,
+    "nm_dim": 1,
+    "nm_mode": "row",
+    "model_id": "2_unit_GRU_tanh_unipolar_forced",
+    "save_path": "NM_TinyRNN/data/rnns/nested_DA_S32_B8/WS10/GRU/sparsity",
+    "data_path": "NM_TinyRNN/data/AB_behaviour/WS10",
+    "completed": 1,
+    "sequence_length": 32,
+    "batch_size": 8,
+    "model_type2": "GRU",
+    "inner_loop_idx": 4,
+    "info_path": "NM_TinyRNN/data/rnns/nested_DA_S32_B8/WS10/GRU/sparsity/outer_fold_8/inner_fold_4/2_unit_GRU_tanh_unipolar_forced_info.json",
+    "model_state_path": "NM_TinyRNN/data/rnns/nested_DA_S32_B8/WS10/GRU/sparsity/outer_fold_8/inner_fold_4/2_unit_GRU_tanh_unipolar_forced_model_state.pth",
+    "model_pickle_path": "NM_TinyRNN/data/rnns/nested_DA_S32_B8/WS10/GRU/sparsity/outer_fold_8/inner_fold_4/2_unit_GRU_tanh_unipolar_forced_model.pickle",
+    "training_losses_path": "NM_TinyRNN/data/rnns/nested_DA_S32_B8/WS10/GRU/sparsity/outer_fold_8/inner_fold_4/2_unit_GRU_tanh_unipolar_forced_training_losses.htsv",
+    "trials_data_path": "NM_TinyRNN/data/rnns/nested_DA_S32_B8/WS10/GRU/sparsity/outer_fold_8/inner_fold_4/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv",
+    "eval_CE": 0.4451426267623901,
+    "best_val_CE": 0.4314888417720794,
+    "weight_seed": 8,
+    "sparsity_lambda": 1e-05,
+    "energy_lambda": 0.0,
+    "train_CE": 0.4652254035453171,
+    "val_CE": 0.4290723093320019,
+    "eval_CE_computed": 0.4409381687682743,
+    "train_n_free": 4381,
+    "val_n_free": 594,
+    "eval_n_free": 916,
+    "block_train_val_CE": 0.4636163508833251,
+    "block_val_CE": 0.4314888269164279,
+    "continuous_matched_CE": 0.4623312908606588,
+    "block_train_val_n_free": 4827,
+    "selection_method": "block_reset",
+    "selection_score": 0.4636163508833251,
+    "example_info_path": "/home/charlesdgburns/Coding/NM_TinyRNN/data/rnns/subject_examples_latest/WS10/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_info.json",
+    "example_model_pickle_path": "/home/charlesdgburns/Coding/NM_TinyRNN/data/rnns/subject_examples_latest/WS10/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_model.pickle",
+    "example_trials_data_path": "/home/charlesdgburns/Coding/NM_TinyRNN/data/rnns/subject_examples_latest/WS10/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv"
+  },
+  "reference_candidates": 110,
+  "reference_sha256": "311a06d617de9bad40f7e5e077dd606dd3a316abae511c9b9b31679755a8c2da",
+  "source_artifact_sha256": {
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_info.json": "a7113590ba9e4494b17bcde1911b2f987c9e349f4ba31b44e3ff43fa1399e627",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_model.pickle": "ec515e6b1fef7c23a744d5cb14eb1418c52b08458802b32003f3c710b67e722c",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "556efc108c3e8d4f4cf6f478f29722fa905a9038ff64f2f70820e6cf14859fc9",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_info.json": "8120a3077cd2d90314d3fbdb155bb26529e136be6a9b637fefc3ca9a5a07e924",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_model.pickle": "067b4b5bae5c5af0770ce817a526402120b5bcf19cc5789f4ddd2a8256f32230",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "0f2a06cf9c9ea6cf1eda541a182dbe92565992f734f24435c97c9ffcab155838",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_info.json": "bdf1dc9863bc4a82353bd7c266c381dbd8326df37fcdb4ea652127f45735ab6b",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_model.pickle": "8cf7f5a1040ad6b63b7aea3d0052a9c4491394c4712d931cdaaf18007591c30d",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "779d2b06f2f021342eaafbc3003c034634e14047ce5221919ecfe87b7e4eb6ae",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_info.json": "13ad18499e71538d35d18c3bc830a454564cc08dc76a5f21835347470e6bd2ab",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_model.pickle": "bfde5e178a54123d535dda4763555c4b2900c8e983abb32a9b0bcf77719533bd",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "302726da4e959676fa7b870116cdb884fe1a8e7a78a1b9eaa7d37a8691b76d2a",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_info.json": "a8eed5f0ba001025502450aaf1b0739b258fea0a296185c08756314d417e2fdf",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_model.pickle": "ce76ceb6acc5b21b0cdf8604bf236dc169365ce954307ba5b64b8882ce4562e1",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "4289fe8943c135aa05a2121b141fb02032e6a83c33f05a91ac14b7843e64e9fd",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_info.json": "6990a2ecdbedecbc5f799069c7e4ba745e6fbe5421e559e4e9f342459ac61dea",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_model.pickle": "6cf14a6efaa982f61f4572e6a148a1aff156a71439c0aaae287922164203f0e1",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "2174a47ab6a37a2bfba44b1fc6662fa8427852d74ab05cdef32c08a4f60c3362",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_info.json": "8f2d5c77c7f1fe2eba7c7efc3f5cb01463c2acc595350009d1bc61dbabf95a53",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_model.pickle": "e223a7e24dd4120d02de0253a040d7c0c5b23e0791c774cabc6fddf0cb7f4c4c",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "8f530786804db46c7cf95355cea5ed6c8aaa4e9454ff1aee682e894868ef278c",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_info.json": "4d70f5ab4b123528709e7f8501b3172a8a7b2b255498d8b0e4e9b2d09fc06dc0",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_model.pickle": "a7c52c835484f6723db3c334d3336e5365d9e47a252b03a88c62d284a253ea84",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "7e539dfcd1fa1357d249a06dd763ab019df0b554a5593f20a632b3c0dd0836a9",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_info.json": "9df026d524e066ce04d75190d608b7643b23d8e774fb39dd22bf584e46cfdc94",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_model.pickle": "9d4ae0c490fd04eb52ed36afd516df77bca28577a3221ecc948c76e738e5495d",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "c6dd5adbeed488dd8d6bf83076de8978b70ba21ae5247c6789733863a9171b3e",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_info.json": "c5f6b0e750e7fb5b1f64f4aca35b09f013e0dbc33619da7acfd237ab390e4c00",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_model.pickle": "27aedf4949ceb0143fa6663bea711c3cc4b62f12bd0ccd3f648d198284cb1d12",
+    "data/rnns/subject_examples_latest/WS01/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "049edfbde073b0ee87d6962a63e686b9bf60219cd235d7e03a596f1196616c78",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_info.json": "3e0568fd9fa42a512f5474c61a64901d53536fd244ed87bbe2dd9c97eed42eb0",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_model.pickle": "b29383f0b2f5d70a3c2f0b3829eeaca6914b055d87589d6d55fcce0af10e85c9",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "0da35fed52133e1c7ffc226f78afa8321d35e380796d8e3667e9891d1ed6a472",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_info.json": "ae32af37279d6f287f07aaa91e5f8f785b47798e7c89a5c44e9a838985172b53",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_model.pickle": "c2217e812aabcc00da1093c3c7f891ae62c5cf0f991be4036a58a8aac8d2bed1",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "34fdb47f3d20299345b031612e145a73ebcbbb245e15dd25e0220267b0986b3d",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_info.json": "6e55978356a5c364de7dc97bfd139fba3f65ab323370ae504fd36636de741ca8",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_model.pickle": "f11c7d0654e52007df7b9ca29f2a40d8e678a8a0e10300be73929fdca1d2ea0f",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "c0786b86e6d03321b6039c3267c98ce3e835a80e6a717cf65ce060d4cf8c047d",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_info.json": "f55b0c7ee794c63c104e9d32d4d800ae27a2faadf42c523e4ee06c2ff60c3446",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_model.pickle": "9f59b56612c3ea69585cab402e579b4a6eb9d9f81c648b50005d9c4310412a35",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "3c84abf85f30f77a88409dabd079b648ef51f0718594b8039169880f9736ca3e",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_info.json": "ec96a77d5be1988028ccf56c0436a68595714d2604fa8d029e3a5f5b4723acc1",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_model.pickle": "36ef494eb6347747b0289b40881fb3e887fa17219dbf8aea55f2658e4ea661b0",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "3d266ac1e8f11d35140514547c7d7d0fa9eabeb16874a4a55e54cd5f509e8115",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_info.json": "55ba728f25d3f8dd6513e72bd2c63301877308dac85243b6d5350be43c84018e",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_model.pickle": "c3a62311954e7b06833914c97d64d251af69c9068a9e5d8b6eed23cd51042d7a",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "71eb16a8d5958cfd5299827108c13c5bd0e8d9039f13fa19145744fd3ec2562a",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_info.json": "946a60c05acb88f7c41e288d22108f28120b2f085e018e4670c19d54972c438a",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_model.pickle": "515654f253bcc4950937a90a66f3c37747249f8399b18801efcbdc89788c8b1f",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "7d11b35a2f0edcde3b9d6a3930d0b744ae2e126353e5d01ab9240348daa70754",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_info.json": "55540ab508fe2c9d4043ec762abdaf6d5f388482cd3901967fb5cc4aeff09bb5",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_model.pickle": "216f6e686fe62f813216f10fc55715e45c6d89b397b197cae43c573daab25972",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "a2c1c69a49a10097089ea75b397a0128594d3e22fccbb7ccb38e619e82f947b3",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_info.json": "7fc4568b74507ad534ded17e46da131a60f09989dfde284fc62e7fdd1c8a1ce0",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_model.pickle": "fe83e443ec74b47ea2e033f325f23e57916f541425ab7246378c8af2d4d74a69",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "40953455b2e7a72aecca6274b9dd4d479cc253a5f89ef00a3566b6f7d743f830",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_info.json": "99131ee7f16337ed1120108652da2d8559e825f78210a4d63d3bee95f2a0bb38",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_model.pickle": "aa47ec734bc98dbc9f743297886ecf4ee69e9c67a4e046cca22b8d937bb4b8d7",
+    "data/rnns/subject_examples_latest/WS02/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "f27f0ab75716e284ad43e1e7ba05ccd34d5a1b88a190a2670a7d0bc8114f4fac",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_info.json": "d19a38a2545f67cc2041238abcb873e857bd10af3c8594d9a2c493f7165175e0",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_model.pickle": "c7bb39b9d5bccf6b96c29fdd1f42bbe5615e8758dab33007d724bbd7e167cfcc",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "f5470a83e82618bb838260d1ade1cc2db00e240d4c4ba105fca3a7a4770398b9",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_info.json": "b8c0c711c4c021bd5839f6052242b86a03c1d477235635a217ede06cad92e285",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_model.pickle": "f35a41a0c8680beaf54457acfd069ac32594e2b7072dc14b17125cc8efb64595",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "aec7bb2cf34bfd26abec0d8786bf49b5f5dd2a34ea1e559724cb33a997155fa9",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_info.json": "28a8c7470d07924f124183408bf8fa4d904b42b1ea6c595990f3ecfd0977cf7b",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_model.pickle": "ce21bf9c8a79b4067d961f6673dff6c40dfcd39e2448d69c7658b5700cdd27d2",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "4987fcb635051bd7221fbbc1c84b8a7478e53d51f11dc13bc0ac344714b6badf",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_info.json": "f3850452deb2fae3e7b792036caa0c377655b0b50172e9c6a4ef372e4caa3db2",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_model.pickle": "45d1f2de1403dccdb01482286ecacac0ef5212aeac9c434bb2aef212165eff49",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "3671f242c724b12820b813e09482a151cedfcc6e819400a8f5d8d78cda204c46",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_info.json": "70c4d77411cb40d291d09f082eaadf9485614e924da638ce6262f8ab8d02b566",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_model.pickle": "53579a589f49bc7b86804a55c2acd463a5f996c1592d0c5e74ee18a88f84cd86",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "f3353cb12b2c934f0a72719cb2409feff43df01d9f8366acacd88834ce686fe3",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_info.json": "863c09cb8bae61ba76cf9f9b76a144c563a7ff0bca42ab8a98f02e5406a45825",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_model.pickle": "fe13dc1e9312cb72ffe7af25ac04f1050badb77765400a15e3f130ffc30fd310",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "d75c01a48307c91dbd73f23c90ebfe7838795da1791bba1a8d95ec86c732df7b",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_info.json": "e33e005ac6e14b77f32ebed345de63e6e5e8b6d7243e986dc71c81398c874dad",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_model.pickle": "bd416ead700196e4da265cb29389e89ec9aa73091a5a8a7675400bb3b23b46d0",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "160f21c62524982d06c3eab8b41a4b80c01d6ed773b58feacc256a9356ec73b1",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_info.json": "99c00b1804f5d274321c550397e9ffe6dde460da04fd1bb05abb0e6df03df30d",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_model.pickle": "a2d3855f58d594831a93c1cdd977552c930caf3e61349b8cdcf3817cdd6361f4",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "343e3ef0832b4044086f7fda3d1e4e748fa290b5bd11ee69422c994698fd1160",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_info.json": "1afeeca669fd91310d1ad3be130c18251be9ec3db86b407e65624557752032df",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_model.pickle": "8a98397987ca2f237a3d6a3aa29207795963d4f7426c4950d6fb4982981cea98",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "edbfde39fb859c37f38477aec83dffcddf270aa514f79ea7fc5407b6fa71b67c",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_info.json": "ab040fa20bc9140bb246ff4ba9f30254682415f1242fb262e3808831b1ff5a01",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_model.pickle": "93685663207b5d58b606ea3ff474e3bc09a362a408b93dea9a2bb8160c9e3708",
+    "data/rnns/subject_examples_latest/WS05/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "c9df996acb9e20b24f6c24da446ce8a5a6984844da378a6f1258d20c770f7c60",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_info.json": "d11a7b4487078d54bf9e4af4bf6c19c98389d69c4aea4c890e27a2381ec32435",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_model.pickle": "8f4335d45fd67f6ce7f4048f7cd3662b01802e40b7e093fcc90f1f64c9324826",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "cf3c8781c850412e42ee9843fdcd16968128a0e1decaa1b189e8b90b7267e1bd",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_info.json": "6e5c9be8e20c31732d1dad67d4740ef6a0eeadbe60659a79a159db761f07e1c9",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_model.pickle": "3ed7349decd037004928dd7a829afdc135415c5a97c02b0b2f5c7c542947b774",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "9bd575c4599fcd892c7fe372494d57617661a3b854351468afd18362b0aac630",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_info.json": "f033f96a66b5e47a914dc299b383f968e59b265e1b5020526fcbc7560e5ee79a",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_model.pickle": "61c124a30ba3f264aea6ebf4f54dec25fe5eadcbb4fec0f8e299e33b0f2fd211",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "a43bf6d3d8db05a613d9db77d804e704e6da1a7ce2846c3e95ffaceb4d56c35c",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_info.json": "c9ac1b8bb13947f6388e1127054abd13c52fe0a656343e57e3c0a18bf0876c84",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_model.pickle": "69629dc1c2ccd5501c7a825a1f06e03aa8db00c50d940619a0b9bc2fcf76719f",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "16d38e4e4811e67df9938ac3ca01376c72c2da3c2e8d0d15fda4c0f317e791e0",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_info.json": "26ae38aacd3397daca63a0c3e888cb2e40adf40e42a3946737830b33434e232f",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_model.pickle": "7698f75c4a6edc9b970f17c74d191eb8d8adecc8b2910683a6994cdaa478b11d",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "36ce855747dc1d6d578bb4fa01a7195bd5a2e5fd9239fb2b8bdce847cfca6cfb",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_info.json": "845c92ed23ade7d3e1446688d14824e60fd769b3cc6eb8ee53d82cb27e6579be",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_model.pickle": "a08854aa078d59e4d8d0ef5fba72f96c224b0d66872c60f1f81c739c8edbbc88",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "26a88e4a178f9b3235965abd53f1da4c4f0a9a89057e44e0c47b53fd06748502",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_info.json": "ebff9b28259e9c54c3f44cd0cb9b4f5985be9ac28264e1a4fa8522b192d39958",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_model.pickle": "cecfd7ddef5bcaae50b37d6e8abeb483b5c5c29d1277b3f7b465f0810197ab4b",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "6e849a7921c2acaece6a9d26465d4b5798faf1ee1aae7d9be38a280b29275854",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_info.json": "e7e705ba70e83c9d1fbd2e32e9e2d4c655f2b97c9f9feef9e3b5d894dd31e8d7",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_model.pickle": "4063e7ce67303040487a96f584252fcbfedd4e01a61c813d50d03b6ad7e7b9b8",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "b01cc9af045c00f63ecbd59125459c3417b98acf8a7c1cfce72dac8037acb751",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_info.json": "bbe9ef0b4cc7649e7d89c3bbe4b242f64dffadd23f286f7b708a7d33f9def374",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_model.pickle": "a29cae9ace80ec015803a7eddbc6d44600442a7eb42db3f1ddba6754aba8b87e",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "ea60b34d1817502955b5a541dbda9e0f202ea38aebb00cb4d706bc67df2ee4ca",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_info.json": "121504f40b9c0ab4e89a27824b70ead8475dae7af9e39ff633a103c20367ebf6",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_model.pickle": "16494b1dc9a79b2519e5d8ac850d3acd4b2ab4d5500bc87a8fcb63f28332875e",
+    "data/rnns/subject_examples_latest/WS08/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "0bbf23fcc7db6ff6a5ff28b63c8cd5b649ba597a210933fb8a66c9ef1d7dc4a6",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_info.json": "6bae303abde6d9fbe3b3b6875522cc10172ca49a6ff4cb9242f71da7f6e21faf",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_model.pickle": "2b82e539d9a1c2783a546cd9bb816aa608ade3e8b61bc15100239be2b49954c5",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "cfef52bb72dca6d46c1c98baa56b683cb159230bda6ce9dc6f668bbda4fc3879",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_info.json": "e74efdca1fa917917e320257dd13b5607acbf7d9ffe43ad07c84f01dc761b1d1",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_model.pickle": "fe0454ced02af5b568999667535d6462e44798064c2ceef169120a6860b6c4be",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "5b7daebf41bce02173f45aa922dc59dacb6524dd0869d04513bb0e9dca263339",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_info.json": "4cc08c758abcc2d93add4f166bb16f88bede173cded75e8b30c604938c4ef916",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_model.pickle": "91749a15724ceeb729587632c54f2bd8b14ad00645e0f19becbdf02bdfc9e9c1",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "068b521f78e88df494b60946effd9d7cf4265f695372fd4496ab778b65704d13",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_info.json": "a581892ddb8ab2ce4d40e485b2b175838bf04d689adc14999462614f58e45d07",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_model.pickle": "84c342070f07dad75b90f73d5985dccfbdca9b3f1b0d6217c361dcc79d689af5",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "b4d7341e4025c371b6f6368b8f17def60bdfe90b15bb009fe046113a67efade3",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_info.json": "adb9d781a90f44f2480892239cee6787ea5ef572f825e61bdabedaccd520b1c0",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_model.pickle": "f8a9d630da147577dd1877a628ae55ec6f648466a798c14d0214433b9870195b",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "34e779a76b5525d7eec7df973e15f7a8bbcd51545520e64aa06aa22e1f9e709c",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_info.json": "6957a5d81a84e64383d227ff426fc01b06c7d750f509d0a41a171cf82a00aa17",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_model.pickle": "3da267317646d0b0c0ec1ee730f828405cdda68b6961718aa75ef437fbb9797c",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "d42be331f7c8dac5259cc3f4deed9f81b1984e16ff30bb0e1a6c765e93cb78ce",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_info.json": "58930591b3c43e3a242dd67e6b86e9308622c8b65b7e165e76a8845fccab027f",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_model.pickle": "63427353da621815611eb4ad9ce934c429022a191b234d88770a8fc82c8fb0bf",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "9dba0a1d6f786d4b5556f2db5560a6c841b7fe99a8a5aab492bbe2d63cfa3804",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_info.json": "27eb4ddf165e27d08dd8488b912558970b069578050b2538048736182d5baa9c",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_model.pickle": "600741acab029f588be2f5bbd906700ca8acd6d23a6f21468238c962d28f5d4c",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "764b9e56fae0fb40e1584644aaa192d89a807a98d9a9dfac3908b8a18484909a",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_info.json": "5da4095c416c424966a2471ca88b83d459f40ebd07fc075048c72a660e95a5fe",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_model.pickle": "cfcfa221213f4cf8b88e665ada7feed6525561d6b2d2ec8ae19c3c858196d71e",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "3e577c5219ad2d880a1b92ee2278a5c1de081612bd908374d396f29d45e72909",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_info.json": "599bb85a4b544c2dd20f0319737f55a45203bf890af5b8004095db7915146518",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_model.pickle": "65922591d582327fb2b6cefd067f39c0c24a5e443c08bff425190ff779f5b29c",
+    "data/rnns/subject_examples_latest/WS09/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "ce9d91ffef5dfadf2dfe7db7255fdf98d696d3828d720f8ccefb8ce21789af5a",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_info.json": "ef2df8b797d22e3639021800de7621de4f20b94f3ed91770f11a3c56291864a0",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_model.pickle": "8cceb3a7e2a296c3d39110849ba85b22055555b593dcfbfa5066cf333d4c68e3",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "303a11bbbbab9cc6e11136bb290941ef808f3a9a95f3f85bd197458971e1ca6a",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_info.json": "3e99cacd57494295708b2a7f82433e174b6568b60165421adc460f2933446b9b",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_model.pickle": "380384f1e56039698687beec6c6b926593dd62e46a5ff1303924a7ac9a640954",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "13dd0bfeffc66ed3b66d06f2c93443a54f3797fb70eb667eaaec252d08e4f189",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_info.json": "77ea0bbd413fbe4d0a440af0cd56eb641dd69c41134b11747677201252dfd243",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_model.pickle": "b1b797b82a2c895af46ddf39d731e329c283e9e17e37c13d667ec59e5bd57f34",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "36903c52622b47e3bd5e6efb831a9f6c695aa9d25b6758ac5a9ac413cb6da46b",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_info.json": "f87ee4ef9a127a8863325df94cbe89b6ffcb0b4e03f94da72593a556965f4088",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_model.pickle": "2f5f234eb2454c684ca4d7df347c850f17876c0ad59262e197603bdd4f5a42bd",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "dd318fa3533c070ad7fd8f821816d97bae8b7efe17c6e76c7e291ffc23923aba",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_info.json": "14e9614eeed851dcd4f6c6b26976fe784f392bd1084653597bb9840e7e444ec2",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_model.pickle": "b5a84c86d26df842915cd13b03d74b5bfcaf713a8c48433d93108d914e86db82",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "96c223780c39f977912b4f0b3ee8e160b99adc37208c0119ab133adbd1478cdb",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_info.json": "a1acc0a0222edd11212468650f2938ed207dd7a46dd7a9f215f567f2f170a6cb",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_model.pickle": "221cc9eeed5307f1aea72705b7591ff7147794c437f9f597e141afcd2c122878",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "dd358f5cf37d02a81d27dc383bee687ba0b052ea35ec44dcf486db0f248c43d6",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_info.json": "ef8b85b9e6d700c4997c751b5dc51c8f7a737f7e7df4f6497d1d4497c30f5255",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_model.pickle": "d7ed7c11c068e13b7c14edd5378b50348cf5b4f42b0258eef0059e95135863df",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "86c136c22e1b9ac4b6319e3499cb94db65283ff778ea2c35c2e1343dfffc1a45",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_info.json": "e1ee5d079c7c3a752c7b6da93a349383bf6c9ba33595b4ce4790ceb108a53311",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_model.pickle": "52a35f72566716bf2145f6415246ea14215efd57bffacd28a2f12e3c0e4a9b36",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "c0c8a9d46d06a7575720c860205c221ed2af7d4a9b64627ff4d96ab8dcd2ec24",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_info.json": "8086fe771085fb40ba3c11a976a188e1b74c29692ad3d27353657189174295e3",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_model.pickle": "42937811ff89bb7a5ff9015df78da43f2b168b5225512374e3910dae47d2c6cf",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "1aaf99f059278e857a9d706c34a9ca4ea2a41a6a1a0834d5551bc2dd323ad155",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_info.json": "a9fc7d08cc9d7d265b595d3726f0d8e067d35520a7d1f61b5c73b3e1c9be37b5",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_model.pickle": "2be5d83480a35356aeb0f40f48eef73c3fc2ecb8ada993b985f8c2f291e93c10",
+    "data/rnns/subject_examples_latest/WS10/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "b10c7e572cfaf4db50e87c5ea8f30d279f9f8ede870bf509f97bd560571d7241",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_info.json": "87ce9e7bf41569a4360dcd637f808d5dda16e41380dfc465af8727399c16f74c",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_model.pickle": "1e0235bbbd259a7f386ccb7a17498207796668100113384a54834cc066dfd178",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "aaa9cae91c737e91303f09c305128cf36dc0db453698bf8efdcb4a5b8d05151c",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_info.json": "d6a829c5c6dd6167bbb0f059093c3152e8f66d7ffcc802e96174b92fc2529c11",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_model.pickle": "0d02b680e90ec333421aab3ce79637e2ab081363bdd9f1b30566cda74705a71b",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "8dbc1e03513c63efb1a040c40b3d1b9d150ab10a408522051fa3f5c86cab56c7",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_info.json": "5391e290908428220549ff50b420d89744ac221c8b60314311b287842dbb2a43",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_model.pickle": "c2cfd486563d0a75eccf63e46e47875609ee9b00970973bf842f23074061b573",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "ae70ad230d4f50448349b057d533721512dce615d2d1439867771b950ae3391e",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_info.json": "5f52bd4cf4b8d5b2f7e0145f773c14a3528f1d06bab0968881c7379210181fc0",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_model.pickle": "3dc3efacc27dfb87569c250c1d0eabb62a1350e49f10d61044a9e5359b370cbc",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "c8c4b050c025d822eaed2f794364c12da3f8b0d1f7e9061874e073d83c6e5427",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_info.json": "06145e73fdc3d8de49927771d11df41d77977785e9d07d58af916f912a806370",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_model.pickle": "d0221edbc800ce23741e72d547bcb7f1be0092d33a88751295d08656e380d3f5",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "62a2a7dde9c70ab398a7108d1ecce7ef9411479b28a9a0e46cebf1d50a4bd4c7",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_info.json": "7acb545f77ca7bd407d4702f76e39bd7a0c4ac3c9e2c85ada0c3325b7c5a23d1",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_model.pickle": "31f69b98758309569334539194031b83f044023ac27aa40d82f49afa71f53cae",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "581b91c0f13e0d4e3437135dc0564fe84a99ff4afecd06b76b684e1e33396a4f",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_info.json": "de42e0e1db2a103b9b60acef5484f20360b8e94b74cc1ab76f0e28762fd282e1",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_model.pickle": "5eff79c57d64ad67513557edfdc23813061a57912d22f95d14ff7b5f9a76a695",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "32159eda8d62d79fd4c617e19e71df9b77f44839b9c02d1769ab30f426e638d1",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_info.json": "1896501d407f953bbfd8f51affc92d99b1c29d5718593385b3063c72abcab810",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_model.pickle": "2b2292226591eb2f6f1a2b2d3d9bab794486e01f013deebb4ed847b5f6dc504d",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "34aa2e0dc02d47371ce794ae9bb1001c0cdeb3bd64bd500124137f3efe1266f9",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_info.json": "bd66dd6b93c2cb275f26edb267aa23b34ffa49c0282797932a596df329c805b0",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_model.pickle": "8fccbe5fc86d1bcb68f91a45b224f4d1d46c07a04719e2fc658b1de26ac1e394",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "13b8acbb37258adc38ba9a574f9ba42f76ee72fe590be84f46f431ae23b46506",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_info.json": "75b44422204a5d7954496436bd8a74da4ece0cf633f3fd19d6842c62de2ad907",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_model.pickle": "84650e9478cb61c8b87fe8e3c56de853169890cd6d7e1fbc0a83aa2efa886f7b",
+    "data/rnns/subject_examples_latest/WS13/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "0d48254854da9ff0a71202a0b266d69120698da3da26330795c7d28024afd511",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_info.json": "c036ea6f02710acb5a5d321f3e177c8acd072d06f3cd51d9de1479a4c0490285",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_model.pickle": "e4e8cd2288a80d207a08f18746f60ed3c4665e79815afb5ce53959167d9d3031",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "e1a6ccc6011418e31acb02884e69b0f86c9b0f7149511ec13bd0605d029980a4",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_info.json": "ae6220890fb8bfbd16f78668d4c1aa98746fdfcb907e8c22e1c56b906fd37cd9",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_model.pickle": "b091806a532a1ead30285a67af6505d6bf4d18526b82b20806dd20be7fcc7bc9",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "4dedba0856441b5a0cb3b7554ede684345e5034a2c06e2e1155d7b43959a02c3",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_info.json": "4bf4fc6a2fe23dc95c83def53eeef62d57124c10d733232578b707bea5540579",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_model.pickle": "06c634c8f0c050374b3a257bf91711b3f56f241f5639381d13ef241d23507382",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "ff2393dbc319548c34d4ba5e247394881db4f94fb3f1fb9dfbf190f050746e5f",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_info.json": "0a5602bf6ec11d1d40e1880b88065c3c68c3ac1acd4ec4b73b79d2bd75d99d67",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_model.pickle": "812e2647fee400cc8de556d7fc2f313b75e00825bd47b1e3e5b994e1b559a6bf",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "337cbf4facc3705420504ff3f9c867e535b169d12c2bb695c1860216d61332d5",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_info.json": "8b2994e50d3489c9098f44818f14b26b61c4221fde831417141cc72ec0504902",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_model.pickle": "1ecbff9c13d4e7a00ec409960468921fe35455c1adb26142ef43978616b761ce",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "e1e219aa05179ae3e79af626b75f24ccc9ae23576b6ce8a8e3f6c02e50212097",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_info.json": "e4e4383378846fbe3d07fdd0037b6c3024d755542e247a50b73bdec6dddd34bb",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_model.pickle": "ae099c2710f39851aa22f8f812afb8a757bb6cc9526efcdb5bdfb280902c1891",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "afbc70dbc4ee8e83878b9a3c4dcc4806b2c5378abf179bf35b5f68c4d3b42e41",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_info.json": "df6bee202b3ed63b126119a203a2d5669e8c61b8be68c38d29cc80ef5a73be96",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_model.pickle": "5842f84e23654272c4d11083ac164e272c64949f46327ebab29c325cddc59bd3",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "c3f06212c7e8f09b36ef273f4bd12d55d2a17c2d4c90aae1e9a2d844bce1b212",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_info.json": "31e3091af9a208b280c7aa057fa9291ea785cdd8aec98e921b34e6df0bb0e445",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_model.pickle": "61adb47be1d362bb8aba355148cd8dcc9fe09a6a7e0dc8c32096c304852d50ba",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "c51d6f9f0c51330ff94d73e9108efde3e1a856912ae5687ed86903c3e70156d4",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_info.json": "6c631dfde36ac39c6dd79aee00744a0c40fe5118eac2bd5cb94cf3b11bc2d8ac",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_model.pickle": "e8ec04c8a736a6829c1bdc3b1d28a229da49eb88236d440486fdcc8411478b52",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "2de6378db032cb4ed40a926d2dcc52219bfa3174258c07800beddbdcfc8be656",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_info.json": "299139803fc936f102dddd561c15450704a050dc81e4172712962ed174635598",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_model.pickle": "087aaeb59597c8e5890f8b538dcf13b21f55968e9d5904d0d1e3c79d1d9a0ad1",
+    "data/rnns/subject_examples_latest/WS14/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "9c8b7c7af6656563ccee0585a3fc76bbd43f3ff45f61dac5c7a9535645aec160",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_info.json": "c1c731afaf45d0b40b1bb80482b5be968fd21affad4b4deb61520cc17c54e835",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_model.pickle": "9c70e524282610f2e024d70f6616f84cb359288f661b3db17b507c174556a072",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "d91a7e81c29a0b6142d7ea2e3163d0af395b5e7f4caffa5a782edc6c38d75c9f",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_info.json": "94a09f558dfa237609a726228a129c8ad5794436942f1563086cd240bc7054c2",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_model.pickle": "8f5d42d2270bcdfb1180c37e883aa18e46c219eb21c022e66df25da6a2d093c6",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "2f606377733bb5eae11131e496584bef52505a313eac057f57a1bf14efb47123",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_info.json": "6a1e3be8e0d45778090f803d0acda47b423da8cc1269c688665b94716352c373",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_model.pickle": "8c22ec57b0f11e6c15287c91825209e13c37cf5c276702b49e6683a45001ecb1",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "43bd86ed4c08826855298e2f5edd12ef1f4db19ac4760d82ce311ae639b04928",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_info.json": "d68df80b9687f17d7b960e5e478b77ffe91026840184ede55d396104cfb3823f",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_model.pickle": "0d2b760b2794bdac6dfb43261ad65d98b86aec8ac94b95bcecf9c375f761afc5",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "768fddbc9c258922019e3a557e376b6ea145c94fa2d7221aea3688ba6af341cd",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_info.json": "ae6f3cb51fc011d33b4177f4488f1ae661ce0749d791f8e8a7d79ce948884f0e",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_model.pickle": "ef0c4ef436be4602650a21d253c3d18607d614ee14522ba46d73d69da9d763d9",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "55bb2a811303947926ac026c59eda92748437ad00524453cd3741764bc0b8b52",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_info.json": "15f27df0906d52eeadf30fe7313e577cb7b3a9ac9a24dbbe8e67121169dc8c51",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_model.pickle": "2f48e95fc92e5d91cbea20090e73638cc72c0e22a2e9f452fca563ceed4c3688",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "42532a55b4801e478b09ef31ed3b834026efae3c693f1af76150353270e002d3",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_info.json": "0c24907b3eaeff6d9c83db65bfd74cee11872fac73b491116ac0af4fc7b43ac5",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_model.pickle": "395bb31223f6ccafda16b0b20778c5cf2dcf106dbdf170de8182b0df984de06b",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "66339497f00660d35626aceed783061edf25243a4a817af0716c892c5b3d31f0",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_info.json": "dd3b04ffb73545b7856ff08e59ee651e557292e41d082704c337f620ffc3dd20",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_model.pickle": "266e7d07a8a04ee311a4fe479822abfff03f3cf6d10d4e6c590953c29aa1fa7d",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "c7ec39cb8a1471a66be180b9b6d1c3ddcb3f4eecef096d957b0bf8a0676385e0",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_info.json": "f7e591918872026007eca046100075f898230fa4b8060474b1ab4440178bd745",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_model.pickle": "1126ad258bdf361f7bf37c5e05b4769694b217c3098508c2405bdb4ccecc44af",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "d0d35efe04449824af46d05fba070313fb5752342fae0059b3f0e144b266016c",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_info.json": "60e39c8a67d0fde79a8a554236d5107d724ebb9f42b2d57dca14c156b5770731",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_model.pickle": "fef81cc361feb8cc969d645beaf8982ed5f3c40bbc3ef06ca0ba8d6e47088bc6",
+    "data/rnns/subject_examples_latest/WS16/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "f5a31201046bb8a6ad7043f7048e23242a960b09990ee581ae332aaf37e46add",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_info.json": "3efa27282f5db05ea254e6c8d301288147a5332116dfda6f3c9aa15c24a27718",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_model.pickle": "56d83538ae27e74798a31a324d21a4756a38d1b4fddbdc2b339dd50cbfea17f0",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "9a8572acf034f759e149cd697f7f0852b12bdf5d344a876a52bd49528b096257",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_info.json": "c14d2b7d8d0783bb5d979da595e02794b6d9a572ae6f0c8e778dca8f041296a5",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_model.pickle": "32e577853fa8eeb156d83f115f45a562afb04e53e225faa66fdc5869dbcb0dc4",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "76d023a5903de789b1985a4751635774effbf35a4018ebcf16825799bd84be23",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_info.json": "d2dec608e32f1de0c6ed22133cda804689d02eda03ef6d8cf6cfa8a845e26035",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_model.pickle": "a7cceb59a96eaeefe20328c5c8a453edc0e750d7d827bbd50555acd4531108d9",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "8437c8fef99950326f84b24045a3d63bb4b909bdf0546c6fcec26b95dffcfcb5",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_info.json": "066146ef644b3ea95c6d21a045e66d2e22411693e24b8d3d24db27ba4e880ac6",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_model.pickle": "305cfa9d63b3722d2dee07530f74e9dbf87b70b767a8a3e20f11ad1304c33b4e",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "c7af04479a5000e0e61a21f1faa075ccf462e3eda61ac9190d8e35c8eec26744",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_info.json": "54b5e5e391d29a27c46e7c4d1f62e0a4aa8a0ef9a001142c1fc614e5ee5f830a",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_model.pickle": "bdb277d7de8853d2a56aa69cae645a9803d71de49e6c1e8f9a5da1074bf9737b",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "cee3a3147bd95d6a696b17294acc86c184d6a6b346c4ed2fb22f72e1baa9f84c",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_info.json": "3b41442ac253874874fdc3adacb2ff2b3194f2331c3b5ce5dd3a6258ad53e44b",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_model.pickle": "88f3ba9792a83b520a4363985ee906faf34d2bb1665cac1240f44100b6c44315",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "dac0cceea33ebafbddfeea257f5dd9b17b296c36a8a465a6f164e19b5a6d6788",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_info.json": "7f68b5b51b0178b614b0982d500ab463512ae5a838cb6b86bfe09c5cf4b6e5f6",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_model.pickle": "937a13851fdd32149f429d72908ea290434aad1fd8bb3cd042202d1e06d118a7",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "1e9abd7df35541ef6487d6b6ec24555922d846b274477b21fcb7c3e6235bcb95",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_info.json": "6210dbe94907342e80eaa63dc74e369c838f85477b8a85c537b78bd0c7f28d2f",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_model.pickle": "293b5dfd048b16cfdca1fd2c78b48b4934a358c63c384b9e0b5516dfb8c03049",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "1df648ec6bfdc28b50132f25b143a75bc17912f1a93debd80df1ddd22db9e420",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_info.json": "41e872953f9acfdfd3c37f7eafaf565353759c57fa936c75cb6af84621c4fa90",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_model.pickle": "78c3d371ca241e95323c0785ad6266a43038aa91eb91fbcdafee77da92000d64",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "7a67b9ebc7262ce28673ffbb47805b3cc0de6fe4d2fc5b0df3cc33d4fc9b797b",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_info.json": "bae2baf25381c63c1efa20c2cb01bd0b5d2ca481c47df9b1fadf2dfed5abf1a3",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_model.pickle": "fa506cf04e34d054dc1a9cf3e2036cef1db66b8b11be3474732f01c8a2e91a80",
+    "data/rnns/subject_examples_latest/WS20/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "8cca641f5383080b151ade554510515bb94eab35ef9cfffa5461d64e996617b5",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_info.json": "598a15be4353f11e431b140e3ab198bb4d1e356920da67c8cf5cc8b2e206bdd4",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_model.pickle": "ea6723303a3e156528445c62912f738e6dfb77fc20f09687d03837c3e7f9ba82",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_1/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "8ff8e2d3cd7df2d9af5696923b04ade692cb2bdbd12860c78a691dc9e57ce0df",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_info.json": "937da07e676c7ba202e17004a72f923b273fbaa9a74b33a465f83384880a3fb3",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_model.pickle": "99a1001404df8885cf8efe5386119eb2955b8b5c0a5e132902031cae8b40fa37",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_2/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "58d8e23e76367add037a7d08d39dd8c0f3df466a410b1228a8c607b40af84d2f",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_info.json": "33ecf01083edce8108c3d6d9b72d91a16d4757c0ee59ff85ca846cfd71a96a52",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_model.pickle": "ed0c77ce776b410d5e89ab4f3cd29c97de308e7af1681d74273eb3d835bd2918",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_3/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "8bbac1f170a877521c0dc7a1eac1dc3a0435f029e2d51ac6c3f89a3fb54512b0",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_info.json": "553dad3d5a7194f994cbb61d11f8d4b2ea5ab26f9e6a0515902a32d5525b8f52",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_model.pickle": "718ade745aeae0dad68e64ab48e4aec70f41b2b5b8ca439280e2f2d3a3312c1e",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_4/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "8990f4e6e8000defc09439e22dd8034fb4c34c000f30299bf6db9f321bdc9c6e",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_info.json": "c815f1248c342853b12002105b713721f080096eceff70799ddd2f59baf796f3",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_model.pickle": "c4e153ef9802c912925478226ec67ce71c8c02b642997e017d177622f29119e4",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_5/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "40f87257573bd9e4cf453ccecad579125eba3f753f7749112e0ec3f8dbc4a064",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_info.json": "6ca8352c012541657080ed67f99d58123d48ced87b43487635992b2356b99cca",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_model.pickle": "7225013541401925b79f8eda6fe2c1723b0fb6756a7997d92f859da932f83b98",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_6/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "63d242a6cb7c775bf77e4d525d8b015a58927dba506b619c3c3146ba299957df",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_info.json": "bc70eeadafc9cc6e8d6e4440a3ece2411880ce5e854e7c28db752c969cb62b2b",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_model.pickle": "65d84cf02ff59aacf2fa3b1d7cf312fa388e1990ee0ba2d0d91788037c37bb1e",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_7/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "b99424724da73f71ae0ecd20869b59008d2ef7c57685dbd7447bc11f123ea137",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_info.json": "9cd5a67eee2f311d17417286eaefd6a1ed0e3fd0f5cf28cb25d7e6ecc87dc4e5",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_model.pickle": "741437b9161a6f0c0f5aa54f358b633a8f4f53f62076320a1a13392137aac0b7",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_8/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "3bebc9ec6482c2fc67b1d8dd2f8ff802b32626f19ccfbc2f85c2859f14520d7f",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_info.json": "c32529101e1a2e9f5eadde5af8c302cfea9f0350c9d9ea27f48eba8740f0b4ce",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_model.pickle": "8b9032def695550a2ab1e39d3dd0258c118491e56447d94714c48df1771e80ca",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_9/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "1f727efb01a74c5a60b023b13e0cd7f08bfadbac4f0522b18bee6ee78c2dd244",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_info.json": "9f9b8791cd55170cd3b9dd6855f278f1d6a91c4f79186bbdb2bbd8b0353b18ca",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_model.pickle": "0c815b7ac4f4ff750ab79f7b0cc3c7f7f7ff2da9afb84a9f0b860b77d9887689",
+    "data/rnns/subject_examples_latest/WS22/GRU/outer_fold_10/2_unit_GRU_tanh_unipolar_forced_trials_data.htsv": "8bb988ab0ac2ef29eb928934eb6852ef7767e6c218c5204cc222c9ebf3e8f394"
+  },
+  "source_winners_sha256": "5b3ba020bc7698eea99efcb9e8d1ff2fc3e9b31ae5f0bc1649ae2acf752acf50",
+  "validation": "32 fixed synthetic binary histories of length 64, logits, probabilities, signed/permuted hidden states and permuted update/reset gates; saved model state_dict roundtrip",
+  "scope": "Descriptive reference estimated from this entire cohort; no held-out mechanistic inference or retraining",
+  "code_sha256": {
+    "code/analyses/GRU_alignment.py": "627ada8bd1925126b08507e8d9324c13a5176eef791433ebdcbd5fde5e14c3b3",
+    "code/measures/mechanistic_variability.py": "8e57b5fdebe54b8ff14f1bfd23e8f3fb4f24ec80c5f3681e333b26f65fc4cbd4",
+    "code/measures/gru_alignment_constraints.py": "9dc857557f3ccc9d9d7caaeb2454887df56eefbb7a5edaa6494b3e0405f5612e",
+    "code/analyses/monoGRU_alignment.py": "b2b926ecdbd3f24b06602bcb6895c971d75fcb91ad84f3530e10eeb72bdbee34",
+    "code/measures/monogru_balancing.py": "f484dba6efe7e1963a114416b078f18bc7ab309bcc20ba90b7111e75c99c1ad6"
+  },
+  "artifacts": [
+    {
+      "path": "aligned/WS01/2_unit_GRU_tanh_unipolar_forced/outer_fold_1.pickle",
+      "bytes": 5305,
+      "sha256": "15b662e33181aa507441d5616c0de0843447ba4219e90a91e46bf0222ff3c83f"
+    },
+    {
+      "path": "aligned/WS01/2_unit_GRU_tanh_unipolar_forced/outer_fold_10.pickle",
+      "bytes": 5305,
+      "sha256": "1bc6fc279d0e1af8967f74f77ecf07c233561ed52d857d895327604cf34efd81"
+    },
+    {
+      "path": "aligned/WS01/2_unit_GRU_tanh_unipolar_forced/outer_fold_2.pickle",
+      "bytes": 5305,
+      "sha256": "713408e34ac33c8d905fbf6fcc98d55da41b4ef80d6614af9d396241b2ce937f"
+    },
+    {
+      "path": "aligned/WS01/2_unit_GRU_tanh_unipolar_forced/outer_fold_3.pickle",
+      "bytes": 5305,
+      "sha256": "0e3b1a0a9f1ba53c974693d2eeff9c83a94fd001e06521b1d6019281d025ea08"
+    },
+    {
+      "path": "aligned/WS01/2_unit_GRU_tanh_unipolar_forced/outer_fold_4.pickle",
+      "bytes": 5305,
+      "sha256": "28ef8d7605fe6f052b45b1c3f2cfb941ab7c46109f5b3767e574e88ee4cf8e67"
+    },
+    {
+      "path": "aligned/WS01/2_unit_GRU_tanh_unipolar_forced/outer_fold_5.pickle",
+      "bytes": 5305,
+      "sha256": "c9612e321b39d06a5afd2c65547d227caa01636358a3acf686d564f3cf2a1de7"
+    },
+    {
+      "path": "aligned/WS01/2_unit_GRU_tanh_unipolar_forced/outer_fold_6.pickle",
+      "bytes": 5305,
+      "sha256": "9f6e0fff9d6c17e25d4469f16eebf0c47c08dddc832705b9da6a665ddf4f16a6"
+    },
+    {
+      "path": "aligned/WS01/2_unit_GRU_tanh_unipolar_forced/outer_fold_7.pickle",
+      "bytes": 5305,
+      "sha256": "3c34fbf7f76b90179b1be40c0155f98f0beabf03538b202e1eed392f1501e3a1"
+    },
+    {
+      "path": "aligned/WS01/2_unit_GRU_tanh_unipolar_forced/outer_fold_8.pickle",
+      "bytes": 5305,
+      "sha256": "3b41d1dace48fbe034813578fdf98b9137090d0e3db589df0e3ced9a6feb0d85"
+    },
+    {
+      "path": "aligned/WS01/2_unit_GRU_tanh_unipolar_forced/outer_fold_9.pickle",
+      "bytes": 5305,
+      "sha256": "a80156044de28b58f295d55d4ca1502424dfcc4c997a6f423074f3a66e582a7f"
+    },
+    {
+      "path": "aligned/WS02/2_unit_GRU_tanh_unipolar_forced/outer_fold_1.pickle",
+      "bytes": 5305,
+      "sha256": "65267da3d99709ff5e6a28ed4241e94d521aa76f7413aeb0fed83af040085f9e"
+    },
+    {
+      "path": "aligned/WS02/2_unit_GRU_tanh_unipolar_forced/outer_fold_10.pickle",
+      "bytes": 5305,
+      "sha256": "7e5d894399ada3cb23d014bcaccd62cf7f572679fcc1bc8be2b81f025090bdbb"
+    },
+    {
+      "path": "aligned/WS02/2_unit_GRU_tanh_unipolar_forced/outer_fold_2.pickle",
+      "bytes": 5305,
+      "sha256": "afe141d41401be9bfe9002db0ec2cadd2cabde50d78dfb3794d492a9f6f2ed2c"
+    },
+    {
+      "path": "aligned/WS02/2_unit_GRU_tanh_unipolar_forced/outer_fold_3.pickle",
+      "bytes": 5305,
+      "sha256": "7e67823c714b4e27d5b35de540326f25429b5b60968c0c2f015916fafbe2afee"
+    },
+    {
+      "path": "aligned/WS02/2_unit_GRU_tanh_unipolar_forced/outer_fold_4.pickle",
+      "bytes": 5305,
+      "sha256": "39857a96c0d41c9834a47dda789ed08a7528297d55738ed216899613fe3c6bc0"
+    },
+    {
+      "path": "aligned/WS02/2_unit_GRU_tanh_unipolar_forced/outer_fold_5.pickle",
+      "bytes": 5305,
+      "sha256": "7768cc268bce6d20d49c1712098aae7e3823ddebd712649740aed2800f9db4ca"
+    },
+    {
+      "path": "aligned/WS02/2_unit_GRU_tanh_unipolar_forced/outer_fold_6.pickle",
+      "bytes": 5305,
+      "sha256": "58be1e88baf01971baf97259b3686256fa301359d6ff97f370674fffd2959bf5"
+    },
+    {
+      "path": "aligned/WS02/2_unit_GRU_tanh_unipolar_forced/outer_fold_7.pickle",
+      "bytes": 5305,
+      "sha256": "2043c2f80f7f8fc026c2081d626522a1a98b984169ba102f2c8be7f40ffc413c"
+    },
+    {
+      "path": "aligned/WS02/2_unit_GRU_tanh_unipolar_forced/outer_fold_8.pickle",
+      "bytes": 5305,
+      "sha256": "a0c083c19a2f270f892866f0989639c25d261b1cbd1ba2d31273272bedfdbec8"
+    },
+    {
+      "path": "aligned/WS02/2_unit_GRU_tanh_unipolar_forced/outer_fold_9.pickle",
+      "bytes": 5305,
+      "sha256": "812e949c20c12d31961de1d10e0b93551a61f34614a3dd96ec50233a6868788e"
+    },
+    {
+      "path": "aligned/WS05/2_unit_GRU_tanh_unipolar_forced/outer_fold_1.pickle",
+      "bytes": 5305,
+      "sha256": "643babccc6bca86be55cb00e27f040180c97fe4c4c4a8d234b7536f05c31f780"
+    },
+    {
+      "path": "aligned/WS05/2_unit_GRU_tanh_unipolar_forced/outer_fold_10.pickle",
+      "bytes": 5305,
+      "sha256": "6cae4efa236c915d9f7640b6750fadb257ef5c58131aeb8ac47275dc5bd582a5"
+    },
+    {
+      "path": "aligned/WS05/2_unit_GRU_tanh_unipolar_forced/outer_fold_2.pickle",
+      "bytes": 5305,
+      "sha256": "e538be048afe45b6ad8221977e32575a6cb40368fa155670f90dc5455d3aeca3"
+    },
+    {
+      "path": "aligned/WS05/2_unit_GRU_tanh_unipolar_forced/outer_fold_3.pickle",
+      "bytes": 5305,
+      "sha256": "a5ef0c8bb7a53f7be9df7a80489a0569de9a9006d270824d98ffa59680c61bce"
+    },
+    {
+      "path": "aligned/WS05/2_unit_GRU_tanh_unipolar_forced/outer_fold_4.pickle",
+      "bytes": 5305,
+      "sha256": "1e5e2a9676cc15aafa4d5e6afd068c7d8d27b63ee54166815a01aede868663b2"
+    },
+    {
+      "path": "aligned/WS05/2_unit_GRU_tanh_unipolar_forced/outer_fold_5.pickle",
+      "bytes": 5305,
+      "sha256": "1d04a34da92a3e6d02e494c6b07e167b4c637882908c3ce3a5baaca3dcc4fdff"
+    },
+    {
+      "path": "aligned/WS05/2_unit_GRU_tanh_unipolar_forced/outer_fold_6.pickle",
+      "bytes": 5305,
+      "sha256": "b85a9e7dab511dec73cdaead47c8baea37ee731c3c3cd5fdc23c06486e3b2553"
+    },
+    {
+      "path": "aligned/WS05/2_unit_GRU_tanh_unipolar_forced/outer_fold_7.pickle",
+      "bytes": 5305,
+      "sha256": "e47ef4422a142fa342650014132113dc086a7c50909af945d3de4a234f47e6a2"
+    },
+    {
+      "path": "aligned/WS05/2_unit_GRU_tanh_unipolar_forced/outer_fold_8.pickle",
+      "bytes": 5305,
+      "sha256": "1e59f9ff5d4242f743c2d0c7a381fc717e5f35aa2c59a487165017ee742b1c21"
+    },
+    {
+      "path": "aligned/WS05/2_unit_GRU_tanh_unipolar_forced/outer_fold_9.pickle",
+      "bytes": 5305,
+      "sha256": "505de85a9d886c19734105eed8a65528c106338b5228cbd9235a027d77b92f5e"
+    },
+    {
+      "path": "aligned/WS08/2_unit_GRU_tanh_unipolar_forced/outer_fold_1.pickle",
+      "bytes": 5305,
+      "sha256": "45f672950f1b6fa8ac29cd8ad8054989843304df35be4b370b59fab90bbd2aa9"
+    },
+    {
+      "path": "aligned/WS08/2_unit_GRU_tanh_unipolar_forced/outer_fold_10.pickle",
+      "bytes": 5305,
+      "sha256": "4e9a47203eefc543c8d21184d555bb8930430814d106a08ed5b774e0b345bcd5"
+    },
+    {
+      "path": "aligned/WS08/2_unit_GRU_tanh_unipolar_forced/outer_fold_2.pickle",
+      "bytes": 5305,
+      "sha256": "c4caca41e5436197075854502665f435a9724fd7aa35938b1772452264bbec76"
+    },
+    {
+      "path": "aligned/WS08/2_unit_GRU_tanh_unipolar_forced/outer_fold_3.pickle",
+      "bytes": 5305,
+      "sha256": "f34dfb5100a761f9e6e419b53a92c1891dda3e011a0ae2683a85f07d09c88dcb"
+    },
+    {
+      "path": "aligned/WS08/2_unit_GRU_tanh_unipolar_forced/outer_fold_4.pickle",
+      "bytes": 5305,
+      "sha256": "3fa3164ae2dfd90158457951a291de14002e736b0c654fc875a99557acf7cc29"
+    },
+    {
+      "path": "aligned/WS08/2_unit_GRU_tanh_unipolar_forced/outer_fold_5.pickle",
+      "bytes": 5305,
+      "sha256": "daa808dff9cf58c052179fc419d87ce35789a2d39c6a0c440568ddda7d466b37"
+    },
+    {
+      "path": "aligned/WS08/2_unit_GRU_tanh_unipolar_forced/outer_fold_6.pickle",
+      "bytes": 5305,
+      "sha256": "431e80f0696972b4e20c24c02142df346bab9af43b3cd8133c73f7e8759b18c1"
+    },
+    {
+      "path": "aligned/WS08/2_unit_GRU_tanh_unipolar_forced/outer_fold_7.pickle",
+      "bytes": 5305,
+      "sha256": "3752f04936ed3a4dc52f2c0a6ee64610a8b98d4f6b8b0576714e16f6eea218a0"
+    },
+    {
+      "path": "aligned/WS08/2_unit_GRU_tanh_unipolar_forced/outer_fold_8.pickle",
+      "bytes": 5305,
+      "sha256": "f1e3d98bcf3de9d094f50a5ec24119e6113de89142fc90a208143572ebb96bdd"
+    },
+    {
+      "path": "aligned/WS08/2_unit_GRU_tanh_unipolar_forced/outer_fold_9.pickle",
+      "bytes": 5305,
+      "sha256": "7fe88aff8702c206fa0425cad226e40e471d77e9970767e51724e778c6993a8f"
+    },
+    {
+      "path": "aligned/WS09/2_unit_GRU_tanh_unipolar_forced/outer_fold_1.pickle",
+      "bytes": 5305,
+      "sha256": "fab061f2b7d6e3f9cca8f60856e3ece794985a5bbcfb5b550d2c0f87093da212"
+    },
+    {
+      "path": "aligned/WS09/2_unit_GRU_tanh_unipolar_forced/outer_fold_10.pickle",
+      "bytes": 5305,
+      "sha256": "8ec33f1dc762ef1c2ea53f30bbe891537970de3fe1bc4282cc2067c69a76202b"
+    },
+    {
+      "path": "aligned/WS09/2_unit_GRU_tanh_unipolar_forced/outer_fold_2.pickle",
+      "bytes": 5305,
+      "sha256": "dfc3ee34e5b17aa8cc919a9639c5169a348e6c4b7410e6c5b7f37b39fd63170a"
+    },
+    {
+      "path": "aligned/WS09/2_unit_GRU_tanh_unipolar_forced/outer_fold_3.pickle",
+      "bytes": 5305,
+      "sha256": "43bdd1a06a44d2b2ac889fbed6fd34a5c9cfa22590fec894aadf1a6458c6c599"
+    },
+    {
+      "path": "aligned/WS09/2_unit_GRU_tanh_unipolar_forced/outer_fold_4.pickle",
+      "bytes": 5305,
+      "sha256": "48d4a1b655caf7d919fab1e5542f179d5056264c905369e5d5e6339380a83118"
+    },
+    {
+      "path": "aligned/WS09/2_unit_GRU_tanh_unipolar_forced/outer_fold_5.pickle",
+      "bytes": 5305,
+      "sha256": "71fa7062f0332b8e6d27967de4b6ab2855de687a15231735501860c02eea0675"
+    },
+    {
+      "path": "aligned/WS09/2_unit_GRU_tanh_unipolar_forced/outer_fold_6.pickle",
+      "bytes": 5305,
+      "sha256": "b3ca8b170b20281bad2724728905a1f08b38c3e2fab4bbecad62b4bade13eb24"
+    },
+    {
+      "path": "aligned/WS09/2_unit_GRU_tanh_unipolar_forced/outer_fold_7.pickle",
+      "bytes": 5305,
+      "sha256": "90cac2785661d97a10fcc49073b6ac3403fe7f3684660b886420cb0161d7e144"
+    },
+    {
+      "path": "aligned/WS09/2_unit_GRU_tanh_unipolar_forced/outer_fold_8.pickle",
+      "bytes": 5305,
+      "sha256": "9b19d24bc76b9aa2de3af0271052b0eabfad2917386f02f7017f3b7cfd28a058"
+    },
+    {
+      "path": "aligned/WS09/2_unit_GRU_tanh_unipolar_forced/outer_fold_9.pickle",
+      "bytes": 5305,
+      "sha256": "2122a03b8105e2454ddf7a8b0bb5c1aa5b2bdb6525887c1099e540b8ea20420a"
+    },
+    {
+      "path": "aligned/WS10/2_unit_GRU_tanh_unipolar_forced/outer_fold_1.pickle",
+      "bytes": 5305,
+      "sha256": "9b5fd51af84ef5496dad5c0a4e01806b89f8babf2cfe77633781c695eefe124e"
+    },
+    {
+      "path": "aligned/WS10/2_unit_GRU_tanh_unipolar_forced/outer_fold_10.pickle",
+      "bytes": 5305,
+      "sha256": "8085829707bcf05f4a9978ecf06d4715c66182432c7f6b15e0061f9845f44f65"
+    },
+    {
+      "path": "aligned/WS10/2_unit_GRU_tanh_unipolar_forced/outer_fold_2.pickle",
+      "bytes": 5305,
+      "sha256": "e6c1d9655b1d0f32d029ea24ee0885cee15ad554907e5a060b92962bacb5356d"
+    },
+    {
+      "path": "aligned/WS10/2_unit_GRU_tanh_unipolar_forced/outer_fold_3.pickle",
+      "bytes": 5305,
+      "sha256": "6b277be2eddad794fc53f7eaf0ffa49954c51a38a3383dfa25dc4759d7204401"
+    },
+    {
+      "path": "aligned/WS10/2_unit_GRU_tanh_unipolar_forced/outer_fold_4.pickle",
+      "bytes": 5305,
+      "sha256": "eac870b387fa48bc0851897b6790ba2a113fe17cfa335388f493adb812bd54f4"
+    },
+    {
+      "path": "aligned/WS10/2_unit_GRU_tanh_unipolar_forced/outer_fold_5.pickle",
+      "bytes": 5305,
+      "sha256": "6499b611c3365c8d8a8824fbac32fb003d998cfc69090b27f4640e684ed04852"
+    },
+    {
+      "path": "aligned/WS10/2_unit_GRU_tanh_unipolar_forced/outer_fold_6.pickle",
+      "bytes": 5305,
+      "sha256": "158f04a7a0c070625e7ce5983b159d0571796939536b2a70ffca37e29aaee50e"
+    },
+    {
+      "path": "aligned/WS10/2_unit_GRU_tanh_unipolar_forced/outer_fold_7.pickle",
+      "bytes": 5305,
+      "sha256": "8ef83f4fa1322b66c7c5f636670c74174a6f75e158db0b839f3ccfaa83012486"
+    },
+    {
+      "path": "aligned/WS10/2_unit_GRU_tanh_unipolar_forced/outer_fold_8.pickle",
+      "bytes": 5305,
+      "sha256": "c03afa2c33414e268db81d17b1e36d7da22f6689ba55636816b1b50b1e264aac"
+    },
+    {
+      "path": "aligned/WS10/2_unit_GRU_tanh_unipolar_forced/outer_fold_9.pickle",
+      "bytes": 5305,
+      "sha256": "f7775dfae0bdb5d1e3b2e25a38961bc9ebdc9df358e2d61c17ed762b7a28f35d"
+    },
+    {
+      "path": "aligned/WS13/2_unit_GRU_tanh_unipolar_forced/outer_fold_1.pickle",
+      "bytes": 5305,
+      "sha256": "ec09fca0ef7658c81394f1daf09675dd2073ff40e588e5e13f9a847646d2c87b"
+    },
+    {
+      "path": "aligned/WS13/2_unit_GRU_tanh_unipolar_forced/outer_fold_10.pickle",
+      "bytes": 5305,
+      "sha256": "725d96d35ea3d15078f5f491357f23e55ca242c8a22d79f731b8cc98ad9ccb72"
+    },
+    {
+      "path": "aligned/WS13/2_unit_GRU_tanh_unipolar_forced/outer_fold_2.pickle",
+      "bytes": 5305,
+      "sha256": "b0a2f2f94ae54ac60f8ef31853310fa751c173b2c1ff8cf253c77d3d937cdbc3"
+    },
+    {
+      "path": "aligned/WS13/2_unit_GRU_tanh_unipolar_forced/outer_fold_3.pickle",
+      "bytes": 5305,
+      "sha256": "e54b1e78832748c912135f952cbae76a35157f398f0fdc91934c8eeeb8127f2f"
+    },
+    {
+      "path": "aligned/WS13/2_unit_GRU_tanh_unipolar_forced/outer_fold_4.pickle",
+      "bytes": 5305,
+      "sha256": "b93cc6a6dc8d82f3760f4f15fb74a3b16b596e365ddbd5e9f48ed6ddf37900a4"
+    },
+    {
+      "path": "aligned/WS13/2_unit_GRU_tanh_unipolar_forced/outer_fold_5.pickle",
+      "bytes": 5305,
+      "sha256": "e5a697038cc11a33c3fe48563e0825d05284f89e2ded4a6efceefa1f817b2a91"
+    },
+    {
+      "path": "aligned/WS13/2_unit_GRU_tanh_unipolar_forced/outer_fold_6.pickle",
+      "bytes": 5305,
+      "sha256": "07d624213c96d9489463328915161ebee88151358fd72652237f4c8fa80a9993"
+    },
+    {
+      "path": "aligned/WS13/2_unit_GRU_tanh_unipolar_forced/outer_fold_7.pickle",
+      "bytes": 5305,
+      "sha256": "49dd8ae656577f1d4880671a9bfc850af30bd78311fc510de36c99178ba2dd2d"
+    },
+    {
+      "path": "aligned/WS13/2_unit_GRU_tanh_unipolar_forced/outer_fold_8.pickle",
+      "bytes": 5305,
+      "sha256": "4873f4dd62ea618d07fb2cd1e2a137ab79bf982057be7a0ea608ba802fce06aa"
+    },
+    {
+      "path": "aligned/WS13/2_unit_GRU_tanh_unipolar_forced/outer_fold_9.pickle",
+      "bytes": 5305,
+      "sha256": "4aafa1f45175747d05288a5c2daebfad2617c5418c75c18cff85817b7209d6f9"
+    },
+    {
+      "path": "aligned/WS14/2_unit_GRU_tanh_unipolar_forced/outer_fold_1.pickle",
+      "bytes": 5305,
+      "sha256": "109bfc52e684a82f7c69fdaca13714138b762f34b880b04c2d678cd2c03dc2ed"
+    },
+    {
+      "path": "aligned/WS14/2_unit_GRU_tanh_unipolar_forced/outer_fold_10.pickle",
+      "bytes": 5305,
+      "sha256": "4a0001d3e5c071c00200cea2d40d273b3e38218dde6125157197236ab89c8ea2"
+    },
+    {
+      "path": "aligned/WS14/2_unit_GRU_tanh_unipolar_forced/outer_fold_2.pickle",
+      "bytes": 5305,
+      "sha256": "aec787660ea0cc3c18d51cf7e7b537ac820e6a20af486b828025c3b6c77b357c"
+    },
+    {
+      "path": "aligned/WS14/2_unit_GRU_tanh_unipolar_forced/outer_fold_3.pickle",
+      "bytes": 5305,
+      "sha256": "9dca5af59e9740b41f2485dc0efe398cd70b33f8965170222c52c5832e65ed69"
+    },
+    {
+      "path": "aligned/WS14/2_unit_GRU_tanh_unipolar_forced/outer_fold_4.pickle",
+      "bytes": 5305,
+      "sha256": "9199c4bbb99dcbe0b4934d1b3f69a4b91d7b5e2be67cc0d4e485c555a9d96790"
+    },
+    {
+      "path": "aligned/WS14/2_unit_GRU_tanh_unipolar_forced/outer_fold_5.pickle",
+      "bytes": 5305,
+      "sha256": "e12a2c2f0606051124b99fce4466a5b72e4b8ed440d1d206006e471b96327784"
+    },
+    {
+      "path": "aligned/WS14/2_unit_GRU_tanh_unipolar_forced/outer_fold_6.pickle",
+      "bytes": 5305,
+      "sha256": "3342eaa6c7ff1d6e4aef090e33250c018f689716617460b6134e5757eb0b2f8d"
+    },
+    {
+      "path": "aligned/WS14/2_unit_GRU_tanh_unipolar_forced/outer_fold_7.pickle",
+      "bytes": 5305,
+      "sha256": "6797120d64b39e2d9481a72a558535aeb647d572a28410870305a8ad8ce7a434"
+    },
+    {
+      "path": "aligned/WS14/2_unit_GRU_tanh_unipolar_forced/outer_fold_8.pickle",
+      "bytes": 5305,
+      "sha256": "57d25656d1d00cec6c59debabd00d0fd88d674162bedcee843a9e39eabdcfc5d"
+    },
+    {
+      "path": "aligned/WS14/2_unit_GRU_tanh_unipolar_forced/outer_fold_9.pickle",
+      "bytes": 5305,
+      "sha256": "2b8b31d8d6ba8b1af91792a4e582253e536f13641d5acca9ca38b9d84424c4fa"
+    },
+    {
+      "path": "aligned/WS16/2_unit_GRU_tanh_unipolar_forced/outer_fold_1.pickle",
+      "bytes": 5305,
+      "sha256": "365ab6ddbe3e6cc669668018bf6bf8326f8bdc369e6016bdaa8cf034fe1bbe99"
+    },
+    {
+      "path": "aligned/WS16/2_unit_GRU_tanh_unipolar_forced/outer_fold_10.pickle",
+      "bytes": 5305,
+      "sha256": "c1fe22ff5eb4c8c3f98f1d0632bceeb29a9b71e333f7d9418d3eb22cd1096a0e"
+    },
+    {
+      "path": "aligned/WS16/2_unit_GRU_tanh_unipolar_forced/outer_fold_2.pickle",
+      "bytes": 5305,
+      "sha256": "b96fad48f4abd8ac3cf26e65784b9705879a20c6b141ab185055ae4856e43cd8"
+    },
+    {
+      "path": "aligned/WS16/2_unit_GRU_tanh_unipolar_forced/outer_fold_3.pickle",
+      "bytes": 5305,
+      "sha256": "a50d7ab7d00b5c2fd4708bff351bc57db2328df5cb3c2ff383d2962e6683e401"
+    },
+    {
+      "path": "aligned/WS16/2_unit_GRU_tanh_unipolar_forced/outer_fold_4.pickle",
+      "bytes": 5305,
+      "sha256": "1637e05d7dd579ead7909a016fd9115532fc51269c6eb675c5aca4e67ee03fe6"
+    },
+    {
+      "path": "aligned/WS16/2_unit_GRU_tanh_unipolar_forced/outer_fold_5.pickle",
+      "bytes": 5305,
+      "sha256": "c3360671caeec5947fddee8b1ed996859d1e927318a5c88e8d290201e1e0dcd5"
+    },
+    {
+      "path": "aligned/WS16/2_unit_GRU_tanh_unipolar_forced/outer_fold_6.pickle",
+      "bytes": 5305,
+      "sha256": "9afe03fe46fff79bedb5abde7a53b00f3eeea47185318bca39ae394800de9f1a"
+    },
+    {
+      "path": "aligned/WS16/2_unit_GRU_tanh_unipolar_forced/outer_fold_7.pickle",
+      "bytes": 5305,
+      "sha256": "4d863b051b98be376924495babb5e62910e3fb8137ec732f79efc97a8a3d233e"
+    },
+    {
+      "path": "aligned/WS16/2_unit_GRU_tanh_unipolar_forced/outer_fold_8.pickle",
+      "bytes": 5305,
+      "sha256": "52209346b5b914ac8ddb83b0abce6bec97ec3846661fb3a8fafdd20a8ccd982a"
+    },
+    {
+      "path": "aligned/WS16/2_unit_GRU_tanh_unipolar_forced/outer_fold_9.pickle",
+      "bytes": 5305,
+      "sha256": "f1d5a4965c80dcc0c0fc5f7cdb38e2c267561c6b136ea10f7fba2afa9943734f"
+    },
+    {
+      "path": "aligned/WS20/2_unit_GRU_tanh_unipolar_forced/outer_fold_1.pickle",
+      "bytes": 5305,
+      "sha256": "66c598efeda923508be7285fe7f3196b383ac78e05a363bd2706213f25b15ba3"
+    },
+    {
+      "path": "aligned/WS20/2_unit_GRU_tanh_unipolar_forced/outer_fold_10.pickle",
+      "bytes": 5305,
+      "sha256": "b446f01d17745f3db62a2c1b62d4e0af6d3849c229779a91919a04281726c28f"
+    },
+    {
+      "path": "aligned/WS20/2_unit_GRU_tanh_unipolar_forced/outer_fold_2.pickle",
+      "bytes": 5305,
+      "sha256": "72f49c56bb455efc39723752febac61ccfde0f66151aaa8300de3422d1719cdb"
+    },
+    {
+      "path": "aligned/WS20/2_unit_GRU_tanh_unipolar_forced/outer_fold_3.pickle",
+      "bytes": 5305,
+      "sha256": "db0473a7a5c43af922fbd2c61b8d17038437653118fda304030c6d281168ebb1"
+    },
+    {
+      "path": "aligned/WS20/2_unit_GRU_tanh_unipolar_forced/outer_fold_4.pickle",
+      "bytes": 5305,
+      "sha256": "86475428cc09a917bf69830daa3e5c3962a451829f08211c65ecf980158e30f9"
+    },
+    {
+      "path": "aligned/WS20/2_unit_GRU_tanh_unipolar_forced/outer_fold_5.pickle",
+      "bytes": 5305,
+      "sha256": "773be0bee037321fe0f6d8e75ce500aa1dce3104c3623b51366c31201860a22f"
+    },
+    {
+      "path": "aligned/WS20/2_unit_GRU_tanh_unipolar_forced/outer_fold_6.pickle",
+      "bytes": 5305,
+      "sha256": "960b84703548840cb750c7cfeea5432aa21904d82107a517b01999f26399bd0c"
+    },
+    {
+      "path": "aligned/WS20/2_unit_GRU_tanh_unipolar_forced/outer_fold_7.pickle",
+      "bytes": 5305,
+      "sha256": "d28c617158576ae631c6123d845ce36671ff86ec4e364516aeb49bbe5f53674c"
+    },
+    {
+      "path": "aligned/WS20/2_unit_GRU_tanh_unipolar_forced/outer_fold_8.pickle",
+      "bytes": 5305,
+      "sha256": "268f1f8e4663f21ac994fb9dfe49c95bb5a6cdd861c2b6beb776ed05bcc8d72f"
+    },
+    {
+      "path": "aligned/WS20/2_unit_GRU_tanh_unipolar_forced/outer_fold_9.pickle",
+      "bytes": 5305,
+      "sha256": "86f38d66d9f03c72c6f3bb946ae0a55734941100661fba73012fc0d5c728187b"
+    },
+    {
+      "path": "aligned/WS22/2_unit_GRU_tanh_unipolar_forced/outer_fold_1.pickle",
+      "bytes": 5305,
+      "sha256": "36a093e481bd178c23163f08af063c25fd5e536b079cdb6430820b3721599d33"
+    },
+    {
+      "path": "aligned/WS22/2_unit_GRU_tanh_unipolar_forced/outer_fold_10.pickle",
+      "bytes": 5305,
+      "sha256": "3866afa206df11083814211183c8dba11be78e409449e02afcfb9b9966b20394"
+    },
+    {
+      "path": "aligned/WS22/2_unit_GRU_tanh_unipolar_forced/outer_fold_2.pickle",
+      "bytes": 5305,
+      "sha256": "149982e2a9c8c39e2cfb9b84e7c8d0a76512007a9483af87a0a16317ace95f87"
+    },
+    {
+      "path": "aligned/WS22/2_unit_GRU_tanh_unipolar_forced/outer_fold_3.pickle",
+      "bytes": 5305,
+      "sha256": "13b72e4905ff7873ea5ceea0c95bafb7ebe9f47ebaddb703351baf7403f2a77f"
+    },
+    {
+      "path": "aligned/WS22/2_unit_GRU_tanh_unipolar_forced/outer_fold_4.pickle",
+      "bytes": 5305,
+      "sha256": "88f3106a30d9b0fab013c1d999151714deb4df40b896e153f691eb9303c0f64f"
+    },
+    {
+      "path": "aligned/WS22/2_unit_GRU_tanh_unipolar_forced/outer_fold_5.pickle",
+      "bytes": 5305,
+      "sha256": "367df2edfc3d0af189dd40f8939c4a7539b84d31ac6c0f2d9e351ac5aadd4aa5"
+    },
+    {
+      "path": "aligned/WS22/2_unit_GRU_tanh_unipolar_forced/outer_fold_6.pickle",
+      "bytes": 5305,
+      "sha256": "8872f9173b14a25ec8060d978187cd41e11403356dcad79ffdbcd7f3076f9ada"
+    },
+    {
+      "path": "aligned/WS22/2_unit_GRU_tanh_unipolar_forced/outer_fold_7.pickle",
+      "bytes": 5305,
+      "sha256": "daf148b376b99355d59a65e35237b39cf3d7d54a28d6303c72c5bb2361abfa1d"
+    },
+    {
+      "path": "aligned/WS22/2_unit_GRU_tanh_unipolar_forced/outer_fold_8.pickle",
+      "bytes": 5305,
+      "sha256": "188e941740b734b6e71b5186876d22bd0d729b8a730d7408a27da2ca11f214f5"
+    },
+    {
+      "path": "aligned/WS22/2_unit_GRU_tanh_unipolar_forced/outer_fold_9.pickle",
+      "bytes": 5305,
+      "sha256": "0713c2a9786b893185865d87ea7e940b2535fb5b66e2b5e781ac0b9971576d59"
+    },
+    {
+      "path": "aligned_models.htsv",
+      "bytes": 197357,
+      "sha256": "17902a16b5b45b1d05df723031cd3ea525e248e8325624f7424a9e328f29b867"
+    },
+    {
+      "path": "leave_subject_out.htsv",
+      "bytes": 295,
+      "sha256": "2c4bd6938e5aef620aececef132501f9498bbab94dacbe4beb83a617c477d6c0"
+    },
+    {
+      "path": "reference_model.pickle",
+      "bytes": 5305,
+      "sha256": "311a06d617de9bad40f7e5e077dd606dd3a316abae511c9b9b31679755a8c2da"
+    },
+    {
+      "path": "semantic_core_parameters.npz",
+      "bytes": 95286,
+      "sha256": "aa5acd9aef87f5a7e3401d230f75da24046bc77fc3e7785dfe9f76bfeb958e0f"
+    }
+  ]
+}
