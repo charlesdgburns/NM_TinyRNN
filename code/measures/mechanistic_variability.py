@@ -57,6 +57,7 @@ def align_rnns(
     scale_steps: int = 5,
     refine_scaling: bool = True,
     scale_values: np.ndarray | None = None,
+    allowed_permutations: list[tuple[int, ...]] | None = None,
 ) -> tuple[torch.nn.Module, dict]:
     """Align Model B to A using exhaustive permutations and sign/scale candidates.
 
@@ -79,6 +80,10 @@ def align_rnns(
         unchanged. Set False only for explicit discrete-grid comparisons.
     scale_values : array-like, optional
         Custom positive ReLU grid. Unit scale is always included.
+    allowed_permutations : list of tuples, optional
+        Restrict unit permutations, e.g. to preserve semantic readout labels.
+        The identity fallback is used only if identity is allowed. Default
+        retains the historical exhaustive search.
 
     Returns
     -------
@@ -136,7 +141,11 @@ def align_rnns(
     unaligned_distance = float(np.sqrt(unaligned_sq_dist))
 
     # --- Construct Candidate Transformation Space ---
-    all_permutations = list(itertools.permutations(range(H)))
+    all_permutations = (list(itertools.permutations(range(H)))
+                        if allowed_permutations is None else list(allowed_permutations))
+    if not all_permutations or any(sorted(p) != list(range(H)) for p in all_permutations):
+        raise ValueError('allowed_permutations must contain valid hidden-unit permutations')
+    identity_allowed = tuple(range(H)) in [tuple(p) for p in all_permutations]
 
     if nonlinearity == "tanh":
         # Tanh transformations: sign flips S in {-1, +1}^H
@@ -190,12 +199,13 @@ def align_rnns(
                 best_transform_vec = t_vec
 
     # Safety check: if unaligned distance is already better than any symmetry shift, keep original
-    if unaligned_distance < np.sqrt(best_distance):
+    if identity_allowed and unaligned_distance < np.sqrt(best_distance):
         best_perm = np.arange(H)
         best_transform_vec = np.ones(H, dtype=np.float32)
 
     grid_transform_vec = best_transform_vec.copy()
-    grid_squared_distance = min(float(best_distance), float(unaligned_sq_dist))
+    grid_squared_distance = (min(float(best_distance), float(unaligned_sq_dist))
+                             if identity_allowed else float(best_distance))
     refinement_success = None
     refinement_nfev = 0
     if refine_scaling and nonlinearity == "relu":

@@ -1,0 +1,12 @@
+omitted_subject	medoid_index	distance_to_full_reference	subject_id	decoder_bias	outer_loop_n
+WS01	72	0.0	WS14	False	3
+WS02	72	0.0	WS14	False	3
+WS05	72	0.0	WS14	False	3
+WS08	107	0.6933875157077384	WS22	False	8
+WS09	75	0.22547201865716662	WS14	False	6
+WS10	72	0.0	WS14	False	3
+WS13	72	0.0	WS14	False	3
+WS14	107	0.6933875157077384	WS22	False	8
+WS16	72	0.0	WS14	False	3
+WS20	72	0.0	WS14	False	3
+WS22	72	0.0	WS14	False	3

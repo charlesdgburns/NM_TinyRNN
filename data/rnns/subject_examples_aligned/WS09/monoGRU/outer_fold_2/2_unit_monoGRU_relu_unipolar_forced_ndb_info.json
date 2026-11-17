@@ -1,0 +1,89 @@
+{
+  "outer_loop_number": 2,
+  "sequence_length": 32,
+  "inner_fold_idx": 5,
+  "winning_config": {
+    "sparsity_lambda": 0.0001,
+    "energy_lambda": 0.001,
+    "hebbian_lambda": 0.0,
+    "covariance_lambda": 0.0,
+    "weight_seed": 10
+  },
+  "val_loss": 0.6046421527862549,
+  "eval_pred_loss": 0.7003484964370728,
+  "split_sizes": {
+    "train": 141,
+    "val": 14,
+    "eval": 20
+  },
+  "n_outer_eval_blocks": 20,
+  "hparam_ranges": {
+    "sparsity_lambdas": [
+      0.1,
+      0.01,
+      0.001,
+      0.0001,
+      1e-05
+    ],
+    "energy_lambdas": [
+      0.1,
+      0.01,
+      0.001
+    ],
+    "hebbian_lambdas": [
+      0.0
+    ],
+    "covariance_lambdas": [
+      0.0
+    ],
+    "weight_seeds": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "learning_rate": 0.01,
+    "batch_size": 8,
+    "max_epochs": 10000,
+    "early_stop": 20
+  },
+  "model_options": {
+    "rnn_type": "monoGRU",
+    "input_size": 3,
+    "hidden_size": 2,
+    "out_size": 2,
+    "sparsity_lambda": 0.0001,
+    "energy_lambda": 0.001,
+    "hebbian_lamba": 0.0,
+    "covariance_lambda": 0.0,
+    "weight_seed": 10,
+    "nonlinearity": "relu",
+    "input_encoding": "unipolar",
+    "input_forced_choice": true,
+    "batch_norm": false,
+    "init_decoder": false,
+    "decoder_bias": false
+  },
+  "alignment": {
+    "reference_model": "balanced_population_medoid_model.pickle",
+    "source_run": "nested_DA_S32_B8",
+    "source_model": "/home/charlesdgburns/Coding/NM_TinyRNN/data/rnns/nested_DA_S32_B8/WS09/monoGRU/energy/outer_fold_2/inner_fold_5/2_unit_monoGRU_relu_unipolar_forced_ndb_model.pickle",
+    "perm": [
+      0,
+      1
+    ],
+    "scales": [
+      1.2758181280085674,
+      1.0737736129204114
+    ],
+    "label_rule": "h1 has the larger decoder[1]-decoder[0] contrast; opponent models: h1 favors choice 1, h2 favors choice 0",
+    "original_training_metrics": "Retained from source; no retraining. Scale-dependent penalties have not been recomputed."
+  }
+}
