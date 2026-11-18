@@ -25,7 +25,7 @@ from NM_TinyRNN.code.measures import mechanistic_variability as mv
 from NM_TinyRNN.code.measures.monogru_balancing import canonicalize, power_matrix, parameters, transform, core
 from NM_TinyRNN.code.models.datasets import input_encoder
 
-LABEL_RULE = 'h1 has the larger decoder[1]-decoder[0] contrast; opponent models: h1 favors choice 1, h2 favors choice 0'
+LABEL_RULE = 'FINAL: h1 has the larger decoder[0]-decoder[1] contrast; h1 favors choice 0, h2 favors choice 1'
 
 
 def resolve(path):
@@ -93,7 +93,7 @@ def balance_model(model):
 
 
 def label_permutation(model):
-    contrast = model.decoder.weight.detach().numpy()[1]-model.decoder.weight.detach().numpy()[0]
+    contrast = model.decoder.weight.detach().numpy()[0]-model.decoder.weight.detach().numpy()[1]
     return tuple(np.argsort(-contrast, kind='stable').tolist())
 
 
@@ -110,6 +110,9 @@ def align_balanced_model(model, reference):
 def fit_to_reference(model, reference):
     """Fit positive unit scales to the fixed medoid, preserving semantic roles."""
     validate_model(reference)
+    contrast=(reference.decoder.weight[0]-reference.decoder.weight[1]).detach().numpy()
+    if not (contrast[0]>0 and contrast[1]<0):
+        raise ValueError('Final reference must label h1 toward choice 0 and h2 toward choice 1')
     aligned, info = mv.align_rnns(reference, model, nonlinearity='relu',
         refine_scaling=True, allowed_permutations=[label_permutation(model)])
     if info['aligned_distance'] > info['unaligned_distance'] + 1e-5:
@@ -222,7 +225,7 @@ def main():
         perm = transform_info['perm']
         scales = np.exp([info['log_scale_1'], info['log_scale_2']])[perm]
         check = check_equivalence(model, labeled, probes(model), perm, scales)
-        contrast = labeled.decoder.weight.detach().numpy()[1]-labeled.decoder.weight.detach().numpy()[0]
+        contrast = labeled.decoder.weight.detach().numpy()[0]-labeled.decoder.weight.detach().numpy()[1]
         opponent = bool(contrast[0]>1e-7 and contrast[1]<-1e-7)
         eligible = info['balance_status']=='finite_minimum' and opponent and check['min_unit_rms']>1e-6
         audit.append(dict(index=index, **info, **check, perm=perm.tolist(), scales=scales.tolist(),
@@ -260,7 +263,7 @@ def main():
                  distance_before_reference_fit=info['unaligned_distance'],
                  distance_after_grid=info['grid_distance'])
         a.update(check_equivalence(model, aligned, probes(model), a['perm'], a['scales']))
-        contrast = aligned.decoder.weight.detach().numpy()[1]-aligned.decoder.weight.detach().numpy()[0]
+        contrast = aligned.decoder.weight.detach().numpy()[0]-aligned.decoder.weight.detach().numpy()[1]
         a.update(contrast_1=float(contrast[0]),contrast_2=float(contrast[1]),
                  population_medoid_objective=float(scores[i]), distance_to_reference=info['aligned_distance'])
         row = rows.iloc[i]
@@ -274,7 +277,7 @@ def main():
     np.savez_compressed(out/'balanced_core_parameters.npz', parameters=vectors)
     plot_reference(reference, rows.iloc[winner], out)
     manifest = dict(folder=args.folder, model_type='monoGRU +BC-DB', decoder_bias=False, n_models=len(rows), n_subjects=rows.subject_id.nunique(),
-        alignment_protocol='balanced_medoid_reference_fit_v2',
+        alignment_protocol='balanced_medoid_reference_fit_v3_choice0_first',
         label_rule=LABEL_RULE, final_alignment='Positive unit scales fitted to the frozen balanced medoid with grid search and continuous TRF refinement; decoder-based unit roles constrained; original-to-final composed transforms recorded', scale_rule='Independent minimum FULL trainable-parameter L2 norm on positive ReLU scaling orbit; unanchored units use flagged [-8,8] log-scale approximation',
         reference_rule='Actual balanced model minimizing subject-weighted mean Euclidean core distance to ALL cohort models, among finite opponent two-active-unit candidates; stable row ordering breaks exact ties',
         objective_blocks=['rnn.W_ih', 'rnn.bias_h', 'rnn.W_hh', 'decoder.weight'],
@@ -314,7 +317,7 @@ def plot_reference(model, row, out):
                       else ['choice 0','choice 1'] if name=='Decoder' else ['gate'])
         ax.set(title=name,xticks=range(values.shape[1]),yticks=range(values.shape[0]),
                xticklabels=columns,yticklabels=row_labels)
-    fig.suptitle(f'Balanced medoid · {row.subject_id} · outer {row.outer_loop_n} · decoder bias {row.decoder_bias}\nh1 favors choice 1; h2 favors choice 0')
+    fig.suptitle(f'Balanced medoid · {row.subject_id} · outer {row.outer_loop_n} · decoder bias {row.decoder_bias}\nh1 favors choice 0; h2 favors choice 1')
     fig.tight_layout(rect=(0,0,.9,.9));cax=fig.add_axes([.92,.15,.015,.65]);fig.colorbar(im,cax=cax,label='Parameter value')
     fig.savefig(out/'reference_parameters.png',dpi=180,bbox_inches='tight');fig.savefig(out/'reference_parameters.svg',bbox_inches='tight')
     plt.close(fig)

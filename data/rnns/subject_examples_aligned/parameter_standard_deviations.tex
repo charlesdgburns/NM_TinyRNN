@@ -1,0 +1,8 @@
+\begingroup\small\setlength{\arraycolsep}{3pt}
+\begin{align*}
+\mathcal T_n &= \operatorname{ReLU}\!\left(\begin{bmatrix}0.116 & 0.327 & 0.235 \\ 0.150 & 0.223 & 0.140\end{bmatrix}\begin{bmatrix}c_t \\ a_t \\ o_t\end{bmatrix} + \begin{bmatrix}0.255 & 0.298 \\ 0.295 & 0.176\end{bmatrix}\begin{bmatrix}h_{1,t-1} \\ h_{2,t-1}\end{bmatrix} + \begin{bmatrix}0.153 \\ 0.183\end{bmatrix}\right), \\[1em]
+\mathcal T_z &= \sigma\!\left(\begin{bmatrix}0.239 & 0.334 & 0.435\end{bmatrix}\begin{bmatrix}c_t \\ a_t \\ o_t\end{bmatrix} + \begin{bmatrix}0.512 & 0.885\end{bmatrix}\begin{bmatrix}h_{1,t-1} \\ h_{2,t-1}\end{bmatrix} + 0.677\right), \\[1em]
+\mathcal T_h &= (1-z_t)\mathbf n_t + z_t\mathbf h_{t-1}, \\[1em]
+\mathcal T_a &= \operatorname{Softmax}\!\left(\begin{bmatrix}0.181 & 0.128 \\ 0.179 & 0.127\end{bmatrix}\begin{bmatrix}h_{1,t} \\ h_{2,t}\end{bmatrix}\right), \\[1em]
+s(\mathbf h_0) &= \begin{bmatrix}0.181 \\ 0.243\end{bmatrix}.
+\end{align*}\endgroup

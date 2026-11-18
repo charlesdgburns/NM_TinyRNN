@@ -4,8 +4,8 @@
   "decoder_bias": false,
   "n_models": 110,
   "n_subjects": 11,
-  "alignment_protocol": "balanced_medoid_reference_fit_v2",
-  "label_rule": "h1 has the larger decoder[1]-decoder[0] contrast; opponent models: h1 favors choice 1, h2 favors choice 0",
+  "alignment_protocol": "balanced_medoid_reference_fit_v3_choice0_first",
+  "label_rule": "FINAL: h1 has the larger decoder[0]-decoder[1] contrast; h1 favors choice 0, h2 favors choice 1",
   "final_alignment": "Positive unit scales fitted to the frozen balanced medoid with grid search and continuous TRF refinement; decoder-based unit roles constrained; original-to-final composed transforms recorded",
   "scale_rule": "Independent minimum FULL trainable-parameter L2 norm on positive ReLU scaling orbit; unanchored units use flagged [-8,8] log-scale approximation",
   "reference_rule": "Actual balanced model minimizing subject-weighted mean Euclidean core distance to ALL cohort models, among finite opponent two-active-unit candidates; stable row ordering breaks exact ties",
@@ -182,9 +182,9 @@
     "/home/charlesdgburns/Coding/NM_TinyRNN/data/rnns/nested_DA_S32_B8/WS22/monoGRU/energy/outer_fold_10/inner_fold_7/2_unit_monoGRU_relu_unipolar_forced_ndb_model.pickle": "90548d26a904ebc00f318526ea96bac6eca47607b49a12cb9b5d0291eca881de"
   },
   "code_sha256": {
-    "/home/charlesdgburns/Coding/NM_TinyRNN/code/analyses/monoGRU_alignment.py": "abf7d695a18dbc453c992d5c9227904e2d5d742f2e0b6b65bb4a5956cd89370b",
+    "/home/charlesdgburns/Coding/NM_TinyRNN/code/analyses/monoGRU_alignment.py": "331cc44f0397be0d1fb8d8e19e15bd1557a1c45573719f336bde0942e910186c",
     "/home/charlesdgburns/Coding/NM_TinyRNN/code/measures/mechanistic_variability.py": "8e57b5fdebe54b8ff14f1bfd23e8f3fb4f24ec80c5f3681e333b26f65fc4cbd4",
     "/home/charlesdgburns/Coding/NM_TinyRNN/code/measures/monogru_balancing.py": "f484dba6efe7e1963a114416b078f18bc7ab309bcc20ba90b7111e75c99c1ad6"
   },
-  "reference_sha256": "d6efa369eab66db48649ed9a87b1f553ef9721fd2bfc650584bba8f5e2444716"
+  "reference_sha256": "67f62ad734e40559badde16eae8868904b030fde11a1d8f6c5f4dd3fbeb2a653"
 }

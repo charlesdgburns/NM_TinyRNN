@@ -76,14 +76,14 @@
     "source_run": "nested_DA_S32_B8",
     "source_model": "/home/charlesdgburns/Coding/NM_TinyRNN/data/rnns/nested_DA_S32_B8/WS13/monoGRU/energy/outer_fold_8/inner_fold_4/2_unit_monoGRU_relu_unipolar_forced_ndb_model.pickle",
     "perm": [
-      0,
-      1
+      1,
+      0
     ],
     "scales": [
-      1.5621449698905536,
-      1.4171632801340883
+      1.4171632801340883,
+      1.5621449698905536
     ],
-    "label_rule": "h1 has the larger decoder[1]-decoder[0] contrast; opponent models: h1 favors choice 1, h2 favors choice 0",
+    "label_rule": "FINAL: h1 has the larger decoder[0]-decoder[1] contrast; h1 favors choice 0, h2 favors choice 1",
     "original_training_metrics": "Retained from source; no retraining. Scale-dependent penalties have not been recomputed."
   }
 }

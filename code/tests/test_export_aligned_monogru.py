@@ -21,7 +21,7 @@ class ExportAlignedMonoGRU(unittest.TestCase):
         gen=torch.Generator().manual_seed(812)
         with torch.no_grad():
             for p in self.model.parameters():p.copy_(torch.randn(p.shape,generator=gen)*.25)
-            self.model.decoder.weight.copy_(torch.tensor([[-.8,.9],[.8,-.9]]))
+            self.model.decoder.weight.copy_(torch.tensor([[.8,-.9],[-.8,.9]]))
         self.data=pd.DataFrame(dict(forced_choice=[0,0,1,0]*3,choice=[0,1,0,1]*3,
             outcome=[1,0,1,1]*3,good_poke=[0]*12,session_folder_name=['S/session']*12,
             session_trial_idx=range(12),sequence_block_idx=np.repeat([0.,1.,2.],4),
@@ -51,6 +51,8 @@ class ExportAlignedMonoGRU(unittest.TestCase):
         average,table=export.average_parameters(models,pd.DataFrame({'subject_id':['A','A','B']}))
         for p in average.parameters():np.testing.assert_allclose(p.detach(),6.)
         np.testing.assert_allclose(table['mean'],6.)
+        np.testing.assert_allclose(table['subject_sd'],np.sqrt(32.))
+        np.testing.assert_allclose(table['subject_sem'],4.)
         self.assertTrue(table.n_subjects.eq(2).all())
         self.assertTrue(table.n_fits.eq(3).all())
 

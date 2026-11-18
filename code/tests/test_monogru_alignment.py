@@ -21,7 +21,7 @@ class MonoGRUAlignment(unittest.TestCase):
         with torch.no_grad():
             for p in self.model.parameters():p.copy_(torch.randn(p.shape,generator=gen)*.3)
             self.model.rnn.hidden_0.copy_(torch.tensor([.2,.4]))
-            self.model.decoder.weight.copy_(torch.tensor([[-.7,.8],[.9,-.6]]))
+            self.model.decoder.weight.copy_(torch.tensor([[.7,-.8],[-.9,.6]]))
 
     def test_equivalent_rescaling_and_permutation_have_same_canonical_model(self):
         reference,_=ma.align_model(self.model,self.model)
@@ -37,7 +37,7 @@ class MonoGRUAlignment(unittest.TestCase):
         aligned,ai=ma.align_balanced_model(b,b)
         perm=ai['perm'];scales=np.exp([info['log_scale_1'],info['log_scale_2']])[perm]
         ma.check_equivalence(self.model,aligned,ma.probes(self.model),perm,scales)
-        contrast=(aligned.decoder.weight[1]-aligned.decoder.weight[0]).detach().numpy()
+        contrast=(aligned.decoder.weight[0]-aligned.decoder.weight[1]).detach().numpy()
         self.assertGreater(contrast[0],0);self.assertLess(contrast[1],0)
         for k,v in original.items():self.assertTrue(torch.equal(v,self.model.state_dict()[k]))
 
@@ -64,6 +64,11 @@ class MonoGRUAlignment(unittest.TestCase):
         self.assertLess(info['alignment']['aligned_distance'],1e-5)
         ma.check_equivalence(self.model,aligned,ma.probes(self.model),info['perm'],info['scales'])
         for key,value in original_reference.items():self.assertTrue(torch.equal(value,reference.state_dict()[key]))
+
+    def test_reference_with_old_unit_order_is_rejected(self):
+        wrong=ma.write_parameters(self.model,transform(parameters(self.model),(1,0),np.ones(2)))
+        with self.assertRaisesRegex(ValueError,'h1 toward choice 0'):
+            ma.fit_to_reference(self.model,wrong)
 
     def test_decoder_bias_on_is_rejected(self):
         wrong=TinyRNN(rnn_type='monoGRU',input_size=3,hidden_size=2,nonlinearity='relu',decoder_bias=True)
