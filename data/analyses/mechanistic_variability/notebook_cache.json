@@ -1,5 +1,5 @@
 {
-  "fingerprint": "ad1bfefefb5ada3221551ad6ad8927ce8dba6d7c35544a0c1e4bdecaf99be4ab",
+  "fingerprint": "4a1991b32e69824f1c625b3e55ceb518f2f69796cc93784abe9234dc45f8b8c4",
   "alignment_protocol": "relu_grid_winner_then_continuous_trf_v1;tanh_permutation_sign_v1",
   "selection": "performance.select_best_outer: minimum block-reset train+validation free-choice CE",
   "n_models": 1320,
@@ -214,7 +214,7 @@
     }
   ],
   "metrics": "Canonical parameter alignment/cosine; hidden per-unit mean Pearson; flattened gate/readout Pearson",
-  "source_code_sha256": "5ff0ed2da1cb282d63eee816262a4e9b46bc78e69145dd2a2f03dd2fafda8726",
-  "study": "code/analyses/mechanistic_variability.py",
-  "tables": "/home/charlesdgburns/Coding/NM_TinyRNN/data/analysis/mechanistic_variability"
+  "source_code_sha256": "8e57b5fdebe54b8ff14f1bfd23e8f3fb4f24ec80c5f3681e333b26f65fc4cbd4",
+  "study": "code/analyses/mechanistic_variability_main.py",
+  "tables": "/home/charlesdgburns/Coding/NM_TinyRNN/data/analyses/mechanistic_variability"
 }

@@ -1,8 +1,58 @@
 {
   "study": "mechanistic_variability",
   "folder": "nested_DA_S32_B8",
+  "main_outputs": {
+    "directory": "/home/charlesdgburns/Coding/NM_TinyRNN/results/main",
+    "output_sha256": {
+      "figure_GRU_monoGRU_mech_var.svg": "b694609c3ec73ff1cd00eca4cc687d496e545ae139928cd9981a08e813561da0",
+      "table_GRU_monoGRU_mech_var.csv": "b0bf77ab06f56c3d3e626f0659dfa54538a6bb69bafcccf234a1c77e30219192",
+      "figure_GRU_monoGRU_mech_var_with_gate.svg": "f8ad6ac4282971bdf7c325c69933e60017f01ecfdcca4c9b30a085d77b565ec3",
+      "table_GRU_monoGRU_mech_var_with_gate.csv": "7b1b4a23c320e331638d4642dd83406e31a130a0245608feace273caeac35ace",
+      "table_1.svg": "b413d01739bf313f99cbef9cc9900a4a0c99428c6eeb661b5659359a2250f7a2",
+      "table_1.csv": "e6a970e8c06fe9d1b949c1651ece4ae38cc23e9c022050bac284164c140e07de"
+    }
+  },
+  "layout_migration": {
+    "directory": "/home/charlesdgburns/Coding/NM_TinyRNN/data/analysis/mechanistic_variability",
+    "map": "data/analysis/.local/layout_migration/moves.json",
+    "note": "Files moved without recomputing scientific scores; recorded computation hashes retain their original meaning."
+  },
+  "appendix_outputs": {
+    "figure": "/home/charlesdgburns/Coding/NM_TinyRNN/results/appendix/figure_all_models_mech_var.svg",
+    "sha256": "a7a7784273f4b983068dd5cbca60902eacd5ea7436d42cec18816a7b336baf61",
+    "cohens_d_figure": "/home/charlesdgburns/Coding/NM_TinyRNN/results/appendix/figure_mech_var_cohens_d.svg",
+    "cohens_d_sha256": "f215864cf805c6cca5cb41126860afa446d867e46ae0fdfdcf9a68919adb7df7",
+    "cohens_d_table_sha256": "975a6c88e37d6403b577b731046a85b8241672c0a66a31201765fd2f9d195ba3"
+  },
+  "publication_table": {
+    "method": "Within paired t from Cohen dz * sqrt(11), df10; across all55 dyads/11subjects subject-deletion jackknife t; BH across8",
+    "files_sha256": {
+      "table_GRU_monoGRU_similarity.svg": "3c8455e593a719ed7fcccf6def3ba923f02b0c96f3f1e59d028b941362b9da6d",
+      "table_GRU_monoGRU_similarity.csv": "c52dbd6a4e758c29a9a9536c3961c4912e9c09c6d04d9b1269b66fca1faee1bb"
+    },
+    "effect_size": "Paired Cohen dz; within: 11 subject differences; across: descriptive standardization using 11 overlapping incident-dyad subject differences",
+    "source_code_sha256": "cc194217500f3d0920b543a038fba49c566d0e16b522a1c7dd137e12dad72fce"
+  },
+  "conservative_report": {
+    "manifest": "/home/charlesdgburns/Coding/NM_TinyRNN/data/analysis/mechanistic_variability/gru_monogru_report/manifest.json",
+    "sha256": "d661c2bba28f7d0be966a31b110c618e4b392f0696c341013f7fcdcd56e73d8c"
+  },
+  "methods": {
+    "selection": "Minimum free-choice train+validation NLL on original saved blocks; reset to learned initial state per block; no test targets or penalties",
+    "evaluation": "Continuous complete subject A saved inputs, including forced trials; B aligned to A; no block/session resets during similarity evaluation",
+    "alignment": "Tanh permutation/sign search; ReLU grid winner then continuous positive-scale refinement; main-parameter Euclidean objective",
+    "scores": "All-trainable-parameter cosine; mean valid unitwise hidden Pearson; flattened update/reset gates and logit-difference Pearson",
+    "aggregation": "Within: 45 fold pairs -> one mean per subject (11); across: 100 fold pairs -> one mean per dyad (55, sharing 11 subjects)",
+    "within_test": "Exact two-sided sign test of direction/median of independent subject paired differences; not a mean test",
+    "across_test": "Mean dyad difference; delete each subject and all incident dyads; jackknife SE; approximate two-sided t(10)",
+    "corrections": "BH across 8 focused GRU/monoGRU tests; separate BH family of 94 exploratory all-configuration contrasts; no reference/absent-gate tests",
+    "effect_size": "Supplementary Cohen dz: paired mean/SD of 11 subject differences; across uses 11 overlapping incident-dyad means and is descriptive only",
+    "deletion_ranges": "Within median and across mean deletion ranges, plus explicit across median deletion range; sensitivity ranges, not confidence intervals",
+    "highlighting": "Within stars annotate median direction difference; across stars annotate mean similarity, not median differences",
+    "limitations": "11 subjects; shared outer-fold models; across inference approximate; exploratory comparisons; no normality pretest is used to select tests"
+  },
   "computation": {
-    "fingerprint": "ad1bfefefb5ada3221551ad6ad8927ce8dba6d7c35544a0c1e4bdecaf99be4ab",
+    "fingerprint": "4a1991b32e69824f1c625b3e55ceb518f2f69796cc93784abe9234dc45f8b8c4",
     "alignment_protocol": "relu_grid_winner_then_continuous_trf_v1;tanh_permutation_sign_v1",
     "selection": "performance.select_best_outer: minimum block-reset train+validation free-choice CE",
     "n_models": 1320,
@@ -217,30 +267,7 @@
       }
     ],
     "metrics": "Canonical parameter alignment/cosine; hidden per-unit mean Pearson; flattened gate/readout Pearson",
-    "source_code_sha256": "5ff0ed2da1cb282d63eee816262a4e9b46bc78e69145dd2a2f03dd2fafda8726"
-  },
-  "main_outputs": {
-    "directory": "/home/charlesdgburns/Coding/NM_TinyRNN/results/main",
-    "output_sha256": {
-      "figure_GRU_monoGRU_mech_var.svg": "b694609c3ec73ff1cd00eca4cc687d496e545ae139928cd9981a08e813561da0",
-      "table_GRU_monoGRU_mech_var.csv": "b0bf77ab06f56c3d3e626f0659dfa54538a6bb69bafcccf234a1c77e30219192",
-      "figure_GRU_monoGRU_mech_var_with_gate.svg": "f8ad6ac4282971bdf7c325c69933e60017f01ecfdcca4c9b30a085d77b565ec3",
-      "table_GRU_monoGRU_mech_var_with_gate.csv": "7b1b4a23c320e331638d4642dd83406e31a130a0245608feace273caeac35ace",
-      "table_1.svg": "b413d01739bf313f99cbef9cc9900a4a0c99428c6eeb661b5659359a2250f7a2",
-      "table_1.csv": "e6a970e8c06fe9d1b949c1651ece4ae38cc23e9c022050bac284164c140e07de"
-    }
-  },
-  "layout_migration": {
-    "directory": "/home/charlesdgburns/Coding/NM_TinyRNN/data/analysis/mechanistic_variability",
-    "map": "data/analysis/.local/layout_migration/moves.json",
-    "note": "Files moved without recomputing scientific scores; recorded computation hashes retain their original meaning."
-  },
-  "appendix_outputs": {
-    "figure": "/home/charlesdgburns/Coding/NM_TinyRNN/results/appendix/figure_all_models_mech_var.svg",
-    "sha256": "a7a7784273f4b983068dd5cbca60902eacd5ea7436d42cec18816a7b336baf61",
-    "cohens_d_figure": "/home/charlesdgburns/Coding/NM_TinyRNN/results/appendix/figure_mech_var_cohens_d.svg",
-    "cohens_d_sha256": "f215864cf805c6cca5cb41126860afa446d867e46ae0fdfdcf9a68919adb7df7",
-    "cohens_d_table_sha256": "975a6c88e37d6403b577b731046a85b8241672c0a66a31201765fd2f9d195ba3"
+    "source_code_sha256": "8e57b5fdebe54b8ff14f1bfd23e8f3fb4f24ec80c5f3681e333b26f65fc4cbd4"
   },
   "statistics": {
     "reference": "2_unit_GRU_tanh_unipolar_forced",
@@ -254,37 +281,5 @@
       "similarity_summary.htsv": "cb8a55f0ad0f39e3f7579db5e279ba3378075c16a6534e184b2d41832f13aa93",
       "similarity_vs_standard_gru.htsv": "e0628f4b62dba4cf7c7382d9af2b3f0e15838b50c15101129059c6cdca73791d"
     }
-  },
-  "plots": {
-    "scope": "main paper",
-    "source_code_sha256": "56156300330bf2bb1ada65bf347cd1abbd60ca30319cd3a5ee8750446949c087",
-    "directory": "/home/charlesdgburns/Coding/NM_TinyRNN/results/main"
-  },
-  "publication_table": {
-    "method": "Within paired t from Cohen dz * sqrt(11), df10; across all55 dyads/11subjects subject-deletion jackknife t; BH across8",
-    "files_sha256": {
-      "table_GRU_monoGRU_similarity.svg": "3c8455e593a719ed7fcccf6def3ba923f02b0c96f3f1e59d028b941362b9da6d",
-      "table_GRU_monoGRU_similarity.csv": "c52dbd6a4e758c29a9a9536c3961c4912e9c09c6d04d9b1269b66fca1faee1bb"
-    },
-    "effect_size": "Paired Cohen dz; within: 11 subject differences; across: descriptive standardization using 11 overlapping incident-dyad subject differences",
-    "source_code_sha256": "cc194217500f3d0920b543a038fba49c566d0e16b522a1c7dd137e12dad72fce"
-  },
-  "conservative_report": {
-    "manifest": "/home/charlesdgburns/Coding/NM_TinyRNN/data/analysis/mechanistic_variability/gru_monogru_report/manifest.json",
-    "sha256": "d661c2bba28f7d0be966a31b110c618e4b392f0696c341013f7fcdcd56e73d8c"
-  },
-  "methods": {
-    "selection": "Minimum free-choice train+validation NLL on original saved blocks; reset to learned initial state per block; no test targets or penalties",
-    "evaluation": "Continuous complete subject A saved inputs, including forced trials; B aligned to A; no block/session resets during similarity evaluation",
-    "alignment": "Tanh permutation/sign search; ReLU grid winner then continuous positive-scale refinement; main-parameter Euclidean objective",
-    "scores": "All-trainable-parameter cosine; mean valid unitwise hidden Pearson; flattened update/reset gates and logit-difference Pearson",
-    "aggregation": "Within: 45 fold pairs -> one mean per subject (11); across: 100 fold pairs -> one mean per dyad (55, sharing 11 subjects)",
-    "within_test": "Exact two-sided sign test of direction/median of independent subject paired differences; not a mean test",
-    "across_test": "Mean dyad difference; delete each subject and all incident dyads; jackknife SE; approximate two-sided t(10)",
-    "corrections": "BH across 8 focused GRU/monoGRU tests; separate BH family of 94 exploratory all-configuration contrasts; no reference/absent-gate tests",
-    "effect_size": "Supplementary Cohen dz: paired mean/SD of 11 subject differences; across uses 11 overlapping incident-dyad means and is descriptive only",
-    "deletion_ranges": "Within median and across mean deletion ranges, plus explicit across median deletion range; sensitivity ranges, not confidence intervals",
-    "highlighting": "Within stars annotate median direction difference; across stars annotate mean similarity, not median differences",
-    "limitations": "11 subjects; shared outer-fold models; across inference approximate; exploratory comparisons; no normality pretest is used to select tests"
   }
 }
