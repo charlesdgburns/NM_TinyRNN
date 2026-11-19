@@ -1021,19 +1021,22 @@ def run_factorial(argv=None):
                 sign=binomtest(int((d>0).sum()),int((d!=0).sum()),.5).pvalue if scope and (d!=0).any() else np.nan
                 contrasts.append(dict(metric=metric,within_subject=scope,effect=effect,mean_contrast=mean,median_contrast=median,
                     deletion_min=loo.min(),deletion_max=loo.max(),n_subjects=11,n_units=len(d),standard_error=se,t=stat,p_raw=p,
-                    p_sign_sensitivity=sign,inference='Paired mean contrast t(10)' if scope else 'Approximate subject-deletion jackknife t(10)'))
+                    p_sign_sensitivity=sign,inference='Paired mean contrast t(10)' if scope else 'Approximate subject-deletion jackknife t(10)',
+                    p_wilcoxon=(float(wilcoxon(d).pvalue) if (d!=0).any() else 1.) if scope else np.nan))
     a=pd.DataFrame(anovas);a['q_BH_omnibus31']=false_discovery_control(a.p_GG.to_numpy(),method='bh');assert len(a)==31
     c=pd.DataFrame(contrasts);assert len(c)==94;c['q_BH_contrasts94']=false_discovery_control(c.p_raw.to_numpy(),method='bh')
+    # Paper convention (Table 1): Wilcoxon within subjects, jackknife t across; BH over the contrasts of one metric x level.
+    c['p_marker']=np.where(c.within_subject,c.p_wilcoxon,c.p_raw)
+    c['q_BH_panel']=c.groupby(['metric','within_subject']).p_marker.transform(lambda p:false_discovery_control(p.to_numpy(),method='bh'))
     mask=c.within_subject;c['q_BH_sign_sensitivity47']=np.nan
     c.loc[mask,'q_BH_sign_sensitivity47']=false_discovery_control(c.loc[mask,'p_sign_sensitivity'].fillna(1).to_numpy(),method='bh')
     a.to_csv(out/'within_repeated_measures_ANOVA.csv',index=False);c.to_csv(out/'planned_contrasts.csv',index=False)
     a.to_csv(figures/'table_within_ANOVA.csv',index=False);c.to_csv(figures/'table_planned_contrasts.csv',index=False)
-    from NM_TinyRNN.code.figures.mechanistic_variability_factorial import plot_factorial, plot_interactions
     plot_interactions(values,figures)
     cells, attribution = reconstruct_attribution(values)
     cells.to_csv(out/'cell_means.csv',index=False)
     attribution.to_csv(out/'precedence_constrained_attribution.csv',index=False)
-    plot_factorial(cells,c,attribution,figures)
+    plot_factorial(cells,c,figures)
     attribution.to_csv(figures/'table_factorial_attribution.csv',index=False)
     methods=dict(attribution='Mean marginal changes over the 12 intervention orders in which reset removal precedes scalar gating. Uses only observed configurations; conditional exploratory attribution, not unconstrained Shapley or causal effects. Contributions sum to target minus baseline. Error bars use subject-deletion SE and t(10).',source_run='nested_DA_S32_B8',selection='block_reset',design='Architecture(3) × BC(2) × decoder-bias-removal(2)',
         gate_estimability='Reset removal: lightGRU−GRU; scalar gating conditional on no reset: monoGRU−lightGRU. reset_removed×scalar_gate aliases scalar_gate and is not estimable independently.',
@@ -1285,6 +1288,241 @@ def adopt_metadata_only(source,output):
     study.write_json(path,previous)
 
 
+# ---------------------------------------------------------------------------
+# Appendix figures: violins, Cohen's d heatmap, factorial. Titles and notes
+# live in the LaTeX captions; shared helpers stay in code/figures/.
+# ---------------------------------------------------------------------------
+
+def _plot_imports():
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import TwoSlopeNorm
+    from NM_TinyRNN.code.figures.mechanistic_variability import variant_order, violin, CONFIG
+    from NM_TinyRNN.code.figures.model_family_colors import COLOR_BY_FAMILY
+    from NM_TinyRNN.code.measures.mechanistic_variability import STANDARD_GRU_REFERENCE as REFERENCE
+    return plt, TwoSlopeNorm, variant_order, violin, CONFIG, COLOR_BY_FAMILY, REFERENCE
+
+
+EFFECTS=['BC','DB_removed','remove_reset_light_minus_GRU','scalar_mono_minus_light','BC:DB_removed',
+         'remove_reset_light_minus_GRU:BC','remove_reset_light_minus_GRU:DB_removed','scalar_mono_minus_light:BC',
+         'scalar_mono_minus_light:DB_removed','remove_reset_light_minus_GRU:BC:DB_removed','scalar_mono_minus_light:BC:DB_removed']
+EFFECT_LABELS=['+BC','−DB','−RG','mono','+BC × −DB','−RG × +BC','−RG × −DB','mono × +BC','mono × −DB',
+               '−RG × +BC × −DB','mono × +BC × −DB']
+# (BC, DB_removed, colour, linestyle, marker, face colour, label)
+CELL_SERIES=[(0,0,'#888888','-','o','#888888','tanh, decoder bias'),
+             (0,1,'#888888','--','o','white','tanh, no decoder bias'),
+             (1,0,'#1f6aa5','-','s','#1f6aa5','ReLU + energy, decoder bias'),
+             (1,1,'#d1495b','-','s','#d1495b','ReLU + energy, no decoder bias')]
+
+
+def appendix_all_models(pairs, selected, output):
+    """A4 portrait page: all twelve two-unit configurations and five scores.
+
+    Violin observations are outer-winner model pairs, matching the main figure.
+    Architectures have consistent colours; activation and decoder bias appear
+    on the shared bottom axis. Missing gates are explicitly marked as absent.
+    """
+    plt, TwoSlopeNorm, variant_order, violin, CONFIG, COLOR_BY_FAMILY, REFERENCE = _plot_imports()
+    import seaborn as sns
+    from matplotlib.patches import Patch
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    selected = selected.loc[selected.hidden_size.eq(2)]
+    order = variant_order(selected)
+    meta = selected.drop_duplicates('model_id').set_index('model_id')
+    colors = COLOR_BY_FAMILY
+    metrics = [('weight_similarity','Weights'), ('logit_value_similarity','Logit'),
+               ('hidden_similarity','Hidden state'), ('gate_update_similarity','Update gate'),
+               ('gate_reset_similarity','Reset gate')]
+    ticks = [('tanh' if act == 'tanh' else 'ReLU')+' '+('+DB' if bias else '−DB')
+             for _ in ARCH for act, bias in CONFIG]
+    with plt.rc_context():
+        sns.set_context('paper', font_scale=1.1)
+        fig, axes = plt.subplots(5, 2, figsize=(8.27, 10.6), sharex=True, sharey=True)
+        fig.subplots_adjust(left=.085, right=.98, top=.885, bottom=.075, hspace=.49, wspace=.15)
+        for r, (metric, title) in enumerate(metrics):
+            for c, scope in enumerate([False, True]):
+                ax = axes[r, c]
+                for i, key in enumerate(order):
+                    values = pairs.loc[pairs.model_id.eq(key) & pairs.within_subject.eq(scope),metric].dropna().to_numpy()
+                    if len(values):
+                        violin(ax, values, i, colors[meta.loc[key,'model_type']], width=.79, linewidth=1.6)
+                for x in [3.5, 7.5]:
+                    ax.axvline(x, color='#d8d8d8', linewidth=.6, zorder=0)
+                if metric == 'gate_reset_similarity':
+                    for x in [5.5, 9.5]:
+                        ax.text(x, 0, 'No reset gate', ha='center', va='center', fontsize=7, color='#666666')
+                ax.axhline(1, color='#555555', linestyle='--', linewidth=1, clip_on=False, zorder=6)
+                ax.axhline(0, color='#ededed', linewidth=.6, zorder=0)
+                ax.set_ylim(-1, 1)
+                ax.set_yticks([-1, 0, 1])
+                ax.set_xlim(-.6, 11.6)
+                ax.set_title(f'{chr(65+r*2+c)}  {title}', loc='left', fontsize=10, pad=7)
+                ax.set_ylabel('Similarity' if c == 0 else '', fontsize=9)
+                ax.set_xticks(range(12), ticks, rotation=65, ha='right', rotation_mode='anchor', fontsize=6.5)
+                ax.tick_params(axis='both', width=.9, length=3, labelsize=8 if r != 4 else 6.5)
+                ax.spines[['top', 'right']].set_visible(False)
+                if r == 0:
+                    ax.text(.5, 1.36, 'Within subject' if scope else 'Across subjects',
+                            transform=ax.transAxes, ha='center', va='bottom', fontsize=11, fontweight='bold')
+                if r == 4:
+                    for x, arch in zip([1.5, 5.5, 9.5], ARCH):
+                        ax.text(x, -.53, arch, transform=ax.get_xaxis_transform(),
+                                ha='center', va='top', fontsize=8, fontweight='bold', color=colors[arch])
+        # Title and notes live in the LaTeX caption.
+        fig.legend(handles=[Patch(facecolor='none', edgecolor=colors[arch], linewidth=1.6, label=arch) for arch in ARCH],
+                   loc='upper center', bbox_to_anchor=(.5,.995), ncol=3, frameon=False, fontsize=9)
+        path = output/'figure_all_models_mech_var.svg'
+        fig.savefig(path, facecolor='white')
+        plt.close(fig)
+    return path
+
+
+def appendix_cohens_d(contrasts, selected, output):
+    """Matched subject-level dz panels using the study's existing contrasts.
+
+    dz = delta/(jackknife SE*sqrt(n)): mean/SD of subject differences within;
+    the jackknife-consistent subject-level effect across (subject summaries
+    share dyads). Stars: Wilcoxon within, subject-deletion jackknife across, BH.
+    """
+    plt, TwoSlopeNorm, variant_order, violin, CONFIG, COLOR_BY_FAMILY, REFERENCE = _plot_imports()
+    from matplotlib.cm import ScalarMappable
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    meta = selected.loc[selected.hidden_size.eq(2)].drop_duplicates('model_id').set_index('model_id')
+    order = variant_order(selected.loc[selected.hidden_size.eq(2)])
+    metrics = ['weight_similarity', 'logit_value_similarity', 'hidden_similarity',
+               'gate_update_similarity', 'gate_reset_similarity']
+    names = ['Weights', 'Logit', 'Hidden\nstate', 'Update\ngate', 'Reset\ngate']
+    frame = contrasts.loc[contrasts.model_id.isin(order)].copy().fillna({'significance':''})
+    finite = frame.cohens_dz[np.isfinite(frame.cohens_dz)]
+    limit = max(1., float(np.ceil(finite.abs().max())))
+    cmap = plt.get_cmap('RdBu_r')
+    norm = TwoSlopeNorm(vmin=-limit, vcenter=0, vmax=limit)
+    labels = [f'{meta.loc[key,"model_type"]} · {meta.loc[key,"nonlinearity"]} · '
+              f'{"+DB" if meta.loc[key,"decoder_bias"] else "−DB"}' for key in order]
+    with plt.rc_context({'font.size':9}):
+        fig, axes = plt.subplots(1, 2, figsize=(11.69, 6.3))
+        fig.subplots_adjust(left=.205, right=.92, top=.84, bottom=.03, wspace=.08)
+        for ax, scope in zip(axes, [False, True]):
+            subset = frame.loc[frame.within_subject.eq(scope)].set_index(['model_id','metric'])
+            for i, key in enumerate(order):
+                for j, metric in enumerate(metrics):
+                    row = subset.loc[(key, metric)]
+                    significant = bool(row.available and key != REFERENCE and row.p_bh < .05)
+                    if not row.available:
+                        text, color, text_color = 'N/A', '#eeeeee', '#777777'
+                    elif key == REFERENCE:
+                        text, color, text_color = 'ref.', '#dfe3e8', '#444444'
+                    elif not np.isfinite(row.cohens_dz):
+                        text, color, text_color = 'N/A', '#eeeeee', '#777777'
+                    else:
+                        text = f'{row.cohens_dz:+.2f}{row.significance}'
+                        color = cmap(norm(row.cohens_dz))
+                        text_color = 'white' if abs(row.cohens_dz) > limit*.55 else '#111111'
+                    ax.add_patch(plt.Rectangle((j-.5,i-.5),1,1,facecolor=color,
+                                              edgecolor='white',linewidth=1))
+                    if significant:
+                        ax.add_patch(plt.Rectangle((j-.48,i-.48),.96,.96,fill=False,
+                                                  edgecolor='#111111',linewidth=1.6))
+                    ax.text(j,i,text,ha='center',va='center',fontsize=8.5,color=text_color,
+                            fontweight='bold' if significant else 'normal')
+            for y in [3.5, 7.5]:
+                ax.axhline(y, color='#666666', linewidth=1)
+            ax.set(xlim=(-.5,4.5),ylim=(11.5,-.5))
+            ax.set_xticks(range(5),names,fontsize=9)
+            ax.xaxis.tick_top()
+            ax.set_yticks(range(12),labels if not scope else ['']*12,fontsize=8.5)
+            if not scope:
+                ax.get_yticklabels()[order.index(REFERENCE)].set_fontweight('bold')
+            ax.tick_params(length=0, pad=7)
+            ax.set_title('Within subject' if scope else 'Across subjects',pad=38,
+                         fontsize=12,fontweight='bold')
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+        # Title and notes live in the LaTeX caption.
+        color_axis = fig.add_axes([.94,.03,.015,.81])
+        colorbar = fig.colorbar(ScalarMappable(norm=norm,cmap=cmap),cax=color_axis)
+        colorbar.set_label('Paired Cohen’s $d_z$',fontsize=9)
+        colorbar.ax.tick_params(labelsize=8)
+        path = output/'figure_mech_var_cohens_d.svg'
+        fig.savefig(path,facecolor='white')
+        plt.close(fig)
+    frame['model_label'] = frame.model_id.map(dict(zip(order,labels)))
+    frame['baseline_model_id'] = REFERENCE
+    frame.to_csv(output/'table_mech_var_cohens_d.csv',index=False)
+    return path
+
+
+def plot_factorial(cells,contrasts,output):
+    """Appendix factorial figure: within (rows 1-2) and across (rows 3-4) subjects.
+
+    Columns are weights, hidden state and update gate. Cell-mean rows show the twelve
+    configurations; effect rows show the eleven 1-df contrasts with 95% t(10) CIs
+    (paired over mice within; subject-deletion jackknife across). Filled markers:
+    contrasts.p_marker < .05 uncorrected (Wilcoxon within, jackknife t across).
+    """
+    plt, TwoSlopeNorm, variant_order, violin, CONFIG, COLOR_BY_FAMILY, REFERENCE = _plot_imports()
+    metrics=[('weight_similarity','Weights'),('hidden_similarity','Hidden state'),('gate_update_similarity','Update gate')]
+    architectures=['GRU','lightGRU','monoGRU']
+    style={'font.size':7,'axes.titlesize':7.5,'axes.labelsize':7,'xtick.labelsize':6.5,'ytick.labelsize':6.5,
+           'axes.spines.top':False,'axes.spines.right':False,'svg.fonttype':'none','pdf.fonttype':42}
+    with plt.rc_context(style):
+        fig=plt.figure(figsize=(7.2,9.6))
+        gs=fig.add_gridspec(5,3,height_ratios=[1,1.55,.12,1,1.55],hspace=.45,wspace=.12,left=.2,right=.98,top=.885,bottom=.045)
+        axes={}
+        for block,within in enumerate([True,False]):
+            row_mean,row_effect=(0,1) if within else (3,4)
+            for col,(metric,title) in enumerate(metrics):
+                ax=fig.add_subplot(gs[row_mean,col])
+                cell=cells[cells.metric.eq(metric)&cells.within_subject.eq(within)]
+                for bc,db,color,ls,marker,face,label in CELL_SERIES:
+                    g=cell[cell.BC.eq(bc)&cell.DB_removed.eq(db)].set_index('model_type').reindex(architectures)
+                    ax.plot(range(3),g.mean_similarity,color=color,ls=ls,marker=marker,ms=4,mfc=face,mec=color,lw=1.3,
+                            label=label if (within and col==0) else None)
+                ax.set_xticks(range(3),architectures);ax.set_xlim(-.25,2.25);ax.set_title(title,fontweight='bold')
+                if col==0:ax.set_ylabel('Cell mean\nsimilarity')
+                ax2=fig.add_subplot(gs[row_effect,col])
+                s=contrasts[contrasts.metric.eq(metric)&contrasts.within_subject.eq(within)].set_index('effect').loc[EFFECTS]
+                y=np.arange(len(EFFECTS))[::-1];half=t_dist.ppf(.975,10)*s.standard_error.to_numpy();mean=s.mean_contrast.to_numpy()
+                filled=s.p_marker.lt(.05).to_numpy()
+                ax2.axvline(0,color='#999999',lw=.8)
+                for boundary in [y[3]-.5,y[6]-.5,y[8]-.5]:ax2.axhline(boundary,color='#dddddd',lw=.6)
+                ax2.errorbar(mean,y,xerr=half,fmt='none',ecolor=np.where(filled,'#222222','#aaaaaa').tolist(),elinewidth=1.1)
+                ax2.scatter(mean[~filled],y[~filled],s=15,facecolor='white',edgecolor='#777777',zorder=3)
+                ax2.scatter(mean[filled],y[filled],s=15,facecolor='#222222',edgecolor='#222222',zorder=3)
+                ax2.set_yticks(y);ax2.set_yticklabels(EFFECT_LABELS if col==0 else []);ax2.set_ylim(-.6,len(EFFECTS)-.4)
+                ax2.set_xlabel('Effect on similarity (95% CI)')
+                axes[(row_mean,col)]=ax;axes[(row_effect,col)]=ax2
+        for i,key in enumerate(sorted(axes)):
+            axes[key].text(-.12 if key[1] else -.55,1.08,'abcdefghijkl'[i],transform=axes[key].transAxes,fontsize=9,fontweight='bold',va='bottom')
+        for row,head in [(0,'Within-subject similarities'),(3,'Across-subject similarities')]:
+            fig.text(.59,axes[(row,0)].get_position().y1+.032,head,ha='center',fontweight='bold',fontsize=8.5)
+        fig.legend(loc='upper center',ncol=2,frameon=False,bbox_to_anchor=(.55,1.0))
+        for ext in ['svg','pdf','png']:
+            fig.savefig(output/f'figure_factorial.{ext}',facecolor='white',dpi=300)
+        plt.close(fig)
+
+
+def plot_interactions(values,out):
+    plt, TwoSlopeNorm, variant_order, violin, CONFIG, COLOR_BY_FAMILY, REFERENCE = _plot_imports()
+    metrics=[('weight_similarity','Weights'),('logit_value_similarity','Logit'),('hidden_similarity','Hidden state'),('gate_update_similarity','Update gate')]
+    fig,axes=plt.subplots(2,4,figsize=(17,9))
+    for r,scope in enumerate([True,False]):
+        for col,(metric,label) in enumerate(metrics):
+            ax=axes[r,col];data=values[values.within_subject.eq(scope)&values.metric.eq(metric)]
+            for arch in ARCH:
+                for db in [0,1]:
+                    g=data[data.model_type.eq(arch)&data.DB_removed.eq(db)].groupby('BC').mean_similarity.mean()
+                    ax.plot([0,1],g.reindex([0,1]),color=COLOR_BY_FAMILY[arch],ls='--' if db else '-',marker='o',label=arch+(' −DB' if db else ' +DB'))
+            ax.set_xticks([0,1],['tanh / −BC','ReLU / +BC']);ax.set_title(('Within' if scope else 'Across')+' · '+label);ax.set_ylabel('Mean similarity');ax.grid(alpha=.2)
+    handles,labels=axes[0,0].get_legend_handles_labels();fig.legend(handles,labels,loc='upper center',ncol=6,bbox_to_anchor=(.5,.98))
+    fig.text(.5,.02,'Cell means over 11 subjects (within) or 55 dependent dyads (across). No independence-based error bars. BC also bundles activation/regularization changes.\n'
+             'Reset removal: GRU→lightGRU; scalar update gate: lightGRU→monoGRU. Scalar-with-reset cell is absent; a separate gate×gate interaction is not estimable.',ha='center',fontsize=9)
+    fig.subplots_adjust(top=.88,bottom=.12,hspace=.32,wspace=.30);fig.savefig(out/'figure_factorial_interactions.svg',bbox_inches='tight',facecolor='white');plt.close(fig)
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--folder',default=study.DEFAULT_RUN)
@@ -1300,16 +1538,15 @@ def main(argv=None):
     if not selected.selection_method.eq('block_reset').all():
         raise ValueError('Appendix requires block-reset-selected outer winners')
     output=REPO/'results/appendix/mechanistic_variability';output.mkdir(parents=True,exist_ok=True)
-    from NM_TinyRNN.code.figures import mechanistic_variability as plotting
     import pandas as pd
     if any(section in args.sections for section in ['similarities','cohens_d','factorial']):
         study.statistics(selected,pairs,tables,manifest)
         study.write_json(tables/'manifest.json',manifest)
     if 'similarities' in args.sections:
-        plotting.appendix_all_models(pairs,selected,output)
+        appendix_all_models(pairs,selected,output)
     if 'cohens_d' in args.sections:
         contrasts=pd.read_csv(tables/'similarity_vs_standard_gru.htsv',sep='\t')
-        plotting.appendix_cohens_d(contrasts,selected,output)
+        appendix_cohens_d(contrasts,selected,output)
     if 'factorial' in args.sections:
         run_factorial(['--source',str(tables),'--output',str(tables/'appendix/factorial')])
     if 'variance' in args.sections:
