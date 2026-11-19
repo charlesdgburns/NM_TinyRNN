@@ -44,6 +44,16 @@ Design sensitivity (safeguard power; Perugini, Gallucci & Costantini, 2014, Pers
 above from cohort-1 data only (``--stage power``; see ``design_sensitivity``). At N = 22,
 alpha = .05 one-sided (4,000 replicates): weights within ~86% (delta 0.11), hidden within ~73%
 (0.045), weights across >99% (0.28), hidden across ~93% (0.15); NLL TOST ~99%.
+
+Deviation from the plan (2026-11-19, after unblinding)
+------------------------------------------------------
+The plan scored held-out NLL by continuous rollout over the whole history (eval_CE_computed).
+Models are trained on 32-trial sequences and selected on block-reset NLL, so held-out NLL is now
+scored the same way (eval_CE: the saved block-reset outer-fold loss, eval_pred_loss), for
+consistency with training and selection across all analyses. The margin (+/-0.0074) and test are
+unchanged. The pre-specified continuous result is still computed and reported
+(nll_equivalence.csv, manifest 'nll_equivalence_prespecified'): it failed equivalence because of
+one fit whose continuous rollout diverged (WS12, outer fold 8).
 """
 import os
 for variable in ['OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS']:
@@ -84,6 +94,8 @@ METRICS = [('logit_value_similarity', 'Logit'), ('weight_similarity', 'Weight'),
 ONE_SIDED = {('weight_similarity', True), ('weight_similarity', False),
              ('hidden_similarity', True), ('hidden_similarity', False)}
 NLL_MARGIN = 0.0074  # nats per free-choice trial: 5% of the cohort-1 GRU gain over chance (0.148)
+NLL_SCORE = 'eval_CE'  # block-reset held-out NLL, as in training and selection (see deviation note)
+NLL_SCORE_PRESPECIFIED = 'eval_CE_computed'  # continuous rollout, as in the frozen plan
 COHORT1_TABLES = REPO/'data/analyses/mechanistic_variability'  # cohort 1: nested_DA_S32_B8
 POWER_SEED, POWER_REPS, POWER_N = 20261119, 4000, 22
 
@@ -472,23 +484,32 @@ def report(pairs, selected, tables, output, folder):
 
 
 
-def nll_equivalence(selected, tables, output, margin=NLL_MARGIN):
+def subject_nll(selected, score=NLL_SCORE):
+    """Per-subject held-out NLL: outer-fold scores weighted by free-choice trial counts (subjects x models)."""
+    frame = selected[selected.model_id.isin(MODELS)].copy()
+    frame['_w'] = pd.to_numeric(frame.eval_n_free, errors='coerce')
+    frame['_s'] = pd.to_numeric(frame[score], errors='coerce')
+    frame = frame[frame._w.gt(0) & frame._s.notna()]
+    total = frame.assign(_ws=frame._s*frame._w).groupby(['subject_id', 'model_id'])[['_ws', '_w']].sum()
+    return (total._ws/total._w).unstack('model_id')
+
+
+def nll_equivalence(selected, tables, output, margin=NLL_MARGIN, score=NLL_SCORE, suffix=''):
     """Held-out NLL, monoGRU - GRU per subject (free-choice-weighted outer folds); TOST against +/-margin."""
-    perf = performance.compute_outer_mean(selected[selected.model_id.isin(MODELS)])
-    wide = perf.pivot(index='subject_id', columns='model_id', values='eval_CE_computed')
+    wide = subject_nll(selected, score)
     d = (wide[MODELS[1]]-wide[MODELS[0]]).dropna()
     n = len(d); df = n-1
     mean, sd = float(d.mean()), float(d.std(ddof=1)); se = sd/np.sqrt(n)
     ci95 = mean + np.array([-1, 1])*t_dist.ppf(.975, df)*se
     ci90 = mean + np.array([-1, 1])*t_dist.ppf(.95, df)*se
     p_tost = max(t_dist.sf((mean+margin)/se, df), t_dist.cdf((mean-margin)/se, df))
-    result = dict(n_subjects=int(n), nll_gru=float(wide[MODELS[0]].mean()), nll_monogru=float(wide[MODELS[1]].mean()),
+    result = dict(score=score, n_subjects=int(n), nll_gru=float(wide[MODELS[0]].mean()), nll_monogru=float(wide[MODELS[1]].mean()),
                   delta_mean=mean, delta_sd=sd, ci95_low=float(ci95[0]), ci95_high=float(ci95[1]),
                   ci90_low=float(ci90[0]), ci90_high=float(ci90[1]), margin=float(margin),
                   p_tost=float(p_tost), equivalent=bool(p_tost < .05), n_monogru_worse=int((d > 0).sum()),
-                  likelihood_ratio=float(np.exp(-mean)))
-    pd.DataFrame({'subject_id': d.index, 'delta_nll': d.values}).to_csv(tables/'nll_per_subject.csv', index=False)
-    pd.Series(result).to_csv(output/'nll_equivalence.csv', header=['value'])
+                  likelihood_ratio=float(np.exp(-mean)), max_abs_subject_delta=float(d.abs().max()))
+    pd.DataFrame({'subject_id': d.index, 'delta_nll': d.values}).to_csv(tables/f'nll_per_subject{suffix}.csv', index=False)
+    pd.Series(result).to_csv(output/f'nll_equivalence{suffix}.csv', header=['value'])
     return result
 
 
@@ -545,16 +566,14 @@ def design_sensitivity(output, n_target=POWER_N, reps=POWER_REPS, seed=POWER_SEE
                                  delta=mu, test='Wilcoxon signed-rank' if scope else f'jackknife t({n_target-1})',
                                  power_one_sided=hits['greater']/reps, power_two_sided=hits['two-sided']/reps,
                                  n_cohort1=n1, n_target=n_target, reps=reps, seed=seed))
-    selected = pd.read_csv(cohort1/'selected_models.htsv', sep='\t')
-    perf = performance.compute_outer_mean(selected[selected.model_id.isin(MODELS)])
-    wide = perf.pivot(index='subject_id', columns='model_id', values='eval_CE_computed')
+    wide = subject_nll(pd.read_csv(cohort1/'selected_models.htsv', sep='\t'), NLL_SCORE)
     dn = (wide[MODELS[1]]-wide[MODELS[0]]).dropna(); sd = float(dn.std(ddof=1))
     critical = t_dist.ppf(.95, n_target-1)
     for scenario, mu in [('observed', float(dn.mean())), ('zero difference', 0.)]:
         x = rng.normal(mu, sd, (reps, n_target)); m = x.mean(1); s = x.std(1, ddof=1)/np.sqrt(n_target)
         power = float(np.mean(((m+NLL_MARGIN)/s > critical) & ((NLL_MARGIN-m)/s > critical)))
         rows.append(dict(metric='heldout_nll', component='NLL equivalence (TOST)', within_subject=np.nan,
-                         scenario=scenario, delta=mu, test=f'TOST, margin +/-{NLL_MARGIN}',
+                         scenario=scenario, delta=mu, test=f'TOST ({NLL_SCORE}), margin +/-{NLL_MARGIN}',
                          power_one_sided=np.nan, power_two_sided=power, n_cohort1=len(dn),
                          n_target=n_target, reps=reps, seed=seed))
     table = pd.DataFrame(rows)
@@ -611,10 +630,14 @@ def main(argv=None):
     pairs = similarities(selected, tables, manifest, args.recompute)
     summary = report(pairs, selected, tables, output, args.folder)
     manifest['nll_equivalence'] = nll_equivalence(selected, tables, output)
+    manifest['nll_equivalence_prespecified'] = nll_equivalence(
+        selected, tables, output, score=NLL_SCORE_PRESPECIFIED, suffix='_prespecified_continuous')
     manifest['analysis_plan'] = dict(frozen_utc='2026-11-19T00:06:31Z',
                                      plan_sha256='60ded1c2b46aae0f07b47a6f146cec619cc21394cc4f6d6f093f98fc02b781b9',
                                      one_sided=sorted(f'{m}:{"within" if w else "across"}' for m, w in ONE_SIDED),
-                                     nll_margin=NLL_MARGIN)
+                                     nll_margin=NLL_MARGIN, nll_score=NLL_SCORE,
+                                     deviation='NLL scored with block resets (eval_CE) after unblinding; '
+                                               'pre-specified continuous score reported as nll_equivalence_prespecified')
     manifest['outputs_sha256'] = {str(p.relative_to(REPO)): mv.sha256(p) for p in output.iterdir() if p.is_file()}
     manifest['statistics'] = dict(n_tests=8, n_subjects=len(cohort['subjects']),
                                 n_significant=int(summary.q_main_bh8.lt(.05).sum()))

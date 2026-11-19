@@ -166,8 +166,9 @@ def select_best_outer(performance_df, selection='block_reset'):
 def compute_outer_mean(performance_df):
     '''Aggregate outer-fold performance while preserving model metadata.
 
-    ``eval_CE_computed`` is averaged across outer folds using
-    ``eval_n_free`` as the weight for each fold. All non-fold columns are
+    ``eval_CE`` (block-reset held-out NLL, the reported score) and
+    ``eval_CE_computed`` (continuous rollout) are averaged across outer folds
+    using ``eval_n_free`` as the weight for each fold. All non-fold columns are
     retained using their first value within each subject/model group.
     '''
     required_columns = {
@@ -225,4 +226,17 @@ def compute_outer_mean(performance_df):
     aggregated['eval_CE_computed'] = (
         aggregated['weighted_eval_CE'] / aggregated['valid_eval_n_free']
     )
+    # Block-reset held-out NLL (eval_CE = saved eval_pred_loss), aggregated the same way.
+    # This is the reported held-out NLL: it matches training (fixed-length sequences) and
+    # block-reset model selection. eval_CE_computed (continuous rollout) is kept for reference.
+    if 'eval_CE' in dataframe.columns:
+        block = dataframe.assign(_block_score=pd.to_numeric(dataframe['eval_CE'], errors='coerce'))
+        block_ok = block['_eval_weight'].gt(0) & block['_block_score'].notna()
+        block_sums = block.loc[block_ok].assign(
+            _weighted=lambda rows: rows['_block_score'] * rows['_eval_weight']
+        ).groupby(group_columns, sort=False).agg(
+            _weighted=('_weighted', 'sum'), _weight=('_eval_weight', 'sum'))
+        aggregated = aggregated.merge(
+            (block_sums['_weighted'] / block_sums['_weight']).rename('eval_CE').reset_index(),
+            on=group_columns, how='left')
     return aggregated.drop(columns=['weighted_eval_CE', 'valid_eval_n_free'])
