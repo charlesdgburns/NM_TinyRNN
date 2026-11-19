@@ -53,6 +53,8 @@ TOL = 1e-6                    # numerical zero for activity and logit
 COLLAPSE_MINORITY = 0.05      # collapsed: u takes its less frequent sign on < 5% of trials
 LOGIT_BINS = 40
 KEY = ['subject', 'outer', 'inner']
+# Representative example fits shown in the figures (chosen for clarity; must belong to the stated transition group).
+EXAMPLES = {'collapse stays one-sided': ('WS22', 10, 0), 'collapse becomes sign in units': ('WS14', 8, 1)}
 GREY, ORANGE, AXIS_GREY = '#4d4d4d', '#e08214', '#888888'   # with / without decoder bias; red-blue is reserved for the logit
 FAMILIES = ['sign in units', 'sign from bias', 'one-sided output']
 METHODS = dict(
@@ -64,7 +66,7 @@ METHODS = dict(
     mouse_level_inference='Fits averaged within mouse, one-sample t-test over 11 mouse differences; descriptive, fits within a fold are dependent',
     selection='Outer-fold winners from selected_models.htsv (block-reset train+validation CE); not recomputed here',
     similarity='Selected-model pairs from pairwise_similarities.htsv, across mice; pair family = family of both fits; points are mouse pairs (mean over fold pairs)',
-    examples='Each pair closest to the group medians (z-scored): collapsed with bias -> still one-sided; collapsed with a silent unit -> sign in units')
+    examples='Representative pairs fixed in EXAMPLES (WS22 o10 i0: collapsed with bias -> still one-sided; WS14 o8 i1: collapsed with a silent unit -> sign in units); each is checked to belong to its transition group')
 
 
 def sha(path):
@@ -179,6 +181,14 @@ def median_pair(group, columns):
     return group.loc[(z ** 2).sum(axis=1).idxmin()]
 
 
+def example_pair(group, key):
+    """The representative example (subject, outer, inner); it must lie in the given transition group."""
+    match = group[(group.subject == key[0]) & (group.outer == key[1]) & (group.inner == key[2])]
+    if len(match) != 1:
+        raise ValueError(f'Example {key} is not in its transition group')
+    return match.iloc[0]
+
+
 def mouse_test(differences, label):
     d = differences.dropna(); t = stats.ttest_1samp(d, 0)
     return dict(contrast=label, mean_difference=d.mean(), t=t.statistic, df=len(d) - 1, p=t.pvalue, n_mice_positive=int((d > 0).sum()), n_mice=len(d))
@@ -249,8 +259,8 @@ def statistics(fits, inputs):
     out['mouse_nll'] = mouse
     out['fits'] = fits; out['pairs'] = pairs
     # --- example pairs ---
-    top = median_pair(pairs[(pairs.family_on == 'sign from bias') & (pairs.family_off == 'one-sided output')], ['participation_on', 'participation_off', 'heldout_nll_on', 'heldout_nll_off'])
-    bottom = median_pair(pairs[(pairs.family_on == 'sign from bias') & (pairs.family_off == 'sign in units') & pairs.unit_silent_on], ['participation_off', 'heldout_nll_on', 'heldout_nll_off'])
+    top = example_pair(pairs[(pairs.family_on == 'sign from bias') & (pairs.family_off == 'one-sided output')], EXAMPLES['collapse stays one-sided'])
+    bottom = example_pair(pairs[(pairs.family_on == 'sign from bias') & (pairs.family_off == 'sign in units') & pairs.unit_silent_on], EXAMPLES['collapse becomes sign in units'])
     out['examples'] = pd.DataFrame([top, bottom], index=['collapse stays one-sided', 'collapse becomes sign in units'])[KEY + ['participation_on', 'participation_off', 'heldout_nll_on', 'heldout_nll_off', 'trials_data_path_on', 'trials_data_path_off']]
     return out
 
