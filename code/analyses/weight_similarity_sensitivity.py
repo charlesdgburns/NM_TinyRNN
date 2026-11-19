@@ -470,6 +470,78 @@ def activation_variance(pairs, tables):
     return summary
 
 
+def activation_mean_inference(pairs, tables, equivalence_margin=None):
+    """Equal-configuration mean contrasts; paired t/node-jackknife inference.
+
+    Subjects, rather than folds or dyads, determine the uncertainty. Across-subject
+    t inference and TOST are approximate with only 11 independent nodes.
+    """
+    from scipy.stats import t
+    _, _, _, contrasts = aggregate(pairs)
+    results, block_rows, deletion_rows = [], [], []
+    for mode, matched in contrasts.items():
+        for scope, data in matched.groupby('comparison'):
+            counts = data.groupby(['subject_A', 'subject_B']).size()
+            n_configs = data[['architecture', 'decoder_bias']].drop_duplicates().shape[0]
+            if not counts.eq(n_configs).all():
+                raise ValueError('Incomplete configurations in average activation contrast')
+            blocks = data.groupby(['subject_A', 'subject_B'], as_index=False)[
+                ['relu_similarity', 'tanh_similarity', 'difference']].mean()
+            frame = blocks.rename(columns={'relu_similarity': 'model', 'tanh_similarity': 'reference'})
+            estimate = mv.contrast(frame)
+            delta, se = estimate['delta_similarity'], estimate['jackknife_se']
+            df = estimate['n_subjects'] - 1
+            if se <= 0:
+                raise ValueError('Mean contrast inference requires positive subject-level variance')
+            row = dict(comparison=scope, relu_scaling=mode, n_configurations=n_configs,
+                **estimate, df=df, p_relu_greater=float(t.sf(delta/se, df)),
+                ci90_low=delta-t.ppf(.95, df)*se, ci90_high=delta+t.ppf(.95, df)*se)
+            if equivalence_margin is not None:
+                lower = float(t.sf((delta+equivalence_margin)/se, df))
+                upper = float(t.cdf((delta-equivalence_margin)/se, df))
+                row.update(equivalence_margin=equivalence_margin, p_tost_lower=lower,
+                    p_tost_upper=upper, p_tost=max(lower, upper), equivalent_alpha05=max(lower, upper)<.05)
+            results.append(row)
+            block_rows.append(blocks.assign(comparison=scope, relu_scaling=mode))
+            subjects = sorted(set(blocks.subject_A) | set(blocks.subject_B))
+            for subject in subjects:
+                kept = blocks[~(blocks.subject_A.eq(subject) | blocks.subject_B.eq(subject))]
+                deletion_rows.append(dict(comparison=scope, relu_scaling=mode,
+                    omitted_subject=subject, mean_difference=kept.difference.mean()))
+    summary = pd.DataFrame(results)
+    for mode in summary.relu_scaling.unique():
+        ids = summary.index[summary.relu_scaling.eq(mode)]
+        for metric in ['p_relu_greater', 'p_tost']:
+            if metric in summary:
+                values = summary.loc[ids, metric].to_numpy()
+                order = np.argsort(values)
+                adjusted = np.empty(len(values))
+                adjusted[order] = np.minimum(1, np.maximum.accumulate(values[order]*(len(values)-np.arange(len(values)))))
+                summary.loc[ids, metric+'_holm2'] = adjusted
+    write_table(summary, tables/'activation_mean_inference.htsv')
+    write_table(pd.concat(block_rows, ignore_index=True), tables/'activation_mean_blocks.htsv')
+    write_table(pd.DataFrame(deletion_rows), tables/'activation_mean_subject_deletion.htsv')
+    output = REPO/'results/appendix/weight_similarity_sensitivity'
+    output.mkdir(parents=True, exist_ok=True)
+    summary.to_csv(output/'table_activation_mean_inference.csv', index=False)
+    primary = summary[summary.relu_scaling.eq('continuous')]
+    lines = ['# Average activation contrast: ReLU minus tanh', '',
+        'Primary analysis: continuously refined ReLU and permutation/sign-only tanh, without balancing. Average the six matched architecture/decoder-bias configurations equally within each subject or dyad; then average subjects or dyads equally. Positive differences indicate higher ReLU similarity.', '',
+        'Within-subject inference is the paired subject-mean t procedure. Across-subject inference uses delete-one-subject jackknife SE: sqrt((n-1)/n * sum((deleted_mean - mean(deleted_means))**2)); deleting a subject removes all incident dyads across all configurations. Both use t(n-1) intervals (n=11). Across-subject inference is approximate, assumes independent sampled subjects, and may be unreliable with few subjects or a degenerate dyadic kernel. Folds, configurations and the 55 dyads are not treated as independent replicates. Inference concerns the average across these six fixed configurations, not all possible architectures.', '',
+        'The superiority test is one-sided H0: delta <= 0. Report individual 95% and 90% intervals; p-values are also Holm adjusted across the two scopes separately within each alignment version. Discrete alignment is a sensitivity analysis, not a separate confirmatory replication.', '',
+        f'TOST margin: {equivalence_margin}. For a supplied positive margin m, test delta > -m and delta < m; p_TOST is the larger one-sided p-value. Individual equivalence at alpha=.05 requires the 90% interval entirely within (-m,m). Across-subject TOST inherits the jackknife approximation. The margin was supplied by the user for this exploratory analysis, after prior summaries had been inspected; it is not preregistered. Equivalence of the mean contrast does not establish metric equivalence or equivalence for every model configuration.', '',
+        '| Scope | Mean difference | 95% CI | 90% CI | One-sided p (ReLU greater) | TOST p |',
+        '|---|---:|---|---|---:|---:|']
+    for r in primary.itertuples():
+        tost = f'{r.p_tost:.4g}' if equivalence_margin is not None else 'not requested'
+        lines.append(f'| {r.comparison} | {r.delta_similarity:+.5f} | [{r.delta_ci95_low:+.5f}, {r.delta_ci95_high:+.5f}] | [{r.ci90_low:+.5f}, {r.ci90_high:+.5f}] | {r.p_relu_greater:.4g} | {tost} |')
+    lines += ['', 'TOST reference: https://aaroncaldwell.us/TOSTERpkg/reference/t_TOST.html', '',
+        'Reproduce: `.venv/bin/python code/analyses/weight_similarity_sensitivity.py --stage contrasts --equivalence-margin 0.05`', '']
+    (output/'activation_mean_inference.md').write_text('\n'.join(lines))
+    print(primary.to_string(index=False))
+    return summary
+
+
 def report(pairs, tables, manifest):
     blocks, summary, ranges, contrasts = aggregate(pairs)
     for frame, name in [(blocks, 'subject_pair_scaling'), (summary, 'per_variant_summary'), (ranges, 'scaling_ranges')]:
@@ -506,17 +578,18 @@ def plots(pairs, figures, hidden_size):
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
     from matplotlib.ticker import MaxNLocator
+    from NM_TinyRNN.code.figures.model_family_colors import COLOR_BY_FAMILY
     blocks, _, _, contrasts = aggregate(pairs)
     configs = sorted(set(zip(blocks.architecture, blocks.decoder_bias)), key=lambda x: (['GRU', 'lightGRU', 'monoGRU'].index(x[0]) if x[0] in ['GRU', 'lightGRU', 'monoGRU'] else 99, x[0], not x[1]))
     labels = [a + ('-DB' if not b else '') for a, b in configs]
     rng = np.random.default_rng(42)
     scopes = [('within_subject', 'Within subject'), ('across_subject', 'Across subjects')]
-    def panel(ax, data, column, scope, title, color, limit=None):
+    def panel(ax, data, column, scope, title, limit=None):
         for y, (architecture, bias) in enumerate(configs):
             g = data[data.architecture.eq(architecture) & data.decoder_bias.eq(bias) & data.comparison.eq(scope)]
             if g.empty:
                 raise ValueError('Empty empirical panel')
-            ax.scatter(g[column], y + rng.uniform(-.18, .18, len(g)), s=22, c=color, alpha=.6, edgecolors='none', zorder=3)
+            ax.scatter(g[column], y + rng.uniform(-.18, .18, len(g)), s=22, c=COLOR_BY_FAMILY[architecture], alpha=.6, edgecolors='none', zorder=3)
             ax.scatter(g[column].mean(), y, marker='D', s=55, c='black', edgecolors='white', linewidths=.6, zorder=4)
         for y in np.arange(1.5, len(configs)-1, 2):
             ax.axhline(y, c='#e1e1e1', lw=.7)
@@ -525,11 +598,14 @@ def plots(pairs, figures, hidden_size):
         ax.spines[['top', 'right']].set_visible(False)
         ax.set_yticks(range(len(configs)), labels)
         ax.set_ylim(len(configs)-.5, -.5)
-        ax.set_title(title, fontsize=12)
+        ax.set_title(title, fontsize=14, pad=10)
+        ax.tick_params(axis='both', labelsize=11.5, width=1.1, length=5)
+        for spine in ax.spines.values():
+            spine.set_linewidth(1.1)
         ax.tick_params(axis='x', labelbottom=True)
         if limit is not None:
             ax.set_xlim(-limit, limit)
-            ax.set_xticks(np.arange(-np.floor(limit/.2)*.2, limit + 1e-8, .2))
+            ax.set_xticks(np.arange(-np.floor(limit/.4 + 1e-8)*.4, limit + 1e-8, .4))
         else:
             ax.xaxis.set_major_locator(MaxNLocator(5))
     handles = [Line2D([], [], marker='o', linestyle='none', markerfacecolor='#777777', markeredgecolor='none', label='Subject / subject-pair difference'),
@@ -543,37 +619,37 @@ def plots(pairs, figures, hidden_size):
         data = blocks[blocks.activation.eq(activation)]
         fig, axes = plt.subplots(1, 2, figsize=(11, 4.8), sharex=True, sharey=True)
         for ax, (scope, title) in zip(axes, scopes):
-            panel(ax, data, 'delta_similarity', scope, title, '#477b99')
-            ax.set_xlabel('Change in weight cosine similarity')
+            panel(ax, data, 'delta_similarity', scope, title)
+            ax.set_xlabel('Change in weight cosine similarity', fontsize=12)
         fig.suptitle('Effect of adding scaling to tanh weight similarity' if activation == 'tanh' else 'ReLU: discrete → continuous pairwise scaling', fontsize=14, y=.99)
-        fig.legend(handles=handles, loc='upper center', bbox_to_anchor=(.55, .92), ncol=2, frameon=False)
-        fig.text(.55, .03, f'{hidden_size}-unit models; -DB = no decoder bias. Dots: empirical subject/dyad means; diamonds: means.\nTanh scaling changes function; both conditions retain permutations and tanh sign flips.', ha='center', fontsize=9)
+        fig.legend(handles=handles, loc='upper center', bbox_to_anchor=(.55, .92), ncol=2, frameon=False, fontsize=11)
+        fig.text(.55, .03, f'{hidden_size}-unit models; -DB = no decoder bias. Dots: empirical subject/dyad means; diamonds: means.\nTanh scaling changes function; both conditions retain permutations and tanh sign flips.', ha='center', fontsize=10)
         fig.tight_layout(rect=[0, .1, 1, .83])
         save(fig, f'{activation}_scaling_sensitivity')
     for mode, contrast in contrasts.items():
         fig, axes = plt.subplots(1, 2, figsize=(11, 4.8), sharex=True, sharey=True)
         for ax, (scope, title) in zip(axes, scopes):
-            panel(ax, contrast, 'difference', scope, title, '#775a91')
-            ax.set_xlabel('Cosine difference: ReLU − tanh')
+            panel(ax, contrast, 'difference', scope, title)
+            ax.set_xlabel('Cosine difference: ReLU − tanh', fontsize=12)
         fig.suptitle(f'ReLU (+BC) versus tanh · {mode} ReLU scaling', fontsize=14, y=.99)
-        fig.legend(handles=handles, loc='upper center', bbox_to_anchor=(.55, .92), ncol=2, frameon=False)
-        fig.text(.55, .03, 'Original pairwise Euclidean alignment; no balancing. Tanh unscaled. -DB = no decoder bias.\nAcross-subject points share subjects and are not independent.', ha='center', fontsize=9)
+        fig.legend(handles=handles, loc='upper center', bbox_to_anchor=(.55, .92), ncol=2, frameon=False, fontsize=11)
+        fig.text(.55, .03, 'Original pairwise Euclidean alignment; no balancing. Tanh unscaled. -DB = no decoder bias.\nAcross-subject points share subjects and are not independent.', ha='center', fontsize=10)
         fig.tight_layout(rect=[0, .1, 1, .83])
         save(fig, f'activation_contrasts_{mode}')
         values = np.r_[tanh.delta_similarity.to_numpy(), contrast.difference.to_numpy()]
         limit = max(.2, np.ceil((np.max(np.abs(values)) + .035)*10)/10)
         fig, axes = plt.subplots(2, 2, figsize=(12, 9), sharex=True, sharey=True,
             gridspec_kw=dict(left=.16, right=.985, bottom=.15, top=.87, hspace=.72, wspace=.1))
-        for row, (data, column, color) in enumerate([(tanh, 'delta_similarity', '#477b99'), (contrast, 'difference', '#775a91')]):
+        for row, (data, column) in enumerate([(tanh, 'delta_similarity'), (contrast, 'difference')]):
             for col, (scope, title) in enumerate(scopes):
                 ax = axes[row, col]
-                panel(ax, data, column, scope, title, color, limit)
-                ax.set_xlabel('Cosine difference: scaling − no scaling' if row == 0 else 'Cosine difference: ReLU − tanh')
-                ax.text(-.065, 1.08, 'ABCD'[row*2+col], transform=ax.transAxes, fontweight='bold', fontsize=12)
-        fig.text(.57, .975, 'Effect of adding scaling to tanh weight similarity', ha='center', va='top', fontweight='bold', fontsize=16)
-        fig.text(.57, .49, 'Weight similarity: ReLU versus tanh', ha='center', fontweight='bold', fontsize=16)
-        fig.legend(handles=handles, loc='upper center', bbox_to_anchor=(.57, .948), ncol=2, frameon=False)
-        fig.text(.57, .035, f'Top: tanh without versus with continuous scaling. Bottom: {mode} ReLU scaling versus unscaled tanh.\n{hidden_size}-unit models; -DB = no decoder bias. All panels share x limits and ticks. No balancing or bootstrap.\nDots: subject/dyad means; diamonds: overall means. Subject pairs are dependent.', ha='center', fontsize=9, va='bottom')
+                panel(ax, data, column, scope, title, limit)
+                ax.set_xlabel('Cosine difference: scaling − no scaling' if row == 0 else 'Cosine difference: ReLU − tanh', fontsize=12)
+                ax.text(-.065, 1.08, 'abcd'[row*2+col], transform=ax.transAxes, fontweight='bold', fontsize=14)
+        fig.text(.57, .975, 'Effect of adding scaling to tanh weight similarity', ha='center', va='top', fontweight='bold', fontsize=17)
+        fig.text(.57, .49, 'Weight similarity: ReLU versus tanh', ha='center', fontweight='bold', fontsize=17)
+        fig.legend(handles=handles, loc='upper center', bbox_to_anchor=(.57, .948), ncol=2, frameon=False, fontsize=11)
+        fig.text(.57, .035, f'Top: tanh without versus with continuous scaling. Bottom: {mode} ReLU scaling versus unscaled tanh.\n{hidden_size}-unit models; -DB = no decoder bias. All panels share x limits and ticks. No balancing or bootstrap.\nDots: subject/dyad means; diamonds: overall means. Subject pairs are dependent.', ha='center', fontsize=10, va='bottom')
         save(fig, f'combined_{mode}')
     print(f'Figures: {figures}', flush=True)
 
@@ -611,7 +687,8 @@ def main(argv=None):
     parser.add_argument('--folder', default=DEFAULT_RUN)
     parser.add_argument('--hidden-size', type=int, choices=[1, 2], default=2)
     parser.add_argument('--jobs', type=int, default=6)
-    parser.add_argument('--stage', choices=['all', 'compute', 'report', 'plots', 'variance'], default='all')
+    parser.add_argument('--stage', choices=['all', 'compute', 'report', 'plots', 'variance', 'contrasts'], default='all')
+    parser.add_argument('--equivalence-margin', type=float, help='Exploratory symmetric TOST bounds in raw cosine units; no default margin')
     parser.add_argument('--performance-table', type=Path)
     parser.add_argument('--recompute', action='store_true')
     args = parser.parse_args(argv)
@@ -619,6 +696,8 @@ def main(argv=None):
         parser.error('--jobs must be positive')
     if args.recompute and args.stage not in ['all', 'compute']:
         parser.error('--recompute requires --stage all or compute')
+    if args.equivalence_margin is not None and (not np.isfinite(args.equivalence_margin) or args.equivalence_margin <= 0):
+        parser.error('--equivalence-margin must be finite and positive')
     torch.set_num_threads(1)
     tables, figures = paths_for(args.folder, args.hidden_size)
     tables.mkdir(parents=True, exist_ok=True)
@@ -634,6 +713,8 @@ def main(argv=None):
         report(pairs, tables, manifest)
     if args.stage in ['all', 'report', 'variance']:
         activation_variance(pairs, tables)
+    if args.stage in ['all', 'report', 'contrasts']:
+        activation_mean_inference(pairs, tables, args.equivalence_margin)
     if args.stage in ['all', 'plots']:
         plots(pairs, figures, args.hidden_size)
     if args.folder == DEFAULT_RUN and args.hidden_size == 2 and args.stage in ['all', 'report', 'plots']:

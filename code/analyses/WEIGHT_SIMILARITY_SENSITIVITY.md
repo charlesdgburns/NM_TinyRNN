@@ -141,3 +141,31 @@ Narrative reports (`REPORT.md` and `activation_associated_variance.md`) are
 written to `results/appendix/weight_similarity_sensitivity/`. The intermediate
 folder holds one active dataset/hidden-size output set; later stages check
 these settings against `manifest.json`.
+
+## Average activation contrast and exploratory equivalence
+
+```bash
+.venv/bin/python code/analyses/weight_similarity_sensitivity.py --stage contrasts --equivalence-margin 0.05
+```
+
+Average ReLU-minus-tanh contrasts equally across the six matched architecture /
+decoder-bias configurations within each subject or dyad, then equally across
+subjects or dyads. Within-subject intervals use a paired subject-level t procedure;
+across-subject intervals use the existing subject-deletion jackknife, removing all
+incident dyads together. Both use t(10); across-subject inference is approximate
+with only 11 subjects. Configurations are fixed, not independent replicates.
+
+The report gives signed differences, 95% and 90% intervals, a one-sided test of a
+positive ReLU advantage, and optional TOST against the supplied symmetric bounds.
+No equivalence margin is assumed by default. The user-specified ±0.05 margin is
+exploratory, rather than preregistered. Individual TOST uses the 90% interval;
+Holm-adjusted p-values for the two scopes are also saved. Equivalence of an
+average score contrast would not demonstrate measurement equivalence or absence
+of configuration-specific effects.
+
+Outputs are `activation_mean_inference.htsv`, `activation_mean_blocks.htsv`, and
+`activation_mean_subject_deletion.htsv` in the intermediate directory, plus
+`activation_mean_inference.md` and `table_activation_mean_inference.csv` in
+`results/appendix/weight_similarity_sensitivity/`. The discrete-ReLU version is
+retained as a sensitivity analysis; continuous ReLU is primary. No new alignment
+computation or resampling of fits is required.
