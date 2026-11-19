@@ -1379,6 +1379,27 @@ def appendix_all_models(pairs, selected, output):
     return path
 
 
+def dz_confidence_interval(dz, n, level=.95):
+    """CI for a paired d_z by inverting the noncentral t (df=n-1, t=d_z*sqrt(n)).
+
+    Exact for within-subject d_z; approximate for the jackknife-based across-subject d_z.
+    """
+    from scipy.optimize import brentq
+    from scipy.stats import nct
+    if not np.isfinite(dz):
+        return np.nan, np.nan
+    t_obs, df, alpha = dz*np.sqrt(n), n-1, 1-level
+    for width in (10, 6, 4):
+        try:
+            f = lambda nc, q: nct.cdf(t_obs, df, nc)-q
+            lo = brentq(f, t_obs-width, t_obs+width, args=(1-alpha/2,))
+            hi = brentq(f, t_obs-width, t_obs+width, args=(alpha/2,))
+            return lo/np.sqrt(n), hi/np.sqrt(n)
+        except (ValueError, RuntimeError):
+            continue
+    raise RuntimeError(f'noncentral-t inversion failed for d_z={dz}, n={n}')
+
+
 def appendix_cohens_d(contrasts, selected, output):
     """Matched subject-level dz panels using the study's existing contrasts.
 
@@ -1396,6 +1417,10 @@ def appendix_cohens_d(contrasts, selected, output):
                'gate_update_similarity', 'gate_reset_similarity']
     names = ['Weights', 'Logit', 'Hidden\nstate', 'Update\ngate', 'Reset\ngate']
     frame = contrasts.loc[contrasts.model_id.isin(order)].copy().fillna({'significance':''})
+    n_subjects = frame.n_subjects.fillna(11).astype(int)
+    intervals = [dz_confidence_interval(d, n) for d, n in zip(frame.cohens_dz, n_subjects)]
+    frame['dz_ci95_low'] = [lo for lo, _ in intervals]
+    frame['dz_ci95_high'] = [hi for _, hi in intervals]
     finite = frame.cohens_dz[np.isfinite(frame.cohens_dz)]
     limit = max(1., float(np.ceil(finite.abs().max())))
     cmap = plt.get_cmap('RdBu_r')
@@ -1426,8 +1451,12 @@ def appendix_cohens_d(contrasts, selected, output):
                     if significant:
                         ax.add_patch(plt.Rectangle((j-.48,i-.48),.96,.96,fill=False,
                                                   edgecolor='#111111',linewidth=1.6))
-                    ax.text(j,i,text,ha='center',va='center',fontsize=8.5,color=text_color,
+                    has_ci = (row.available and key != REFERENCE and np.isfinite(row.cohens_dz))
+                    ax.text(j,i-(.13 if has_ci else 0),text,ha='center',va='center',fontsize=8.5,color=text_color,
                             fontweight='bold' if significant else 'normal')
+                    if has_ci:
+                        ax.text(j,i+.22,f'[{row.dz_ci95_low:+.1f}, {row.dz_ci95_high:+.1f}]',ha='center',
+                                va='center',fontsize=6.3,color=text_color)
             for y in [3.5, 7.5]:
                 ax.axhline(y, color='#666666', linewidth=1)
             ax.set(xlim=(-.5,4.5),ylim=(11.5,-.5))
