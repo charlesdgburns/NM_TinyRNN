@@ -2,6 +2,8 @@
 import numpy as np
 from scipy.stats import t
 
+from .model_family_colors import COLOR_BY_FAMILY
+
 
 def plot_factorial(cells,contrasts,attribution,output):
     import matplotlib
@@ -56,14 +58,13 @@ def plot_interactions(values,out):
     import matplotlib.pyplot as plt
     metrics=[('weight_similarity','Weights'),('logit_value_similarity','Logit'),('hidden_similarity','Hidden state'),('gate_update_similarity','Update gate')]
     fig,axes=plt.subplots(2,4,figsize=(17,9))
-    colors={'GRU':'#377eb8','lightGRU':'#4daf4a','monoGRU':'#ff7f00'}
     for r,scope in enumerate([True,False]):
         for col,(metric,label) in enumerate(metrics):
             ax=axes[r,col];data=values[values.within_subject.eq(scope)&values.metric.eq(metric)]
             for arch in ARCH:
                 for db in [0,1]:
                     g=data[data.model_type.eq(arch)&data.DB_removed.eq(db)].groupby('BC').mean_similarity.mean()
-                    ax.plot([0,1],g.reindex([0,1]),color=colors[arch],ls='--' if db else '-',marker='o',label=arch+(' −DB' if db else ' +DB'))
+                    ax.plot([0,1],g.reindex([0,1]),color=COLOR_BY_FAMILY[arch],ls='--' if db else '-',marker='o',label=arch+(' −DB' if db else ' +DB'))
             ax.set_xticks([0,1],['tanh / −BC','ReLU / +BC']);ax.set_title(('Within' if scope else 'Across')+' · '+label);ax.set_ylabel('Mean similarity');ax.grid(alpha=.2)
     handles,labels=axes[0,0].get_legend_handles_labels();fig.legend(handles,labels,loc='upper center',ncol=6,bbox_to_anchor=(.5,.98))
     fig.text(.5,.02,'Cell means over 11 subjects (within) or 55 dependent dyads (across). No independence-based error bars. BC also bundles activation/regularization changes.\n'

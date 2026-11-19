@@ -4,6 +4,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
+from .model_family_colors import COLOR_BY_FAMILY
 
 
 def table_figure(cells,headers,path,title,footnote,widths=None,figsize=(15,4)):
@@ -25,7 +26,10 @@ def paired_plot(data,summary,path,label):
     for r,scope in enumerate([True,False]):
         d=data[data.within_subject.eq(scope)].sort_values(['subject_A','subject_B']);s=summary[summary.within_subject.eq(scope)].iloc[0]
         ax=axes[r,0]
-        for row in d.itertuples():ax.plot([0,1],[row.gru,row.mono],color='#888888',alpha=.65 if scope else .25,lw=1,marker='o',markersize=3)
+        for row in d.itertuples():
+            ax.plot([0,1],[row.gru,row.mono],color='#888888',alpha=.65 if scope else .25,lw=1)
+            ax.scatter([0,1],[row.gru,row.mono],c=[COLOR_BY_FAMILY['GRU'],COLOR_BY_FAMILY['monoGRU']],
+                       alpha=.65 if scope else .25,s=9,zorder=3)
         ax.set_xticks([0,1],['GRU','monoGRU']);ax.set_ylabel('Similarity');ax.set_ylim(-1,1);ax.set_xlim(-.2,1.2)
         ax.set_title(('Within: 11 subjects' if scope else 'Across: 55 subject pairs'))
         ax=axes[r,1];y=np.arange(len(d));ax.scatter(d.difference,y,s=27 if scope else 12,color='#377eb8',alpha=.9 if scope else .6)

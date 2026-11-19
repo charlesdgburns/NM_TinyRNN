@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 from scipy.special import logsumexp, ndtri
 from scipy.linalg import helmert, cho_factor, cho_solve
-from scipy.stats import f as f_dist, t as t_dist, binomtest, false_discovery_control, ttest_1samp
+from scipy.stats import f as f_dist, t as t_dist, binomtest, wilcoxon, false_discovery_control, ttest_1samp
 from threadpoolctl import threadpool_limits
 from NM_TinyRNN.code.analyses import mechanistic_variability_main as study
 from NM_TinyRNN.code.measures import mechanistic_variability as measures
@@ -1101,6 +1101,154 @@ def reconstruct_attribution(values):
                              n_subjects=len(subjects),n_units=len(x),n_valid_orders=12))
     return cells,pd.DataFrame(rows)
 
+# Direct, subject-paired configuration comparisons
+
+DIRECT_MODELS = [
+    ('GRU', '2_unit_GRU_tanh_unipolar_forced'),
+    ('GRU+BC', '2_unit_GRU_relu_unipolar_forced'),
+    ('lightGRU+BC', '2_unit_lightGRU_relu_unipolar_forced'),
+    ('monoGRU+BC', '2_unit_monoGRU_relu_unipolar_forced'),
+    ('monoGRU+BC−DB', '2_unit_monoGRU_relu_unipolar_forced_ndb'),
+]
+DIRECT_METRICS = [
+    ('logit_value_similarity', 'Logit'), ('weight_similarity', 'Weights'),
+    ('hidden_similarity', 'Hidden state'), ('gate_update_similarity', 'Update gate'),
+    ('gate_reset_similarity', 'Reset gate'),
+]
+
+
+def direct_subject_comparisons(pairs, selected):
+    """Exact signs of paired differences in within-subject fold-pair means.
+
+    One observation per subject/configuration, averaging its 45 outer-fit pairs.
+    Reset comparisons are available only when both configurations are GRUs.
+    Exact zero differences are omitted from the binomial denominator. Missing
+    observations for an available measure raise rather than drop a subject.
+    """
+    ids=[model_id for _,model_id in DIRECT_MODELS]
+    metadata=selected[selected.model_id.isin(ids)].copy()
+    if set(metadata.model_id)!=set(ids) or not metadata.hidden_size.eq(2).all():
+        raise ValueError('Direct comparisons require the five specified two-unit configurations')
+    if not metadata.selection_method.eq('block_reset').all():
+        raise ValueError('Direct comparisons require block-reset-selected outer winners')
+    subjects=sorted(metadata.subject_id.unique())
+    meta=metadata.drop_duplicates('model_id').set_index('model_id')
+    if not metadata.groupby('model_id').subject_id.nunique().eq(len(subjects)).all():
+        raise ValueError('Configurations must contain the same subjects')
+    within=pairs[pairs.within_subject & pairs.model_id.isin(ids)].copy()
+    if not within.subject_A.eq(within.subject_B).all():
+        raise ValueError('Within-subject rows must have identical subject endpoints')
+    means=within.groupby(['model_id','subject_A'])[[m for m,_ in DIRECT_METRICS]].mean()
+    observations=[];tests=[]
+    for comparison,((label_a,id_a),(label_b,id_b)) in enumerate(zip(DIRECT_MODELS,DIRECT_MODELS[1:])):
+        for metric,label in DIRECT_METRICS:
+            available=metric!='gate_reset_similarity' or (meta.loc[[id_a,id_b],'model_type'].eq('GRU').all())
+            record=dict(within_subject=True,test_method='Wilcoxon signed-rank',comparison=comparison,model_a=id_a,model_b=id_b,label_a=label_a,label_b=label_b,
+                        metric=metric,component=label,available=bool(available),n_subjects=0,n_positive=0,n_negative=0,n_ties=0,
+                        median_difference=np.nan,mean_difference=np.nan,ci95_lo=np.nan,ci95_hi=np.nan,cohens_dz=np.nan,
+                        p_raw=np.nan,p_sign_sensitivity=np.nan,q_bh=np.nan)
+            if available:
+                a=means.xs(id_a).reindex(subjects)[metric].to_numpy()
+                b=means.xs(id_b).reindex(subjects)[metric].to_numpy()
+                if not np.isfinite(a).all() or not np.isfinite(b).all():
+                    raise ValueError(f'Missing subject values in {label_a} versus {label_b}: {metric}')
+                delta=b-a;positive=int((delta>0).sum());negative=int((delta<0).sum());n=positive+negative
+                record.update(n_subjects=len(subjects),n_positive=positive,n_negative=negative,n_ties=len(subjects)-n,
+                              median_difference=float(np.median(delta)),mean_difference=float(delta.mean()),
+                              p_raw=float(wilcoxon(delta).pvalue) if n else 1.,
+                              p_sign_sensitivity=float(binomtest(positive,n,.5).pvalue) if n else 1.)
+                sd=float(delta.std(ddof=1));half=float(t_dist.ppf(.975,len(delta)-1)*sd/np.sqrt(len(delta)))
+                record.update(ci95_lo=float(delta.mean())-half,ci95_hi=float(delta.mean())+half,cohens_dz=float(delta.mean())/sd if sd>0 else np.nan)
+                for subject,x,y,difference in zip(subjects,a,b,delta):
+                    observations.append(dict(within_subject=True,comparison=comparison,metric=metric,subject_id=subject,label_a=label_a,label_b=label_b,
+                                             model_a=id_a,model_b=id_b,similarity_a=x,similarity_b=y,difference=difference))
+            tests.append(record)
+    tests=pd.DataFrame(tests);valid=tests.available
+    tests.loc[valid,'q_bh']=false_discovery_control(tests.loc[valid,'p_raw'].to_numpy(),method='bh')
+    tests['significance']=''
+    for cutoff,mark in [(.05,'*'),(.01,'**'),(.001,'***')]:
+        tests.loc[tests.q_bh.lt(cutoff),'significance']=mark
+    return pd.DataFrame(observations),tests
+
+
+def direct_across_comparisons(pairs,selected,specification):
+    """Matched dyad-mean differences with subject-deletion jackknife t inference.
+
+    Plot points are incident-dyad means (11 overlapping subject summaries).
+    Tests use all 55 matched dyad differences and delete all dyads incident to
+    each subject; the 11 plotted summaries are not treated as independent.
+    """
+    ids=[model_id for _,model_id in DIRECT_MODELS]
+    subjects=sorted(selected[selected.model_id.isin(ids)].subject_id.unique())
+    n=len(subjects);expected=n*(n-1)//2
+    across=pairs[~pairs.within_subject & pairs.model_id.isin(ids)]
+    means=across.groupby(['model_id','subject_A','subject_B'])[[m for m,_ in DIRECT_METRICS]].mean()
+    observations=[];dyad_values=[];deletions=[];tests=[]
+    for template in specification.to_dict('records'):
+        record={**template,'within_subject':False,'test_method':f'Subject-deletion jackknife t({n-1})',
+                'n_subjects':0,'n_subject_pairs':0,'n_positive':np.nan,'n_negative':np.nan,'n_ties':np.nan,
+                'median_difference':np.nan,'mean_difference':np.nan,'jackknife_se':np.nan,
+                'ci95_lo':np.nan,'ci95_hi':np.nan,'p_raw':np.nan,'q_bh':np.nan,'significance':''}
+        if template['available']:
+            metric=template['metric'];a=template['model_a'];b=template['model_b']
+            d=means.xs(a)[[metric]].rename(columns={metric:'reference'}).join(
+                means.xs(b)[[metric]].rename(columns={metric:'model'}),how='outer').reset_index()
+            endpoints=set(d.subject_A)|set(d.subject_B)
+            unordered=[tuple(sorted((x,y))) for x,y in zip(d.subject_A,d.subject_B)]
+            if len(d)!=expected or len(set(unordered))!=expected or endpoints!=set(subjects) or d.subject_A.eq(d.subject_B).any():
+                raise ValueError('Across comparisons require every subject dyad exactly once')
+            if not np.isfinite(d[['reference','model']].to_numpy()).all():
+                raise ValueError(f'Missing across-subject dyad values for {metric}')
+            d['difference']=d.model-d.reference
+            result=measures.contrast(d)
+            record.update(n_subjects=n,n_subject_pairs=len(d),median_difference=float(d.difference.median()),
+                          mean_difference=result['delta_similarity'],jackknife_se=result['jackknife_se'],
+                          ci95_lo=result['delta_ci95_low'],ci95_hi=result['delta_ci95_high'],p_raw=result['p_raw'],cohens_dz=result['cohens_dz'])
+            common={key:template[key] for key in ['comparison','metric','label_a','label_b','model_a','model_b']}
+            for subject in subjects:
+                incident=d.subject_A.eq(subject)|d.subject_B.eq(subject)
+                values=d[incident]
+                observations.append(dict(**common,within_subject=False,subject_id=subject,
+                                         similarity_a=values.reference.mean(),similarity_b=values.model.mean(),difference=values.difference.mean()))
+                deletions.append(dict(**common,deleted_subject=subject,mean_difference=d.loc[~incident,'difference'].mean(),n_remaining_dyads=int((~incident).sum())))
+            for row in d.itertuples():
+                dyad_values.append(dict(**common,subject_A=row.subject_A,subject_B=row.subject_B,
+                                        similarity_a=row.reference,similarity_b=row.model,difference=row.difference))
+        tests.append(record)
+    tests=pd.DataFrame(tests);valid=tests.available
+    tests.loc[valid,'q_bh']=false_discovery_control(tests.loc[valid,'p_raw'].to_numpy(),method='bh')
+    for cutoff,mark in [(.05,'*'),(.01,'**'),(.001,'***')]:
+        tests.loc[tests.q_bh.lt(cutoff),'significance']=mark
+    return pd.DataFrame(observations),tests,pd.DataFrame(dyad_values),pd.DataFrame(deletions)
+
+
+def report_direct_comparisons(pairs,selected,tables,output,manifest):
+    within_values,within_tests=direct_subject_comparisons(pairs,selected)
+    across_values,across_tests,dyads,deletions=direct_across_comparisons(pairs,selected,within_tests)
+    observations=pd.concat([within_values,across_values],ignore_index=True)
+    tests=pd.concat([within_tests,across_tests],ignore_index=True)
+    target=tables/'appendix/direct_comparisons';target.mkdir(parents=True,exist_ok=True)
+    observations.to_csv(target/'paired_subject_values.csv',index=False)
+    (target/'sign_tests.csv').unlink(missing_ok=True)
+    tests.to_csv(target/'paired_tests.csv',index=False)
+    dyads.to_csv(target/'across_dyad_values.csv',index=False)
+    deletions.to_csv(target/'across_subject_deletions.csv',index=False)
+    tests.to_csv(output/'table_direct_model_comparisons.csv',index=False)
+    methods=dict(folder=manifest['folder'],selection='Block-reset-selected outer winners',scope='Within and across subjects',
+                 observation='Within: mean of 45 fold pairs per subject. Across plots: each subject mean over ten incident dyad means; these plotted summaries overlap. Each dyad mean averages 100 fold pairs on its saved reference trials',
+                 effect_size='d_z = mean difference/(jackknife SE*sqrt(n)): mean/SD of subject differences within; jackknife-consistent subject-level effect across',
+                 test='Within: two-sided Wilcoxon signed-rank test on 11 paired subject differences (exact sign test kept as p_sign_sensitivity). Across: mean of 55 matched dyad differences, subject-deletion jackknife SE, approximate t(10); delete each subject and all incident dyads',
+                 correction='Separate BH families: 17 available tests per row; within-subject q values are unchanged',
+                 absent_gates='No reset-gate test when either configuration has no reset gate; no imputation or subject deletion',
+                 contrast='Second configuration minus first; no across-subject dyads are treated as independent subjects',
+                 interpretation='BC is a bundled activation/regularization configuration contrast; outer folds are not independent replicates',
+                 source_sha256={name:measures.sha256(tables/name) for name in ['pairwise_similarities.htsv','selected_models.htsv']})
+    study.write_json(target/'methods.json',methods)
+    from NM_TinyRNN.code.figures.mechanistic_variability import direct_comparison_figure
+    direct_comparison_figure(observations,tests,output)
+    print(tests.groupby('within_subject').agg(n_tests=('p_raw','count'),n_BH_significant=('q_bh',lambda q: int(q.lt(.05).sum()))).to_string())
+
+
 # Publication orchestration and cache provenance
 
 def adopt_metadata_only(source,output):
@@ -1116,12 +1264,21 @@ def adopt_metadata_only(source,output):
         if previous['input_sha256'][name]!=current['input_sha256'][name]:
             raise ValueError('Variance cache scientific inputs changed; refit explicitly')
     old=previous['source_manifest'];new=current['source_manifest']
-    if old['folder']!=new['folder'] or old['computation']['fingerprint']!=new['computation']['fingerprint']:
+    # The posterior likelihood consumes scores/selection, not source-code hashes.
+    # Accept code-only fingerprint changes only with complete, equal protocol
+    # metadata and the byte-identical scientific inputs verified above.
+    provenance_keys={'fingerprint','source_code_sha256'}
+    old_protocol={k:v for k,v in old['computation'].items() if k not in provenance_keys}
+    new_protocol={k:v for k,v in new['computation'].items() if k not in provenance_keys}
+    fingerprint_changed=old['computation']['fingerprint']!=new['computation']['fingerprint']
+    complete_protocol=all(k in old_protocol for k in ['alignment_protocol','selection'])
+    if old['folder']!=new['folder'] or old_protocol!=new_protocol or (fingerprint_changed and not complete_protocol):
         raise ValueError('Variance cache computation protocol changed; refit explicitly')
     audit=output/'metadata_migrations.json'
     history=json.loads(audit.read_text()) if audit.exists() else []
     history.append(dict(previous_source=previous['source'],previous_input_sha256=previous['input_sha256'],
-                        current_input_sha256=current['input_sha256'],reason='Metadata/path migration only; identical pairwise scores, selected models and computation fingerprint',
+                        current_input_sha256=current['input_sha256'],reason='Metadata/code provenance migration only; byte-identical pairwise scores and selected models, identical scientific protocol',
+                        previous_computation_fingerprint=old['computation']['fingerprint'],current_computation_fingerprint=new['computation']['fingerprint'],
                         preserved_posterior_fingerprint=previous['fingerprint']))
     study.write_json(audit,history)
     previous.update(current)
@@ -1131,7 +1288,7 @@ def adopt_metadata_only(source,output):
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--folder',default=study.DEFAULT_RUN)
-    parser.add_argument('--sections',nargs='+',choices=['variance','similarities','cohens_d','factorial','evidence'],default=['variance','similarities','cohens_d','factorial'])
+    parser.add_argument('--sections',nargs='+',choices=['variance','similarities','cohens_d','factorial','evidence','direct_comparisons'],default=['variance','similarities','cohens_d','factorial','direct_comparisons'])
     parser.add_argument('--variance-stage',choices=['plots','all','descriptive','bayesian','retry'],default='plots',help='Default reuses saved posterior draws; all/bayesian explicitly permit fitting')
     parser.add_argument('--evidence-jobs',type=int,default=6,help='Workers for explicitly requested inclusion-evidence sampling')
     args=parser.parse_args(argv)
@@ -1160,6 +1317,8 @@ def main(argv=None):
         if args.variance_stage in ['plots','retry']:
             adopt_metadata_only(tables,variance_output)
         run_variance(['--source',str(tables),'--output',str(variance_output),'--stage',args.variance_stage])
+    if 'direct_comparisons' in args.sections:
+        report_direct_comparisons(pairs,selected,tables,output,manifest)
     if 'evidence' in args.sections:
         run_evidence(['--source',str(tables),'--output',str(tables/'appendix/variance/inclusion_evidence'),'--jobs',str(args.evidence_jobs)])
     report=dict(folder=args.folder,sections=args.sections,variance_stage=args.variance_stage,

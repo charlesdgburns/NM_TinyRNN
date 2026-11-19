@@ -49,7 +49,8 @@ Deviation from the plan (2026-11-19, after unblinding)
 ------------------------------------------------------
 The plan scored held-out NLL by continuous rollout over the whole history (eval_CE_computed).
 Models are trained on 32-trial sequences and selected on block-reset NLL, so held-out NLL is now
-scored the same way (eval_CE: the saved block-reset outer-fold loss, eval_pred_loss), for
+scored the same way (block_eval_CE, recomputed from saved models and weighted by
+block_eval_n_free), for
 consistency with training and selection across all analyses. The margin (+/-0.0074) and test are
 unchanged. The pre-specified continuous result is still computed and reported
 (nll_equivalence.csv, manifest 'nll_equivalence_prespecified'): it failed equivalence because of
@@ -94,7 +95,7 @@ METRICS = [('logit_value_similarity', 'Logit'), ('weight_similarity', 'Weight'),
 ONE_SIDED = {('weight_similarity', True), ('weight_similarity', False),
              ('hidden_similarity', True), ('hidden_similarity', False)}
 NLL_MARGIN = 0.0074  # nats per free-choice trial: 5% of the cohort-1 GRU gain over chance (0.148)
-NLL_SCORE = 'eval_CE'  # block-reset held-out NLL, as in training and selection (see deviation note)
+NLL_SCORE = 'block_eval_CE'  # recomputed block-reset held-out NLL with block target counts
 NLL_SCORE_PRESPECIFIED = 'eval_CE_computed'  # continuous rollout, as in the frozen plan
 COHORT1_TABLES = REPO/'data/analyses/mechanistic_variability'  # cohort 1: nested_DA_S32_B8
 POWER_SEED, POWER_REPS, POWER_N = 20261119, 4000, 22
@@ -487,7 +488,13 @@ def report(pairs, selected, tables, output, folder):
 def subject_nll(selected, score=NLL_SCORE):
     """Per-subject held-out NLL: outer-fold scores weighted by free-choice trial counts (subjects x models)."""
     frame = selected[selected.model_id.isin(MODELS)].copy()
-    frame['_w'] = pd.to_numeric(frame.eval_n_free, errors='coerce')
+    if score in {'eval_CE','block_eval_CE'}:
+        if not {'block_eval_CE','block_eval_n_free'}.issubset(frame):
+            frame=performance.add_block_scores(frame,n_jobs=1)
+        score,weight='block_eval_CE','block_eval_n_free'
+    else:
+        weight='eval_n_free'
+    frame['_w'] = pd.to_numeric(frame[weight], errors='coerce')
     frame['_s'] = pd.to_numeric(frame[score], errors='coerce')
     frame = frame[frame._w.gt(0) & frame._s.notna()]
     total = frame.assign(_ws=frame._s*frame._w).groupby(['subject_id', 'model_id'])[['_ws', '_w']].sum()
@@ -636,7 +643,7 @@ def main(argv=None):
                                      plan_sha256='60ded1c2b46aae0f07b47a6f146cec619cc21394cc4f6d6f093f98fc02b781b9',
                                      one_sided=sorted(f'{m}:{"within" if w else "across"}' for m, w in ONE_SIDED),
                                      nll_margin=NLL_MARGIN, nll_score=NLL_SCORE,
-                                     deviation='NLL scored with block resets (eval_CE) after unblinding; '
+                                     deviation='NLL scored with block resets (block_eval_CE, block_eval_n_free) after unblinding; '
                                                'pre-specified continuous score reported as nll_equivalence_prespecified')
     manifest['outputs_sha256'] = {str(p.relative_to(REPO)): mv.sha256(p) for p in output.iterdir() if p.is_file()}
     manifest['statistics'] = dict(n_tests=8, n_subjects=len(cohort['subjects']),

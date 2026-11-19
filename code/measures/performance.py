@@ -23,7 +23,7 @@ def get_performance_df(analysis_df, n_jobs=-1, use_cache=True):
     required_columns = {
         'eval_CE', 'best_val_CE', 'train_CE', 'val_CE', 'eval_CE_computed',
         'train_n_free', 'val_n_free', 'eval_n_free', 'block_train_val_CE',
-        'block_val_CE', 'block_train_val_n_free'
+        'block_val_CE', 'block_train_val_n_free', 'block_eval_CE', 'block_eval_n_free'
     }
 
     if use_cache and cache_path.exists():
@@ -164,79 +164,38 @@ def select_best_outer(performance_df, selection='block_reset'):
 
 
 def compute_outer_mean(performance_df):
-    '''Aggregate outer-fold performance while preserving model metadata.
+    """Trial-weighted outer-fold NLLs using each protocol's own target counts.
 
-    ``eval_CE`` (block-reset held-out NLL, the reported score) and
-    ``eval_CE_computed`` (continuous rollout) are averaged across outer folds
-    using ``eval_n_free`` as the weight for each fold. All non-fold columns are
-    retained using their first value within each subject/model group.
-    '''
-    required_columns = {
-        'subject_id', 'model_id', 'eval_CE_computed', 'eval_n_free'
-    }
-    missing_columns = required_columns.difference(performance_df.columns)
-    if missing_columns:
-        raise ValueError(
-            f"Performance dataframe is missing columns: {sorted(missing_columns)}"
-        )
-
-    dataframe = performance_df.copy()
-    dataframe['_eval_weight'] = pd.to_numeric(
-        dataframe['eval_n_free'], errors='coerce'
-    )
-    dataframe['_eval_score'] = pd.to_numeric(
-        dataframe['eval_CE_computed'], errors='coerce'
-    )
-    valid_rows = (
-        dataframe['_eval_weight'].gt(0)
-        & dataframe['_eval_score'].notna()
-    )
-
-    group_columns = ['subject_id', 'model_id']
-    columns_to_drop = {
-        'outer_loop_n', 'inner_loop_idx', 'eval_CE', 'eval_CE_computed',
-        'eval_n_free',
-        '_eval_weight', '_eval_score'
-    }
-    metadata_columns = [
-        column for column in performance_df.columns
-        if column not in group_columns and column not in columns_to_drop
-    ]
-    aggregated = dataframe.groupby(group_columns, sort=False)[metadata_columns].first().reset_index()
-    fold_counts = dataframe.groupby(group_columns, sort=False)['outer_loop_n'].nunique()
-    trial_counts = dataframe.groupby(group_columns, sort=False)['_eval_weight'].sum()
-    aggregated = aggregated.merge(
-        fold_counts.rename('n_outer_folds'),
-        on=group_columns,
-    ).merge(
-        trial_counts.rename('eval_n_free'),
-        on=group_columns,
-    )
-    weighted_values = dataframe.loc[valid_rows].assign(
-        weighted_eval_CE=lambda rows: rows['_eval_score'] * rows['_eval_weight']
-    ).groupby(group_columns, sort=False).agg(
-        weighted_eval_CE=('weighted_eval_CE', 'sum'),
-        valid_eval_n_free=('_eval_weight', 'sum'),
-    )
-    aggregated = aggregated.merge(
-        weighted_values,
-        on=group_columns,
-        how='left',
-    )
-    aggregated['eval_CE_computed'] = (
-        aggregated['weighted_eval_CE'] / aggregated['valid_eval_n_free']
-    )
-    # Block-reset held-out NLL (eval_CE = saved eval_pred_loss), aggregated the same way.
-    # This is the reported held-out NLL: it matches training (fixed-length sequences) and
-    # block-reset model selection. eval_CE_computed (continuous rollout) is kept for reference.
-    if 'eval_CE' in dataframe.columns:
-        block = dataframe.assign(_block_score=pd.to_numeric(dataframe['eval_CE'], errors='coerce'))
-        block_ok = block['_eval_weight'].gt(0) & block['_block_score'].notna()
-        block_sums = block.loc[block_ok].assign(
-            _weighted=lambda rows: rows['_block_score'] * rows['_eval_weight']
-        ).groupby(group_columns, sort=False).agg(
-            _weighted=('_weighted', 'sum'), _weight=('_eval_weight', 'sum'))
-        aggregated = aggregated.merge(
-            (block_sums['_weighted'] / block_sums['_weight']).rename('eval_CE').reset_index(),
-            on=group_columns, how='left')
-    return aggregated.drop(columns=['weighted_eval_CE', 'valid_eval_n_free'])
+    block_eval_CE is the primary reported held-out loss. eval_CE is its legacy
+    reporting alias. eval_CE_computed retains continuous-rollout NLL, weighted
+    separately by eval_n_free. Neither evaluation protocol reselects winners.
+    """
+    keys=['subject_id','model_id']
+    required=set(keys+['outer_loop_n','eval_CE_computed','eval_n_free'])
+    missing=required-set(performance_df)
+    if missing:raise ValueError(f'Performance dataframe is missing columns: {sorted(missing)}')
+    block_columns={'block_eval_CE','block_eval_n_free'}
+    has_block=block_columns.issubset(performance_df)
+    if not has_block and ('eval_CE' in performance_df or block_columns.intersection(performance_df)):
+        raise ValueError('Missing block_eval_CE or block_eval_n_free; rebuild with get_performance_df or add_block_scores')
+    scores={'eval_CE_computed':'eval_n_free'}
+    if has_block:scores['block_eval_CE']='block_eval_n_free'
+    drop={'outer_loop_n','inner_loop_idx','eval_CE',*scores,*scores.values()}
+    metadata=[c for c in performance_df if c not in keys and c not in drop]
+    result=performance_df.groupby(keys,sort=False)[metadata].first().reset_index()
+    counts=performance_df.groupby(keys,sort=False).outer_loop_n.nunique().rename('n_outer_folds').reset_index()
+    result=result.merge(counts,on=keys,validate='one_to_one')
+    for score,weight in scores.items():
+        d=performance_df[keys].copy()
+        d['_score']=pd.to_numeric(performance_df[score],errors='coerce')
+        d['_weight']=pd.to_numeric(performance_df[weight],errors='coerce')
+        valid=d['_weight'].gt(0)&np.isfinite(d['_score'])&np.isfinite(d['_weight'])
+        if not valid.all():raise ValueError(f'Nonfinite or zero-target fold in {score}; cannot silently drop an outer winner')
+        d['_weighted']=d['_score']*d['_weight']
+        aggregate=d.groupby(keys,sort=False).agg(_sum=('_weighted','sum'),_count=('_weight','sum'))
+        aggregate[score]=aggregate['_sum']/aggregate['_count'];aggregate[weight]=aggregate['_count']
+        result=result.merge(aggregate[[score,weight]].reset_index(),on=keys,validate='one_to_one')
+    if has_block:
+        result['eval_CE']=result['block_eval_CE']
+        result['nll_evaluation_method']='block_reset'
+    return result

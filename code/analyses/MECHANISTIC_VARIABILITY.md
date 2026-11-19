@@ -96,3 +96,52 @@ contributions sum to monoGRU+BC−DB minus standard GRU. It is a conditional,
 exploratory allocation, not unconstrained four-player Shapley or a causal
 analysis. Error bars use subject-deletion SE and t(10); contrast-point fills
 use BH94 rather than uncorrected p-values.
+
+## Direct subject-paired configuration comparisons
+
+```bash
+.venv/bin/python code/analyses/mechanistic_variability_appendix.py --sections direct_comparisons
+```
+
+`figure_direct_model_comparisons.svg` has two rows of five panels: logit, weights,
+hidden state, update gate and reset gate. The upper row is within subjects; the
+lower row is across subjects. Each panel has the same configuration axis:
+GRU → GRU+BC → lightGRU+BC → monoGRU+BC → monoGRU+BC−DB.
+All configurations have two units; decoder bias is present except in the final
+configuration. BC bundles activation and regularization settings.
+
+Within points are each subject's mean over 45 outer-winner pairs. Exact
+paired two-sided sign tests count positive/negative subject differences and
+omit exact ties. Across points are each subject's mean over its ten incident
+subject-dyad means; these plotted summaries overlap. Each dyad first averages
+its 100 fold-pair scores, retaining the saved reference direction.
+
+Across tests operate on the mean difference across all 55 matched dyads.
+Delete each subject and every incident dyad, calculate jackknife SE from the
+11 remaining-dyad means, and use an approximate two-sided t(10) test. Plotted
+subject averages are not treated as independent replicates. This is exploratory
+inference with 11 subjects, not an exact distribution-free test.
+
+Both rows show raw p and BH q. Separate BH families contain 17 available tests
+per row, preserving the original within-row q values. Stars use q < .05/.01/.001.
+Reset-gate comparisons are unavailable unless both configurations are GRU.
+Missing available data raise rather than silently delete a subject or dyad.
+
+Paired subject values, matched dyad values, deletion replicates, test results and
+methods are saved under `data/analyses/mechanistic_variability/appendix/direct_comparisons/`.
+The figure and `table_direct_model_comparisons.csv` are under
+`results/appendix/mechanistic_variability/`. This section also runs by default.
+
+## Held-out NLL evaluation
+
+Primary performance figures/tables use freshly recomputed `block_eval_CE`:
+each saved sequence block starts at the model's learned initial state, predicting
+32 targets for the S32 run. Only free-choice held-out targets contribute.
+Outer-fold averages use `block_eval_n_free` as weights. This count excludes the
+initial input of each block and can differ from continuous-rollout target counts.
+`eval_CE_computed` and `eval_n_free` retain the continuous-rollout sensitivity
+measure. At subject level, `eval_CE` is a reporting alias for `block_eval_CE`;
+per-fit `eval_CE` retains the original training export's held-out loss.
+Winner selection remains minimum block-reset train+validation NLL and never uses
+test NLL. Similarity activations still use continuous subject-A trial sequences;
+changing performance evaluation does not alter those scores or selected models.

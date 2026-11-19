@@ -396,7 +396,7 @@ def appendix_cohens_d(contrasts, selected, output):
 
 
 def performance_figure(subjects, output, folder):
-    """Block-reset held-out NLL (eval_CE), with exactly the shared outer-winner selection."""
+    """Block-reset held-out NLL (block_eval_CE), with exactly the shared outer-winner selection."""
     output=Path(output);output.mkdir(parents=True,exist_ok=True)
     sizes=sorted(subjects.hidden_size.unique())
     fig,axes=plt.subplots(1,len(sizes),figsize=(15*len(sizes),6),squeeze=False)
@@ -406,7 +406,7 @@ def performance_figure(subjects, output, folder):
         order=variant_order(frame)
         for i,key in enumerate(order):
             group=frame[frame.model_id.eq(key)].sort_values('subject_id')
-            values=group.eval_CE.to_numpy()
+            values=group.block_eval_CE.to_numpy()
             color=COLOR_BY_FAMILY[group.model_type.iloc[0]]
             violin(ax,values,i,color)
             ax.scatter(i+np.linspace(-.12,.12,len(values)),values,s=22,color=color,alpha=.8)
@@ -417,7 +417,7 @@ def performance_figure(subjects, output, folder):
         ax.set_ylabel('Outer-test NLL, block reset (free-choice trials)')
         ax.set_title(f'{size}-unit models · {folder}')
         ax.spines[['top','right']].set_visible(False)
-    fig.text(.5,.015,'Each point: one subject, weighted by free-choice counts over ten outer-fold winners. Diamond: subject mean.\n'
+    fig.text(.5,.015,'Each point: one subject, weighted by block-reset free-choice target counts over ten outer-fold winners. Diamond: subject mean.\n'
              'Selection: minimum block-reset train + validation NLL; scoring: block-reset outer-test NLL, as in training and selection.',ha='center',fontsize=10)
     fig.subplots_adjust(bottom=.24,top=.88)
     fig.savefig(output/'figure_model_performance.svg',bbox_inches='tight',facecolor='white');plt.close(fig)

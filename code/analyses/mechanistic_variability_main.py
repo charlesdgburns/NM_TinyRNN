@@ -37,10 +37,10 @@ METHODS = dict(
     alignment='Tanh permutation/sign search; ReLU grid winner then continuous positive-scale refinement; main-parameter Euclidean objective',
     scores='All-trainable-parameter cosine; mean valid unitwise hidden Pearson; flattened update/reset gates and logit-difference Pearson',
     aggregation='Within: 45 fold pairs -> one mean per subject (11); across: 100 fold pairs -> one mean per dyad (55, sharing 11 subjects)',
-    within_test='Exact two-sided sign test of direction/median of independent subject paired differences; not a mean test',
+    within_test='Two-sided Wilcoxon signed-rank test on the 11 independent paired subject differences (raw similarity scale); exact sign test kept as p_sign_sensitivity',
     across_test='Mean dyad difference; delete each subject and all incident dyads; jackknife SE; approximate two-sided t(10)',
     corrections='BH across 8 focused GRU/monoGRU tests; separate BH family of 94 exploratory all-configuration contrasts; no reference/absent-gate tests',
-    effect_size='Supplementary Cohen dz: paired mean/SD of 11 subject differences; across uses 11 overlapping incident-dyad means and is descriptive only',
+    effect_size='Paired d_z = mean difference/(jackknife SE*sqrt(n)): equals mean/SD of the 11 subject differences within subject, and is the jackknife-consistent subject-level effect across subjects (t = d_z*sqrt(n) at both levels)',
     deletion_ranges='Within median and across mean deletion ranges, plus explicit across median deletion range; sensitivity ranges, not confidence intervals',
     highlighting='Within stars annotate median direction difference; across stars annotate mean similarity, not median differences',
     limitations='11 subjects; shared outer-fold models; across inference approximate; exploratory comparisons; no normality pretest is used to select tests')
@@ -187,8 +187,9 @@ def statistics(selected, pairs, tables, manifest):
     contrasts = measures.compare_similarity_to_reference(subject_pairs[subject_pairs.model_id.isin(two_unit_ids)])
     # Keep the previous all-jackknife/Holm analysis as a labelled sensitivity table.
     contrasts.to_csv(tables/'similarity_vs_standard_gru_jackknife_sensitivity.htsv',sep='\t',index=False)
-    from scipy.stats import binomtest, false_discovery_control
+    from scipy.stats import binomtest, wilcoxon, false_discovery_control
     contrasts['p_raw_jackknife']=contrasts['p_raw']
+    contrasts['p_sign_sensitivity']=np.nan
     contrasts['test_method']='Subject-deletion jackknife t'
     for index,row in contrasts[contrasts.within_subject & contrasts.available].iterrows():
         group=subject_pairs[subject_pairs.within_subject & subject_pairs.metric.eq(row.metric)]
@@ -197,8 +198,9 @@ def statistics(selected, pairs, tables, manifest):
         paired=a.merge(b,on=['subject_A','subject_B'],suffixes=('_reference','_model'),validate='one_to_one')
         delta=(paired.mean_similarity_model-paired.mean_similarity_reference).dropna()
         nonzero=delta[delta!=0]
-        contrasts.loc[index,'p_raw']=binomtest(int((nonzero>0).sum()),len(nonzero),.5).pvalue if len(nonzero) else 1.
-        contrasts.loc[index,'test_method']='Exact sign test'
+        contrasts.loc[index,'p_raw']=float(wilcoxon(delta).pvalue) if len(nonzero) else 1.
+        contrasts.loc[index,'p_sign_sensitivity']=binomtest(int((nonzero>0).sum()),len(nonzero),.5).pvalue if len(nonzero) else 1.
+        contrasts.loc[index,'test_method']='Wilcoxon signed-rank'
     tested=contrasts.available & contrasts.model_id.ne(measures.STANDARD_GRU_REFERENCE)
     contrasts['p_bh']=np.nan
     contrasts.loc[tested,'p_bh']=false_discovery_control(contrasts.loc[tested,'p_raw'].to_numpy(),method='bh')
@@ -209,7 +211,7 @@ def statistics(selected, pairs, tables, manifest):
     contrasts.to_csv(tables/'similarity_vs_standard_gru.htsv', sep='\t', index=False)
     manifest['statistics'] = dict(reference=measures.STANDARD_GRU_REFERENCE,
         n_tests=int(contrasts.p_bh.notna().sum()), n_significant=int(contrasts.p_bh.lt(.05).sum()),
-        inference='Exact sign within; subject-deletion jackknife/t across; descriptive dz; BH across exploratory all-model family',
+        inference='Wilcoxon signed-rank within; subject-deletion jackknife/t across; d_z = delta/(jackknife SE*sqrt(n)) at both levels; BH across exploratory all-model family',
         caveat='Exploratory inference with 11 subjects; across subject summaries share dyads. Pointwise CIs are unadjusted.',
         pair_cache_sha256=manifest['computation']['cache_sha256'],
         output_sha256={name: measures.sha256(tables/name) for name in

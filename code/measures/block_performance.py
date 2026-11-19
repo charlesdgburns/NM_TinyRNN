@@ -1,4 +1,4 @@
-"""Recompute free-choice train+validation NLL using the saved training blocks.
+"""Recompute free-choice train+validation and held-out NLL using the saved training blocks.
 
 Each block resets to the model's learned initial state. Evaluation is vectorized
 over saved models and checked against their saved best validation scores.
@@ -27,7 +27,7 @@ def score_group(frame):
     assert all(first.session_folder_name.iloc[indices].nunique()==1 for indices in positions)
     raw=torch.tensor(first[['forced_choice','choice','outcome']].to_numpy()[positions],dtype=torch.float32)
     target=raw[:,1:,1].long();free=raw[:,1:,0].eq(0).numpy()
-    models=[];masks=[];val_masks=[];continuous=[]
+    models=[];masks=[];val_masks=[];eval_masks=[];continuous=[]
     for row in frame.itertuples():
         data=pd.read_csv(row.trials_data_path,sep='\t',usecols=RAW+['split','prob_A','prob_B'])
         pd.testing.assert_frame_equal(first,data[RAW])
@@ -36,6 +36,7 @@ def score_group(frame):
         assert mask.sum()>0
         masks.append(mask)
         val_masks.append((labels=='val')&free)
+        eval_masks.append((labels=='eval')&free)
         probabilities=data[['prob_A','prob_B']].to_numpy()[positions[:,:-1]]
         correct=np.take_along_axis(probabilities,target.numpy()[...,None],axis=-1)[...,0]
         continuous.append(float(-np.log(np.clip(correct[mask],np.finfo(float).tiny,1)).mean()))
@@ -47,6 +48,7 @@ def score_group(frame):
     def forward(p,b,x):
         return torch.func.functional_call(template,(p,b),(x,))[0]
     sums=np.zeros(len(models));val_sums=np.zeros(len(models));val_masks=np.stack(val_masks)
+    eval_sums=np.zeros(len(models));eval_masks=np.stack(eval_masks);eval_counts=eval_masks.sum(axis=(1,2))
     counts=np.stack(masks).sum(axis=(1,2))
     masks=np.stack(masks)
     with torch.no_grad():
@@ -57,6 +59,7 @@ def score_group(frame):
             loss=-logits.log_softmax(-1).gather(-1,expected).squeeze(-1).double().numpy()
             sums+=(loss*masks[:,start:start+8]).sum(axis=(1,2))
             val_sums+=(loss*val_masks[:,start:start+8]).sum(axis=(1,2))
+            eval_sums+=(loss*eval_masks[:,start:start+8]).sum(axis=(1,2))
             if start==0:
                 direct=models[0](x)[0]
                 torch.testing.assert_close(logits[0],direct,atol=2e-6,rtol=2e-6)
@@ -66,6 +69,8 @@ def score_group(frame):
     # computed score rather than requiring equality with the old saved metric.
     if 'sequence_length' in frame and frame.sequence_length.notna().all():
         np.testing.assert_allclose(frame.block_val_CE,frame.best_val_CE,atol=8e-5,rtol=8e-5)
+    frame['block_eval_CE']=np.divide(eval_sums,eval_counts,out=np.full_like(eval_sums,np.nan),where=eval_counts>0)
+    frame['block_eval_n_free']=eval_counts
     frame['continuous_matched_CE']=continuous
     frame['block_train_val_n_free']=counts
-    return frame[['info_path','block_train_val_CE','block_val_CE','continuous_matched_CE','block_train_val_n_free']]
+    return frame[['info_path','block_train_val_CE','block_val_CE','continuous_matched_CE','block_train_val_n_free','block_eval_CE','block_eval_n_free']]
