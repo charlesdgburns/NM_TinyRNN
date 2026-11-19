@@ -10,6 +10,40 @@ Isolated, input-verified caches and main results:
     results/main/<folder>/
 Defaults to the serotonin cohort, including WS18 when its fits are available.
 Absent subjects are recorded; partial subjects raise rather than bias selection.
+    .venv/bin/python code/analyses/cohort_validation.py --stage power   # design sensitivity only
+
+Pre-specified analysis plan for the cohort-2 replication
+---------------------------------------------------------
+Frozen 2026-11-19T00:06:31Z (UTC), before any author or assistant inspected cohort-2
+similarity, performance or summary outputs (only the subject count and file names were seen).
+Plan document sha256: 60ded1c2b46aae0f07b47a6f146cec619cc21394cc4f6d6f093f98fc02b781b9.
+
+Contrast: 2-unit GRU (tanh, decoder bias) vs 2-unit monoGRU+BC-DB (ReLU, energy + sparsity,
+no reset gate, scalar update gate, no decoder bias). Fitting, nested CV, block-reset selection,
+lambda grid, seeds, alignment and similarity metrics identical to cohort 1 (nested_DA_S32_B8).
+
+Similarity on the raw scale. Within subject: mean over outer-fold pairs per mouse.
+Across subjects: mean per subject pair (dyads share subjects).
+  Weight, Hidden state   within: Wilcoxon signed-rank, ONE-SIDED (H1: monoGRU > GRU)
+  Weight, Hidden state   across: delete-one-subject jackknife t(n-1), ONE-SIDED (H1: monoGRU > GRU)
+  Logit                  within / across: Wilcoxon / jackknife, two-sided (not a claim)
+  Update gate            within / across: Wilcoxon / jackknife, two-sided; 95% CI, no equivalence claim
+Rule: one-sided only for comparisons significant in cohort 1 that carry a claim. An effect in the
+opposite direction is a failed replication, not a finding. Two-sided p values are also reported.
+Benjamini-Hochberg over the same eight tests as the cohort-1 table.
+Primary endpoint: across-subject hidden-state similarity. Within-subject comparisons are secondary
+and underpowered; a non-significant within-subject result is not evidence against the claim.
+Effect sizes: mean delta [95% CI] and d_z = delta/(jackknife SE*sqrt(n)), next to cohort-1 values.
+
+Behavioural prediction: held-out NLL per mouse (free-choice-weighted eval_CE_computed over outer
+winners), delta = monoGRU - GRU. TOST with fixed margin +/-0.0074 nats/trial (5% of the cohort-1
+GRU gain over chance, 0.148 nats): equivalence if the 90% CI lies inside the margin.
+
+Design sensitivity (safeguard power; Perugini, Gallucci & Costantini, 2014, Perspect Psychol Sci
+9:319-332): effect = lower bound of the 60% CI of each cohort-1 effect, simulated with the tests
+above from cohort-1 data only (``--stage power``; see ``design_sensitivity``). At N = 22,
+alpha = .05 one-sided (4,000 replicates): weights within ~86% (delta 0.11), hidden within ~73%
+(0.045), weights across >99% (0.28), hidden across ~93% (0.15); NLL TOST ~99%.
 """
 import os
 for variable in ['OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS']:
@@ -31,11 +65,12 @@ import numpy as np
 import pandas as pd
 import torch
 from joblib import Parallel, delayed, parallel_config
-from scipy.stats import binomtest, false_discovery_control
+from scipy.stats import binomtest, wilcoxon, false_discovery_control, t as t_dist
 from NM_TinyRNN.code.models import experiments, datasets, nested_cv, rnns
 from NM_TinyRNN.code.measures import analysis, performance, block_performance
 from NM_TinyRNN.code.measures import mechanistic_variability as mv
 from NM_TinyRNN.code.figures import mechanistic_variability as figures
+from NM_TinyRNN.code.figures.model_family_colors import COLOR_BY_FAMILY
 
 SUBJECTS = [f'WS{i:02d}' for i in
             [3, 4, 6, 7, 11, 12, 15, 17, 18, 21, 23, 26, 27, 28, 29,
@@ -43,6 +78,53 @@ SUBJECTS = [f'WS{i:02d}' for i in
 MODELS = [mv.STANDARD_GRU_REFERENCE, '2_unit_monoGRU_relu_unipolar_forced_ndb']
 METRICS = [('logit_value_similarity', 'Logit'), ('weight_similarity', 'Weight'),
            ('hidden_similarity', 'Hidden state'), ('gate_update_similarity', 'Update gate')]
+
+
+# ---- Pre-specified tests (analysis plan in the module docstring) ----
+ONE_SIDED = {('weight_similarity', True), ('weight_similarity', False),
+             ('hidden_similarity', True), ('hidden_similarity', False)}
+NLL_MARGIN = 0.0074  # nats per free-choice trial: 5% of the cohort-1 GRU gain over chance (0.148)
+COHORT1_TABLES = REPO/'data/analyses/mechanistic_variability'  # cohort 1: nested_DA_S32_B8
+POWER_SEED, POWER_REPS, POWER_N = 20261119, 4000, 22
+
+
+def alternative_for(metric, within):
+    return 'greater' if (metric, within) in ONE_SIDED else 'two-sided'
+
+
+def within_test(differences, alternative='two-sided'):
+    """Wilcoxon signed-rank test on independent subject differences (monoGRU - GRU)."""
+    d = np.asarray(differences, dtype=float)
+    return float(wilcoxon(d, alternative=alternative).pvalue) if np.any(d != 0) else 1.
+
+
+def jackknife_t(i, j, d, n):
+    """Mean dyad difference with delete-one-subject jackknife SE (all incident dyads removed).
+
+    i, j: integer subject indices (0..n-1) of each dyad; d: dyad differences.
+    Identical to the SE in measures.mechanistic_variability.contrast. Returns (mean, se, t).
+    """
+    d = np.asarray(d, dtype=float)
+    sums = np.bincount(i, weights=d, minlength=n) + np.bincount(j, weights=d, minlength=n)
+    counts = np.bincount(i, minlength=n) + np.bincount(j, minlength=n)
+    loo = (d.sum()-sums)/(len(d)-counts)
+    se = float(np.sqrt((n-1)/n*np.sum((loo-loo.mean())**2)))
+    mean = float(d.mean())
+    return mean, se, (mean/se if se > 0 else np.nan)
+
+
+def dyad_index(frame):
+    names = sorted(set(frame.subject_A) | set(frame.subject_B))
+    index = {s: k for k, s in enumerate(names)}
+    return frame.subject_A.map(index).to_numpy(), frame.subject_B.map(index).to_numpy(), len(names)
+
+
+def across_test(frame, alternative='two-sided'):
+    """Jackknife t(n-1) test of the mean dyad difference; frame has subject_A, subject_B, difference."""
+    i, j, n = dyad_index(frame)
+    mean, se, tstat = jackknife_t(i, j, frame.difference.to_numpy(), n)
+    p = t_dist.sf(tstat, n-1) if alternative == 'greater' else 2*t_dist.sf(abs(tstat), n-1)
+    return float(p), mean, se
 
 
 def write_json(path, value):
@@ -225,6 +307,7 @@ def similarities(selected, tables, manifest, recompute):
 
 
 def statistics(pairs, n_subjects):
+    """Pre-specified tests (module docstring): Wilcoxon within, jackknife t across; one-sided for ONE_SIDED."""
     subjects, means = mv.summarize_reference_pairs(pairs)
     records, paired = [], []
     for metric, label in METRICS:
@@ -246,15 +329,22 @@ def statistics(pairs, n_subjects):
             loo = [estimator(d.loc[~(d.subject_A.eq(s) | d.subject_B.eq(s)), 'difference']) for s in names]
             median_loo = [d.loc[~(d.subject_A.eq(s) | d.subject_B.eq(s)), 'difference'].median() for s in names]
             positive, nonzero = int(d.difference.gt(0).sum()), int(d.difference.ne(0).sum())
-            p = binomtest(positive, nonzero, .5).pvalue if scope and nonzero else (1. if scope else c['p_raw'])
+            alternative = alternative_for(metric, scope)
+            if scope:
+                p, p_two = within_test(d.difference, alternative), within_test(d.difference)
+            else:
+                p, p_two = across_test(d, alternative)[0], across_test(d)[0]
             records.append(dict(metric=metric, component=label, within_subject=scope,
                 n_subjects=n_subjects, n_units=len(d), gru_mean=d.gru.mean(), gru_sd=d.gru.std(ddof=1),
                 mono_mean=d.mono.mean(), mono_sd=d.mono.std(ddof=1),
                 median_difference=d.difference.median(), mean_difference=d.difference.mean(),
                 median_deletion_min=min(median_loo), median_deletion_max=max(median_loo),
                 deletion_min=min(loo), deletion_max=max(loo), cohens_dz=c['cohens_dz'],
+                delta_ci95_low=c['delta_ci95_low'], delta_ci95_high=c['delta_ci95_high'],
                 n_positive=positive, n_nonzero=nonzero, jackknife_se=c['jackknife_se'],
-                test_method='Exact sign test' if scope else f'Subject-deletion jackknife t({n_subjects-1})',
+                test_method='Wilcoxon signed-rank' if scope else f'Subject-deletion jackknife t({n_subjects-1})',
+                alternative=alternative, p_two_sided=p_two,
+                p_sign_sensitivity=binomtest(positive, nonzero, .5).pvalue if scope and nonzero else np.nan,
                 p_main=p))
     summary = pd.DataFrame(records)
     summary['q_main_bh8'] = false_discovery_control(summary.p_main.to_numpy(), method='bh')
@@ -278,7 +368,7 @@ def main_table(summary, path, folder):
                 ha='center', va='top', fontsize=16)
         for x, heading in [(.355, 'Within subject'), (.795, 'Across subjects')]:
             ax.text(x, .78, heading, ha='center', fontweight='bold', fontsize=14)
-        headers = ['Component', 'GRU', 'monoGRU', 'Median Δ', 'GRU', 'monoGRU', 'Median Δ']
+        headers = ['Component', 'GRU', 'monoGRU', 'Mean Δ', 'GRU', 'monoGRU', 'Mean Δ']
         for i, (x, heading) in enumerate(zip(positions, headers)):
             ax.text(x, .68, heading, ha='left' if i == 0 else 'center',
                     fontweight='bold', fontsize=12)
@@ -289,21 +379,21 @@ def main_table(summary, path, folder):
             a = group[~group.within_subject].iloc[0]
             ws, acs = stars(w.q_main_bh8), stars(a.q_main_bh8)
             cells = [label, f'{w.gru_mean:.3f}', f'{w.mono_mean:.3f}',
-                     f'{w.median_difference:+.4f}' + (r'$^{' + ws + '}$' if ws else ''),
-                     f'{a.gru_mean:.3f}', f'{a.mono_mean:.3f}' + (r'$^{' + acs + '}$' if acs else ''),
-                     f'{a.median_difference:+.4f}']
+                     f'{w.mean_difference:+.4f}' + (r'$^{' + ws + '}$' if ws else ''),
+                     f'{a.gru_mean:.3f}', f'{a.mono_mean:.3f}',
+                     f'{a.mean_difference:+.4f}' + (r'$^{' + acs + '}$' if acs else '')]
             for j, (x, text) in enumerate(zip(positions, cells)):
-                bold = (j == 3 and bool(ws)) or (j == 5 and bool(acs))
+                bold = (j == 3 and bool(ws)) or (j == 6 and bool(acs))
                 ax.text(x, .55-i*.10, text, ha='left' if j == 0 else 'center',
                         va='center', fontsize=12, fontweight='bold' if bold else 'normal')
         ax.plot([.015, .99], [.18, .18], color='black', lw=.8)
         footnote = (
             f'GRU/monoGRU columns: mean similarity over {n} subject summaries (within) or {n*(n-1)//2} subject-pair summaries (across). '
-            'Median Δ = median paired monoGRU − GRU difference.\n'
-            f'Within stars: exact two-sided sign test on {n} independent subject differences. '
-            f'Across stars: mean-difference test using subject-deletion jackknife SE and approximate t({n-1}).\n'
-            'BH across all eight comparisons (* q < .05, ** < .01, *** < .001). Across stars annotate the mean, '
-            f'not the median. Block-reset winners; {folder}.')
+            'Mean Δ = mean paired monoGRU − GRU difference.\n'
+            f'Within: Wilcoxon signed-rank on {n} independent subject differences. '
+            f'Across: subject-deletion jackknife SE, approximate t({n-1}). Pre-specified one-sided tests (H1: monoGRU > GRU)\n'
+            'for weight and hidden-state similarity; two-sided otherwise. BH across all eight comparisons '
+            f'(* q < .05, ** < .01, *** < .001). Block-reset winners; {folder}.')
         ax.text(.015, .135, footnote, ha='left', va='top', fontsize=8.2, linespacing=1.4)
         fig.subplots_adjust(left=.025, right=.98, top=.98, bottom=.02)
         fig.savefig(path, bbox_inches='tight', facecolor='white')
@@ -324,7 +414,8 @@ def report(pairs, selected, tables, output, folder):
         row = dict(component=label)
         for r, scope in [(w, 'within'), (a, 'across')]:
             row.update({f'{scope}_{key}': r[key] for key in
-                        ['gru_mean', 'mono_mean', 'mean_difference', 'median_difference', 'p_main', 'q_main_bh8']})
+                        ['gru_mean', 'mono_mean', 'mean_difference', 'delta_ci95_low', 'delta_ci95_high',
+                         'cohens_dz', 'median_difference', 'alternative', 'p_main', 'p_two_sided', 'q_main_bh8']})
         records.append(row)
     pd.DataFrame(records).to_csv(output/'table_1.csv', index=False)
     main_table(summary, output/'table_1.svg', folder)
@@ -344,7 +435,9 @@ def report(pairs, selected, tables, output, folder):
             s = summary[summary.metric.eq(metric) & summary.within_subject.eq(scope)].iloc[0]
             ax = axes[index, 0]
             for r in d.itertuples():
-                ax.plot([0, 1], [r.gru, r.mono], color='#888888', alpha=.6 if scope else .15, lw=.8, marker='o', markersize=2)
+                ax.plot([0, 1], [r.gru, r.mono], color='#888888', alpha=.6 if scope else .15, lw=.8)
+                ax.scatter([0, 1], [r.gru, r.mono], c=[COLOR_BY_FAMILY['GRU'], COLOR_BY_FAMILY['monoGRU']],
+                           alpha=.6 if scope else .15, s=4, zorder=3)
             ax.set(xticks=[0, 1], xticklabels=['GRU', 'monoGRU'], ylim=(-1, 1), ylabel='Similarity',
                    title=f'{"Within: subjects" if scope else "Across: subject pairs"} (n={len(d)})')
             ax = axes[index, 1]
@@ -368,12 +461,108 @@ def report(pairs, selected, tables, output, folder):
             'of sorted reference subject A, including forced trials; model B is aligned to A. '
             'Tanh uses permutation/sign alignment; ReLU uses the canonical grid plus continuous positive-scale refinement. '
             'Metrics and inferential tests match the maintained main analysis. '
-            'Within: independent subject means, exact two-sided sign tests. Across: dyad means, '
+            'Within: independent subject means, Wilcoxon signed-rank tests. Across: dyad means, '
             f'subject-deletion jackknife SE and approximate t({n-1}); dyads are dependent. '
-            'BH correction spans the four metrics × two scopes. Cohen dz is descriptive; deletion ranges are influence diagnostics.\n\n'
+            'Pre-specified one-sided tests (H1: monoGRU > GRU) for weight and hidden-state similarity, two-sided otherwise '
+            '(analysis plan in the script docstring). '
+            'BH correction spans the four metrics × two scopes. d_z = Δ/(jackknife SE·√n); deletion ranges are influence diagnostics.\n\n'
             f'Intermediate data: {tables}\n\nReproduce:\n```sh\n.venv/bin/python code/analyses/cohort_validation.py --folder {folder}\n```\n')
     (output/'README.md').write_text(text)
     return summary
+
+
+
+def nll_equivalence(selected, tables, output, margin=NLL_MARGIN):
+    """Held-out NLL, monoGRU - GRU per subject (free-choice-weighted outer folds); TOST against +/-margin."""
+    perf = performance.compute_outer_mean(selected[selected.model_id.isin(MODELS)])
+    wide = perf.pivot(index='subject_id', columns='model_id', values='eval_CE_computed')
+    d = (wide[MODELS[1]]-wide[MODELS[0]]).dropna()
+    n = len(d); df = n-1
+    mean, sd = float(d.mean()), float(d.std(ddof=1)); se = sd/np.sqrt(n)
+    ci95 = mean + np.array([-1, 1])*t_dist.ppf(.975, df)*se
+    ci90 = mean + np.array([-1, 1])*t_dist.ppf(.95, df)*se
+    p_tost = max(t_dist.sf((mean+margin)/se, df), t_dist.cdf((mean-margin)/se, df))
+    result = dict(n_subjects=int(n), nll_gru=float(wide[MODELS[0]].mean()), nll_monogru=float(wide[MODELS[1]].mean()),
+                  delta_mean=mean, delta_sd=sd, ci95_low=float(ci95[0]), ci95_high=float(ci95[1]),
+                  ci90_low=float(ci90[0]), ci90_high=float(ci90[1]), margin=float(margin),
+                  p_tost=float(p_tost), equivalent=bool(p_tost < .05), n_monogru_worse=int((d > 0).sum()),
+                  likelihood_ratio=float(np.exp(-mean)))
+    pd.DataFrame({'subject_id': d.index, 'delta_nll': d.values}).to_csv(tables/'nll_per_subject.csv', index=False)
+    pd.Series(result).to_csv(output/'nll_equivalence.csv', header=['value'])
+    return result
+
+
+def design_sensitivity(output, n_target=POWER_N, reps=POWER_REPS, seed=POWER_SEED, cohort1=COHORT1_TABLES):
+    """Safeguard power for the pre-specified tests, computed from cohort-1 data only.
+
+    Effects: observed, safeguard (lower bound of the 60% CI; Perugini et al., 2014), half the
+    observed effect, and 0 (null calibration: power_* is then the false-positive rate).
+    Within: resample centred cohort-1 subject differences, shift to the effect, within_test (Wilcoxon).
+    Across: additive dyad model d_ij = mu + a_i + a_j + e_ij with empirical cohort-1 subject effects
+    and residuals (residuals inflated by sqrt(n_dyads/(n_dyads - n))), tested with jackknife_t.
+    NLL: normal subject differences with the cohort-1 SD, TOST against NLL_MARGIN.
+    """
+    rng = np.random.default_rng(seed)
+    pairs = pd.read_csv(cohort1/'pairwise_similarities.htsv', sep='\t')
+    subjects, _ = mv.summarize_reference_pairs(pairs[pairs.model_id.isin(MODELS)])
+    keys, rows = ['subject_A', 'subject_B'], []
+    for metric, label in METRICS:
+        if (metric, True) not in ONE_SIDED:
+            continue
+        for scope in [True, False]:
+            data = subjects[subjects.metric.eq(metric) & subjects.within_subject.eq(scope)]
+            d = data[data.model_id.eq(MODELS[0])][keys+['mean_similarity']].merge(
+                data[data.model_id.eq(MODELS[1])][keys+['mean_similarity']], on=keys,
+                suffixes=('_gru', '_mono'), validate='one_to_one')
+            d['difference'] = d.mean_similarity_mono - d.mean_similarity_gru
+            if scope:
+                x = d.difference.to_numpy(); n1 = len(x)
+                observed = float(x.mean()); se = float(x.std(ddof=1)/np.sqrt(n1)); centred = x-observed
+            else:
+                i, j, n1 = dyad_index(d)
+                observed, se, _ = jackknife_t(i, j, d.difference.to_numpy(), n1)
+                X = np.zeros((len(d), n1)); X[np.arange(len(d)), i] = 1; X[np.arange(len(d)), j] = 1
+                y = d.difference.to_numpy()-observed
+                effects = np.linalg.lstsq(X, y, rcond=None)[0]
+                residuals = (y-X@effects)*np.sqrt(len(d)/(len(d)-n1)); effects = effects-effects.mean()
+                I, J = np.triu_indices(n_target, 1)
+            safeguard = observed - t_dist.ppf(.80, n1-1)*se
+            for scenario, mu in [('observed', observed), ('safeguard', safeguard),
+                                 ('half observed', observed/2), ('null', 0.)]:
+                hits = {'greater': 0, 'two-sided': 0}
+                for _ in range(reps):
+                    if scope:
+                        sample = rng.choice(centred, n_target)+mu
+                        for alternative in hits:
+                            hits[alternative] += within_test(sample, alternative) < .05
+                    else:
+                        a = rng.choice(effects, n_target)
+                        sample = mu + a[I] + a[J] + rng.choice(residuals, len(I))
+                        tstat = jackknife_t(I, J, sample, n_target)[2]
+                        hits['greater'] += t_dist.sf(tstat, n_target-1) < .05
+                        hits['two-sided'] += 2*t_dist.sf(abs(tstat), n_target-1) < .05
+                rows.append(dict(metric=metric, component=label, within_subject=scope, scenario=scenario,
+                                 delta=mu, test='Wilcoxon signed-rank' if scope else f'jackknife t({n_target-1})',
+                                 power_one_sided=hits['greater']/reps, power_two_sided=hits['two-sided']/reps,
+                                 n_cohort1=n1, n_target=n_target, reps=reps, seed=seed))
+    selected = pd.read_csv(cohort1/'selected_models.htsv', sep='\t')
+    perf = performance.compute_outer_mean(selected[selected.model_id.isin(MODELS)])
+    wide = perf.pivot(index='subject_id', columns='model_id', values='eval_CE_computed')
+    dn = (wide[MODELS[1]]-wide[MODELS[0]]).dropna(); sd = float(dn.std(ddof=1))
+    critical = t_dist.ppf(.95, n_target-1)
+    for scenario, mu in [('observed', float(dn.mean())), ('zero difference', 0.)]:
+        x = rng.normal(mu, sd, (reps, n_target)); m = x.mean(1); s = x.std(1, ddof=1)/np.sqrt(n_target)
+        power = float(np.mean(((m+NLL_MARGIN)/s > critical) & ((NLL_MARGIN-m)/s > critical)))
+        rows.append(dict(metric='heldout_nll', component='NLL equivalence (TOST)', within_subject=np.nan,
+                         scenario=scenario, delta=mu, test=f'TOST, margin +/-{NLL_MARGIN}',
+                         power_one_sided=np.nan, power_two_sided=power, n_cohort1=len(dn),
+                         n_target=n_target, reps=reps, seed=seed))
+    table = pd.DataFrame(rows)
+    Path(output).mkdir(parents=True, exist_ok=True)
+    table.to_csv(Path(output)/'design_sensitivity.csv', index=False)
+    print(table[['component', 'within_subject', 'scenario', 'delta', 'power_one_sided', 'power_two_sided']]
+          .round(3).to_string(index=False), flush=True)
+    return table
 
 
 def main(argv=None):
@@ -384,6 +573,9 @@ def main(argv=None):
     parser.add_argument('--recompute', action='store_true')
     parser.add_argument('--train-missing', action='store_true', help='Complete missing native CPU fits before running the analysis')
     parser.add_argument('--training-jobs', type=int, default=6, help='Parallel CPU inner-fold fits for local training')
+    parser.add_argument('--stage', choices=['all', 'power', 'analysis'], default='all',
+                        help='power: design sensitivity from cohort-1 data only (does not read this cohort); '
+                             'analysis: pre-specified cohort analysis; all: both')
     args = parser.parse_args(argv)
     if Path(args.folder).name != args.folder or args.folder in ['', '.', '..'] or min(args.jobs, args.training_jobs) < 1:
         parser.error('folder must name one run under data/rnns; jobs must be positive')
@@ -391,6 +583,10 @@ def main(argv=None):
         parser.error('subjects must be directory names')
     torch.set_num_threads(1)
     os.chdir(REPO.parent)
+    if args.stage in ['all', 'power']:
+        design_sensitivity(REPO/'data/analyses/cohort_validation'/args.folder)
+        if args.stage == 'power':
+            return
     if args.train_missing:
         train_missing(args.folder, args.subjects, args.training_jobs)
     tables = REPO/'data/analyses/cohort_validation'/args.folder
@@ -414,6 +610,11 @@ def main(argv=None):
     write_json(manifest_path, manifest)
     pairs = similarities(selected, tables, manifest, args.recompute)
     summary = report(pairs, selected, tables, output, args.folder)
+    manifest['nll_equivalence'] = nll_equivalence(selected, tables, output)
+    manifest['analysis_plan'] = dict(frozen_utc='2026-11-19T00:06:31Z',
+                                     plan_sha256='60ded1c2b46aae0f07b47a6f146cec619cc21394cc4f6d6f093f98fc02b781b9',
+                                     one_sided=sorted(f'{m}:{"within" if w else "across"}' for m, w in ONE_SIDED),
+                                     nll_margin=NLL_MARGIN)
     manifest['outputs_sha256'] = {str(p.relative_to(REPO)): mv.sha256(p) for p in output.iterdir() if p.is_file()}
     manifest['statistics'] = dict(n_tests=8, n_subjects=len(cohort['subjects']),
                                 n_significant=int(summary.q_main_bh8.lt(.05).sum()))
