@@ -702,21 +702,31 @@ def holm(pvalues):
 
 
 def contrast(frame):
-    """Matching subject/dyad means; return paired effect and node-jackknife SE."""
-    from scipy.stats import t
+    """Matching subject/dyad means; return paired effect, node-jackknife SE and d_z.
+
+    d_z = mean/(jackknife SE*sqrt(n)). For within-subject frames (one row per
+    subject) the jackknife SE of a mean is exactly SD/sqrt(n), so d_z is the usual
+    paired mean/SD. For across-subject frames (dyads sharing subjects) it is the
+    subject-level standardised effect implied by the jackknife, so t = d_z*sqrt(n)
+    at both levels. (The previous across d_z divided by the SD of 11 overlapping
+    incident-dyad means, which shrinks the SD and inflated d_z about twofold.)
+    p_wilcoxon: two-sided Wilcoxon signed-rank test on the subject differences,
+    within-subject frames only (NaN across, where rows are not independent).
+    """
+    from scipy.stats import t, wilcoxon
     frame=frame.dropna(subset=['reference','model']).copy()
     subjects=sorted(set(frame.subject_A)|set(frame.subject_B));n=len(subjects)
     differences=frame.model-frame.reference;mean=float(differences.mean())
-    by_subject=np.array([differences[frame.subject_A.eq(s)|frame.subject_B.eq(s)].mean() for s in subjects])
-    sd=float(by_subject.std(ddof=1))
-    dz=mean/sd if sd>0 else (0. if mean==0 else np.nan)
     replicate=np.array([differences[~(frame.subject_A.eq(s)|frame.subject_B.eq(s))].mean() for s in subjects])
     se=float(np.sqrt((n-1)/n*np.sum((replicate-replicate.mean())**2)))
+    dz=mean/(se*np.sqrt(n)) if se>0 else (0. if mean==0 else np.nan)
     p=float(2*t.sf(abs(mean/se),n-1)) if se>0 else (1. if mean==0 else 0.)
+    within=bool(frame.subject_A.eq(frame.subject_B).all())
+    p_wilcoxon=(float(wilcoxon(differences).pvalue) if (differences!=0).any() else 1.) if within else np.nan
     margin=float(t.ppf(.975,n-1)*se)
     return dict(mean_similarity=float(frame.model.mean()),reference_mean=float(frame.reference.mean()),
         delta_similarity=mean,cohens_dz=dz,n_subjects=n,n_subject_pairs=len(frame),
-        jackknife_se=se,delta_ci95_low=mean-margin,delta_ci95_high=mean+margin,p_raw=p)
+        jackknife_se=se,delta_ci95_low=mean-margin,delta_ci95_high=mean+margin,p_raw=p,p_wilcoxon=p_wilcoxon)
 
 
 

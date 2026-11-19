@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm
 import numpy as np
 import pandas as pd
+from .model_family_colors import COLOR_BY_FAMILY
 from NM_TinyRNN.code.measures.mechanistic_variability import (
     STANDARD_GRU_REFERENCE as REFERENCE, SIMILARITY_METRICS as METRICS)
 
@@ -44,12 +45,11 @@ def violin(ax,values,x,color,width=.7,linewidth=1.2):
 
 def similarity_figures(pairs,selected,subject,out,selection_label="Validation-selected"):
     order=variant_order(selected);meta=selected.drop_duplicates('model_id').set_index('model_id')
-    colors=plt.get_cmap('tab20').colors
     summaries=[]
     def draw(ax,metric,scope):
         for i,key in enumerate(order):
             values=pairs.loc[pairs.model_id.eq(key)&pairs.within_subject.eq(scope),metric].dropna().to_numpy()
-            c=colors[(i//4)*6+(i%4)]
+            c=COLOR_BY_FAMILY[meta.loc[key,'model_type']]
             if len(values):
                 violin(ax,values,i,c)
                 means=subject.loc[subject.model_id.eq(key)&subject.within_subject.eq(scope)&subject.metric.eq(metric),'mean_similarity'].dropna().to_numpy()
@@ -139,16 +139,16 @@ def reference_tables(frame, out, selection_label='Minimum block-reset train + va
         ax.tick_params(length=0)
         for spine in ax.spines.values():spine.set_visible(False)
         fig.suptitle(f'Two-unit similarity relative to standard GRU · {title}\n{selection_label} · Reference: GRU, tanh, decoder bias on',fontsize=15,y=.97)
-        fig.text(.5,.115,'Cell: mean similarity / raw difference Δ / descriptive paired Cohen dz. Blue = lower; red = higher similarity.\n'
+        fig.text(.5,.115,'Cell: mean similarity / raw difference Δ / paired Cohen dz. Blue = lower; red = higher similarity.\n'
             'Black outline and stars: BH-adjusted p < .05 (*), .01 (**), .001 (***) across all 94 comparisons.',ha='center',fontsize=10)
-        fig.text(.5,.055,'Subjects = 11. Within: exact sign tests on paired subject differences. Across: descriptive dz uses incident-dyad subject means;\n'
+        fig.text(.5,.055,'Subjects = 11. Within: Wilcoxon signed-rank tests on paired subject differences; dz = mean/SD. Across: dz = Δ/(jackknife SE·√11);\n'
             'significance uses leave-one-subject-out jackknife (removes all incident dyads), approximate t(10).\n'
             'Exploratory inference; fold pairs are not independent. Higher similarity does not imply better predictive performance.',ha='center',fontsize=9,color='#555555')
         panels[scope]=panel_cells
         suffix='within' if scope else 'across'
         save_figure(fig,out,f'baseline_similarity_vs_standard_gru_{suffix}')
-        markdown+=['','Means are raw correlations/cosines. Δ = model − reference. dz = mean paired subject-level difference / its SD.',
-                   'Stars use BH correction over all 94 non-reference comparisons. Across-subject inference is approximate node-jackknife t(10); descriptive dz does not supply its p-value.',
+        markdown+=['','Means are raw correlations/cosines. Δ = model − reference. dz = Δ/(jackknife SE·√11): mean/SD of subject differences within; jackknife-consistent subject-level effect across.',
+                   'Stars use BH correction over all 94 non-reference comparisons. Within: Wilcoxon signed-rank. Across: approximate node-jackknife t(10), with t = dz·√11.',
                    'Only 11 subjects; treat significance as exploratory. Reset gate is absent in lightGRU/monoGRU.']
         (out/f'appendix_baseline_similarity_vs_standard_gru_{suffix}.md').write_text('\n'.join(markdown)+'\n')
     combined,axes=plt.subplots(1,2,figsize=(23,11))
@@ -167,9 +167,9 @@ def reference_tables(frame, out, selection_label='Minimum block-reset train + va
         ax.tick_params(length=0)
         for spine in ax.spines.values():spine.set_visible(False)
     combined.suptitle(f'Two-unit similarity relative to standard GRU\n{selection_label} · Reference: GRU, tanh, decoder bias on',fontsize=17,y=.98)
-    combined.text(.5,.115,'Cell: mean similarity / raw difference Δ / descriptive paired Cohen dz. Identical row order and colour scale in both panels.\n'
+    combined.text(.5,.115,'Cell: mean similarity / raw difference Δ / paired Cohen dz. Identical row order and colour scale in both panels.\n'
         'Blue = lower similarity; red = higher. Black outlines/stars: BH-adjusted p < .05 (*), .01 (**), .001 (***) across all 94 tests.',ha='center',fontsize=11)
-    combined.text(.5,.055,'11 subjects. Within: exact sign tests on paired subject differences. Across: descriptive dz uses incident-dyad subject means; inference uses subject-deletion jackknife, approximate t(10).\n'
+    combined.text(.5,.055,'11 subjects. Within: Wilcoxon signed-rank tests; dz = mean/SD of subject differences. Across: dz = Δ/(jackknife SE·√11); inference uses subject-deletion jackknife, approximate t(10).\n'
         'Exploratory inference; fold pairs are not independent. Higher similarity does not imply better predictive performance.',ha='center',fontsize=10,color='#555555')
     save_figure(combined,out,'baseline_similarity_vs_standard_gru_side_by_side')
     frame.to_csv(out/'appendix_baseline_similarity_vs_standard_gru.csv',index=False)
@@ -202,7 +202,7 @@ def main_gru_monogru(pairs, selected, contrasts, output, include_gate=False):
     stem = 'GRU_monoGRU_mech_var' + ('_with_gate' if include_gate else '')
     frame = pairs[pairs.model_id.isin(labels)].copy()
     frame['model_label'] = frame.model_id.map(labels)
-    colors = ['#a1c9f4', '#ffb482']
+    colors = [COLOR_BY_FAMILY[family] for family in ('GRU', 'monoGRU')]
     rows = []
     with plt.rc_context():
         sns.set_context('poster')
@@ -256,7 +256,7 @@ def appendix_all_models(pairs, selected, output):
     selected = selected.loc[selected.hidden_size.eq(2)]
     order = variant_order(selected)
     meta = selected.drop_duplicates('model_id').set_index('model_id')
-    colors = {'GRU':'#85b5eb', 'lightGRU':'#87bd9b', 'monoGRU':'#f6a36c'}
+    colors = COLOR_BY_FAMILY
     metrics = [('weight_similarity','Weights'), ('logit_value_similarity','Logit'),
                ('hidden_similarity','Hidden state'), ('gate_update_similarity','Update gate'),
                ('gate_reset_similarity','Reset gate')]
@@ -314,8 +314,9 @@ def appendix_all_models(pairs, selected, output):
 def appendix_cohens_d(contrasts, selected, output):
     """Matched subject-level dz panels using the study's existing contrasts.
 
-    Across-subject dz is descriptive: its subject summaries share dyads. Stars
-    retain the existing subject-deletion inference and global BH correction.
+    dz = delta/(jackknife SE*sqrt(n)): mean/SD of subject differences within;
+    the jackknife-consistent subject-level effect across (subject summaries
+    share dyads). Stars: Wilcoxon within, subject-deletion jackknife across, BH.
     """
     from matplotlib.cm import ScalarMappable
     output = Path(output)
@@ -381,8 +382,8 @@ def appendix_cohens_d(contrasts, selected, output):
         fig.text(.56,.145,'Blue: lower similarity than baseline; red: higher similarity. +DB / −DB: decoder bias present / absent.\n'
                  f'Black outlines and stars: BH-adjusted p < .05 (*), .01 (**), .001 (***) across {n_tests} comparisons. N/A: no gate.',
                  ha='center',va='center',fontsize=8,linespacing=1.5)
-        fig.text(.56,.06,'Within: paired differences between 11 subject means, divided by their SD. Across: descriptive $d_z$ uses\n'
-                 '11 incident-dyad subject means; those means share dyads. Within p: exact sign test. Across p: subject-deletion jackknife, approximate t(10).\n'
+        fig.text(.56,.06,'Within: $d_z$ = mean/SD of the 11 paired subject differences; p: Wilcoxon signed-rank. Across: $d_z$ = $\\Delta$/(jackknife SE$\\cdot\\sqrt{11}$),\n'
+                 'the subject-level effect implied by the jackknife (dyads share subjects); p: subject-deletion jackknife, approximate t(10), t = $d_z\\sqrt{11}$.\n'
                  'Models selected by block-reset train + validation NLL. Fold pairs are not independent; inference is exploratory.',
                  ha='center',va='center',fontsize=8,color='#555555',linespacing=1.5)
         path = output/'figure_mech_var_cohens_d.svg'
@@ -406,7 +407,7 @@ def performance_figure(subjects, output, folder):
         for i,key in enumerate(order):
             group=frame[frame.model_id.eq(key)].sort_values('subject_id')
             values=group.eval_CE_computed.to_numpy()
-            color=plt.get_cmap('tab10')(i//4)
+            color=COLOR_BY_FAMILY[group.model_type.iloc[0]]
             violin(ax,values,i,color)
             ax.scatter(i+np.linspace(-.12,.12,len(values)),values,s=22,color=color,alpha=.8)
             ax.scatter(i,values.mean(),marker='D',s=30,color='black',zorder=5)
@@ -422,3 +423,60 @@ def performance_figure(subjects, output, folder):
     fig.savefig(output/'figure_model_performance.svg',bbox_inches='tight',facecolor='white');plt.close(fig)
     subjects.to_csv(output/'table_model_performance_subjects.csv',index=False)
     pd.DataFrame(summaries).to_csv(output/'table_model_performance.csv',index=False)
+
+
+def direct_comparison_figure(observations,tests,output):
+    """Five scores in two rows, with Wilcoxon signed-rank tests within and node jackknife across."""
+    import seaborn as sns
+    metrics=['logit_value_similarity','weight_similarity','hidden_similarity','gate_update_similarity','gate_reset_similarity']
+    labels=['Logit','Weights','Hidden state','Update gate','Reset gate']
+    comparisons=tests.drop_duplicates('comparison').sort_values('comparison')
+    model_ids=[comparisons.model_a.iloc[0],*comparisons.model_b]
+    colors=[COLOR_BY_FAMILY[model_id.split("_")[2]] for model_id in model_ids]
+    ticks=['GRU','GRU\n+BC','lightGRU\n+BC','monoGRU\n+BC','monoGRU\n+BC−DB']
+    # Adjacent comparisons share configurations. Recover one point per model
+    # and subject without duplicating the middle configurations in the plot.
+    values=pd.concat([observations[['within_subject','metric','subject_id','model_'+side,'similarity_'+side]].rename(
+        columns={'model_'+side:'model_id','similarity_'+side:'similarity'}) for side in ['a','b']],ignore_index=True)
+    if values.groupby(['within_subject','metric','subject_id','model_id']).similarity.nunique().gt(1).any():
+        raise ValueError('Adjacent comparisons disagree on a shared subject/model value')
+    values=values.drop_duplicates(['within_subject','metric','subject_id','model_id'])
+    subjects=sorted(values.subject_id.unique())
+    with plt.rc_context():
+        sns.set_context('talk')
+        plt.rcParams['svg.fonttype']='none'
+        fig,axes=plt.subplots(2,5,figsize=(25,13),sharey=True)
+        for row,within in enumerate([True,False]):
+            for ax,metric,label in zip(axes[row],metrics,labels):
+                ax.axhline(1,color='.5',ls='--',lw=1,zorder=0)
+                ax.set_ylim(-1.03,1.03);ax.set_yticks([-1,-.5,0,.5,1]);ax.set_xlim(-.35,4.35)
+                ax.set_xticks(range(5),ticks,fontsize=11)
+                ax.set_title(label,fontsize=18,y=1.39)
+                ax.spines[['top','right']].set_visible(False)
+                ax.grid(axis='y',alpha=.14);ax.set_axisbelow(True)
+                subset=values[values.metric.eq(metric)&values.within_subject.eq(within)]
+                matrix=subset.pivot(index='subject_id',columns='model_id',values='similarity').reindex(index=subjects,columns=model_ids)
+                jitter=np.linspace(-.07,.07,len(subjects))
+                for offset,(_,row) in zip(jitter,matrix.iterrows()):
+                    ax.plot(np.arange(5)+offset,row.to_numpy(),color='.65',lw=1,alpha=.65,zorder=1)
+                for col in range(5):
+                    ax.scatter(col+jitter,matrix.iloc[:,col],s=32,color=colors[col],edgecolor='white',lw=.5,zorder=3)
+                    if matrix.iloc[:,col].isna().all():
+                        ax.text(col,.0,'No reset\ngate',ha='center',va='center',fontsize=10,color='.45')
+                for result in tests[tests.metric.eq(metric)&tests.within_subject.eq(within)&tests.available].itertuples():
+                    x=result.comparison;y=1.04+.18*(x%2)
+                    ax.plot([x,x,x+1,x+1],[y,y+.025,y+.025,y],transform=ax.get_xaxis_transform(),color='.25',lw=1,clip_on=False)
+                    text=f'p={result.p_raw:.3g}\nq={result.q_bh:.3g}'
+                    if result.significance:text+=' '+result.significance
+                    ax.text(x+.5,y+.04,text,transform=ax.get_xaxis_transform(),ha='center',va='bottom',fontsize=10,
+                            fontweight='bold' if result.q_bh<.05 else 'normal')
+        axes[0,0].set_ylabel('Within-subject similarity\nWilcoxon signed-rank test',fontsize=16)
+        axes[1,0].set_ylabel('Across-subject similarity\nSubject-deletion jackknife',fontsize=16)
+        fig.suptitle('Direct comparisons of mechanistic similarity',fontsize=23,y=.985)
+        fig.text(.5,.025,'Points and lines: paired subject summaries (n = 11). Within: mean of 45 fold pairs. Across: mean over 10 incident subject dyads.\n'
+                 'Across plotted summaries overlap; tests use 55 matched dyad differences and delete each subject with all incident dyads (approximate t(10)).\n'
+                 'Within: Wilcoxon signed-rank tests on paired subject differences. p: raw; q: separate BH families of 17 tests per row. * q < .05; ** q < .01; *** q < .001.\n'
+                 'Existing saved comparison directions are retained. Dashed line: ceiling. Reset gates exist only in GRU and GRU+BC.',ha='center',fontsize=12)
+        fig.subplots_adjust(left=.055,right=.995,top=.83,bottom=.16,hspace=.85,wspace=.20)
+        fig.savefig(Path(output)/'figure_direct_model_comparisons.svg',bbox_inches='tight',facecolor='white')
+        plt.close(fig)
